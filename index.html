@@ -250,6 +250,11 @@
       width: min(100%, 40rem);
     }
 
+    .countdown.moment-mode {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      width: min(100%, 31rem);
+    }
+
     .timebox {
       min-width: 0;
       padding: clamp(0.8rem, 2vw, 1.15rem) 0.75rem;
@@ -259,6 +264,10 @@
         linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(234, 252, 253, 0.68));
       text-align: center;
       box-shadow: 0 12px 30px rgba(12, 127, 152, 0.07);
+    }
+
+    .timebox.hidden {
+      display: none;
     }
 
     .number {
@@ -398,9 +407,15 @@
         margin-bottom: 1.35rem;
       }
 
-      .countdown {
+      .countdown,
+      .countdown.moment-mode {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.65rem;
+        width: min(100%, 40rem);
+      }
+
+      .countdown.moment-mode .timebox:last-of-type {
+        grid-column: 1 / -1;
       }
 
       .timebox {
@@ -446,12 +461,12 @@
             <span>✦</span>
           </div>
 
-          <p class="countdown-label">Counting down to the trip</p>
+          <p class="countdown-label" id="countdownLabel">Counting down to the trip</p>
           <p class="date-note" id="targetText">
             June 8, 2026 · 8:00 a.m. Toronto time
           </p>
 
-          <div class="countdown" aria-live="polite" aria-label="Live countdown timer">
+          <div class="countdown" id="countdownGrid" aria-live="polite" aria-label="Live countdown timer">
             <div class="timebox">
               <span class="number" id="days">0</span>
               <span class="unit">Days</span>
@@ -470,7 +485,7 @@
               <span class="card-icon" aria-hidden="true">✦</span>
             </div>
 
-            <div class="timebox">
+            <div class="timebox" id="secondsBox">
               <span class="number" id="seconds">0</span>
               <span class="unit">Seconds</span>
               <span class="card-icon" aria-hidden="true">♡</span>
@@ -535,13 +550,23 @@
       return utcTime;
     }
 
-    const targetTime = zonedTimeToUtcMs({
+    const tripTarget = zonedTimeToUtcMs({
       timeZone: targetZone,
       year: 2026,
       month: 6,
       day: 8,
       hour: 8,
       minute: 0,
+      second: 0
+    });
+
+    const momentTarget = zonedTimeToUtcMs({
+      timeZone: targetZone,
+      year: 2026,
+      month: 6,
+      day: 24,
+      hour: 0,
+      minute: 1,
       second: 0
     });
 
@@ -560,26 +585,59 @@
     const hoursEl = document.getElementById("hours");
     const minutesEl = document.getElementById("minutes");
     const secondsEl = document.getElementById("seconds");
+    const secondsBox = document.getElementById("secondsBox");
+    const countdownGrid = document.getElementById("countdownGrid");
+    const countdownLabel = document.getElementById("countdownLabel");
     const targetText = document.getElementById("targetText");
 
-    targetText.textContent =
-      targetFormatter.format(new Date(targetTime)) + " · America/Toronto";
+    function setMode(mode, activeTarget) {
+      if (mode === "trip") {
+        countdownLabel.textContent = "Counting down to the trip";
+        secondsBox.classList.remove("hidden");
+        countdownGrid.classList.remove("moment-mode");
+      }
+
+      if (mode === "moment") {
+        countdownLabel.textContent = "Countdown to the moment";
+        secondsBox.classList.add("hidden");
+        countdownGrid.classList.add("moment-mode");
+      }
+
+      targetText.textContent =
+        targetFormatter.format(new Date(activeTarget)) + " · America/Toronto";
+    }
 
     function updateCountdown() {
       const now = Date.now();
-      const difference = targetTime - now;
 
-      if (difference <= 0) {
+      let mode = "trip";
+      let activeTarget = tripTarget;
+
+      if (now >= tripTarget && now < momentTarget) {
+        mode = "moment";
+        activeTarget = momentTarget;
+      }
+
+      if (now >= momentTarget) {
+        countdownLabel.textContent = "The moment has arrived";
+        targetText.textContent = "The countdown is complete. The adventure continues.";
+        secondsBox.classList.add("hidden");
+        countdownGrid.classList.add("moment-mode");
+
         daysEl.textContent = "0";
         hoursEl.textContent = "00";
         minutesEl.textContent = "00";
         secondsEl.textContent = "00";
-        targetText.textContent = "The countdown has arrived. The adventure continues.";
-        document.title = "Justelle’s 15/20 Countdown has arrived!";
+
+        document.title = "Justelle’s 15/20 Moment has arrived!";
         return;
       }
 
+      setMode(mode, activeTarget);
+
+      const difference = activeTarget - now;
       const totalSeconds = Math.floor(difference / 1000);
+
       const days = Math.floor(totalSeconds / 86400);
       const hours = Math.floor((totalSeconds % 86400) / 3600);
       const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -590,8 +648,15 @@
       minutesEl.textContent = String(minutes).padStart(2, "0");
       secondsEl.textContent = String(seconds).padStart(2, "0");
 
-      document.title =
-        `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s 15/20 Countdown`;
+      if (mode === "trip") {
+        document.title =
+          `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s trip countdown`;
+      }
+
+      if (mode === "moment") {
+        document.title =
+          `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s moment countdown`;
+      }
     }
 
     updateCountdown();
