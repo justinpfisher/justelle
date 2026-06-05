@@ -56,7 +56,7 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      padding: clamp(1rem, 3vw, 3rem);
+      padding: clamp(1rem, 3vw, 2.25rem);
       isolation: isolate;
     }
 
@@ -84,7 +84,7 @@
       border-radius: 50%;
       pointer-events: none;
       z-index: -2;
-      opacity: 0.42;
+      opacity: 0.34;
       background:
         linear-gradient(45deg, transparent 48%, rgba(12, 127, 152, 0.1) 49% 51%, transparent 52%),
         linear-gradient(-45deg, transparent 48%, rgba(12, 127, 152, 0.1) 49% 51%, transparent 52%),
@@ -94,19 +94,19 @@
     .hero-card {
       position: relative;
       width: min(1180px, 100%);
-      min-height: min(760px, calc(100vh - 3rem));
+      min-height: min(760px, calc(100vh - 2rem));
       display: grid;
-      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      grid-template-columns: minmax(0, 0.93fr) minmax(0, 1.07fr);
       align-items: center;
       gap: clamp(1.5rem, 4vw, 4rem);
       padding:
-        clamp(1.35rem, 4vw, 4rem)
+        clamp(1.25rem, 3.5vw, 3.25rem)
         clamp(1.25rem, 4vw, 4rem)
         0;
       border: 1px solid rgba(12, 127, 152, 0.14);
       border-radius: var(--radius);
       background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 255, 255, 0.86)),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 255, 255, 0.88)),
         var(--white);
       box-shadow: var(--shadow);
       overflow: hidden;
@@ -114,27 +114,27 @@
 
     .portrait-side {
       position: relative;
-      align-self: end;
-      min-height: 34rem;
+      align-self: center;
+      min-height: 0;
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: center;
+      padding-block: clamp(1rem, 3vw, 2rem);
     }
 
     .portrait-side::before {
       content: "";
       position: absolute;
       left: 0.2rem;
-      bottom: 4rem;
-      width: 9.5rem;
-      height: 11rem;
-      opacity: 0.13;
+      bottom: 5rem;
+      width: 8.5rem;
+      height: 10rem;
+      opacity: 0.1;
       background:
         linear-gradient(90deg, transparent 0 35%, #0c7f98 36% 64%, transparent 65% 100%),
         linear-gradient(180deg, transparent 0 14%, #0c7f98 15% 19%, transparent 20% 31%, #0c7f98 32% 36%, transparent 37%),
         linear-gradient(160deg, transparent 0 52%, #0c7f98 53% 100%);
       clip-path: polygon(44% 0, 56% 0, 64% 68%, 100% 88%, 100% 100%, 0 100%, 0 91%, 36% 70%);
-      filter: blur(0.1px);
     }
 
     .portrait-side::after {
@@ -142,7 +142,7 @@
       position: absolute;
       left: clamp(1rem, 4vw, 2.75rem);
       top: clamp(0.5rem, 5vw, 3rem);
-      color: rgba(12, 127, 152, 0.26);
+      color: rgba(12, 127, 152, 0.22);
       font-size: clamp(2.2rem, 5vw, 4.5rem);
       letter-spacing: 0.25em;
       transform: rotate(-6deg);
@@ -152,10 +152,13 @@
       position: relative;
       z-index: 2;
       display: block;
-      width: min(100%, 560px);
+      width: min(100%, 620px);
+      max-height: min(74vh, 690px);
       height: auto;
       margin: 0 auto;
-      filter: drop-shadow(0 26px 42px rgba(25, 68, 82, 0.13));
+      object-fit: contain;
+      object-position: center;
+      filter: drop-shadow(0 24px 42px rgba(25, 68, 82, 0.12));
     }
 
     .content {
@@ -168,8 +171,8 @@
       margin: 0;
       max-width: 36rem;
       font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(3rem, 6vw, 5.85rem);
-      line-height: 0.98;
+      font-size: clamp(2.8rem, 5.25vw, 5.1rem);
+      line-height: 0.99;
       letter-spacing: -0.055em;
       color: var(--ink);
       text-wrap: balance;
@@ -183,7 +186,7 @@
       max-width: 41rem;
       margin: 1.15rem 0 0;
       color: var(--ink-soft);
-      font-size: clamp(1.08rem, 2vw, 1.32rem);
+      font-size: clamp(1.08rem, 2vw, 1.28rem);
       line-height: 1.55;
     }
 
@@ -191,7 +194,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 0.8rem;
-      margin: 1.65rem 0 0;
+      margin: 1.55rem 0 0;
       padding: 0;
       list-style: none;
     }
@@ -220,7 +223,7 @@
       align-items: center;
       gap: 1rem;
       width: min(100%, 38rem);
-      margin: clamp(1.7rem, 4vw, 2.5rem) 0;
+      margin: clamp(1.5rem, 3.5vw, 2.25rem) 0;
       color: rgba(12, 127, 152, 0.7);
     }
 
@@ -235,12 +238,12 @@
     .divider span {
       display: grid;
       place-items: center;
-      width: 2.6rem;
-      height: 2.6rem;
+      width: 2.55rem;
+      height: 2.55rem;
       border: 1px solid var(--line);
       border-radius: 50%;
       background: rgba(255, 255, 255, 0.72);
-      font-size: 1.15rem;
+      font-size: 1.1rem;
     }
 
     .countdown-label {
@@ -253,7 +256,7 @@
     }
 
     .date-note {
-      margin: 0 0 1.1rem;
+      margin: 0 0 1.05rem;
       color: #5b7180;
       font-size: 0.98rem;
       line-height: 1.45;
@@ -268,7 +271,7 @@
 
     .timebox {
       min-width: 0;
-      padding: clamp(0.8rem, 2vw, 1.2rem) 0.75rem;
+      padding: clamp(0.8rem, 2vw, 1.15rem) 0.75rem;
       border: 1px solid var(--line);
       border-radius: 1.25rem;
       background:
@@ -281,7 +284,7 @@
       display: block;
       color: var(--ink);
       font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(2.1rem, 5vw, 4.2rem);
+      font-size: clamp(2.1rem, 5vw, 4rem);
       line-height: 1;
       font-variant-numeric: tabular-nums;
       letter-spacing: -0.04em;
@@ -305,9 +308,9 @@
 
     .footer {
       grid-column: 1 / -1;
-      margin: clamp(1.5rem, 3vw, 2.5rem) calc(clamp(1.25rem, 4vw, 4rem) * -1) 0;
+      margin: clamp(1.25rem, 2.5vw, 2rem) calc(clamp(1.25rem, 4vw, 4rem) * -1) 0;
       padding:
-        clamp(1.25rem, 2.8vw, 2rem)
+        clamp(1.2rem, 2.6vw, 1.8rem)
         clamp(1rem, 4vw, 4rem);
       border-top: 1px solid rgba(12, 127, 152, 0.12);
       background:
@@ -337,6 +340,7 @@
         min-height: auto;
         align-self: auto;
         padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
       }
 
       .portrait-side::before {
@@ -353,7 +357,8 @@
       }
 
       .portrait {
-        width: min(86vw, 520px);
+        width: min(88vw, 520px);
+        max-height: none;
       }
 
       .content {
@@ -391,12 +396,13 @@
       }
 
       .portrait {
-        width: min(96vw, 430px);
-        margin-top: 0.4rem;
+        width: min(94vw, 460px);
+        max-height: none;
+        margin-top: 0.25rem;
       }
 
       h1 {
-        font-size: clamp(2.65rem, 12vw, 4.2rem);
+        font-size: clamp(2.55rem, 11vw, 4.05rem);
       }
 
       .lede {
@@ -413,8 +419,8 @@
       }
 
       .divider {
-        margin-top: 1.45rem;
-        margin-bottom: 1.45rem;
+        margin-top: 1.35rem;
+        margin-bottom: 1.35rem;
       }
 
       .countdown {
@@ -437,7 +443,7 @@
 <body>
   <main class="page">
     <section class="hero-card" aria-labelledby="page-title">
-      <div class="portrait-side" aria-hidden="false">
+      <div class="portrait-side">
         <img
           class="portrait"
           src="justelle-caricature.png"
