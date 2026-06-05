@@ -3,23 +3,25 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <title>Justelle’s 15/20 Countdown</title>
   <meta
     name="description"
-    content="A playful Newfoundland-inspired countdown for Justelle’s 15 years of marriage and 20 years together."
+    content="Justelle’s 15/20 Countdown: 15 years of marriage, 20 years together, and the adventure continues."
   />
 
   <style>
     :root {
-      --deep-ocean: #062b3f;
-      --harbour-blue: #0e5f7a;
-      --sea-glass: #8ed6d1;
-      --foam: #f4fbfa;
-      --sunrise: #ffd89a;
-      --coral: #ff9f8f;
-      --ink: #10212b;
-      --card: rgba(255, 255, 255, 0.88);
-      --shadow: 0 24px 70px rgba(0, 24, 36, 0.35);
+      --ink: #102233;
+      --ink-soft: #43596a;
+      --teal: #0c7f98;
+      --teal-soft: #c9f2f4;
+      --aqua: #eafcfd;
+      --aqua-2: #f7ffff;
+      --white: #ffffff;
+      --line: rgba(12, 127, 152, 0.22);
+      --shadow: 0 28px 80px rgba(26, 73, 88, 0.14);
+      --radius: 34px;
     }
 
     * {
@@ -28,414 +30,405 @@
 
     html {
       min-height: 100%;
-      background: var(--deep-ocean);
+      background: #f7ffff;
     }
 
     body {
       margin: 0;
       min-height: 100vh;
       font-family:
-        ui-rounded,
-        "Avenir Next",
-        "Segoe UI",
+        ui-sans-serif,
         system-ui,
         -apple-system,
         BlinkMacSystemFont,
+        "Segoe UI",
         sans-serif;
-      color: var(--foam);
+      color: var(--ink);
       background:
-        radial-gradient(circle at 18% 18%, rgba(255, 216, 154, 0.35), transparent 26rem),
-        radial-gradient(circle at 82% 12%, rgba(142, 214, 209, 0.28), transparent 22rem),
-        linear-gradient(160deg, #061f32 0%, #0b4860 44%, #0d6f83 100%);
+        radial-gradient(circle at 8% 18%, rgba(174, 234, 238, 0.45), transparent 22rem),
+        radial-gradient(circle at 88% 22%, rgba(204, 245, 247, 0.55), transparent 24rem),
+        linear-gradient(135deg, #ffffff 0%, #f3feff 48%, #e9fbfc 100%);
       overflow-x: hidden;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0.16;
-      background-image:
-        linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
-      background-size: 72px 72px;
-      mask-image: linear-gradient(to bottom, black, transparent 82%);
     }
 
     .page {
       position: relative;
+      min-height: 100vh;
       display: grid;
       place-items: center;
-      min-height: 100vh;
-      padding: 2rem 1rem;
+      padding: clamp(1rem, 3vw, 3rem);
       isolation: isolate;
     }
 
-    .stars {
+    .page::before {
+      content: "";
       position: fixed;
-      inset: 0;
-      pointer-events: none;
-      background:
-        radial-gradient(circle at 12% 18%, rgba(255,255,255,0.75) 0 1px, transparent 2px),
-        radial-gradient(circle at 34% 9%, rgba(255,255,255,0.65) 0 1px, transparent 2px),
-        radial-gradient(circle at 72% 15%, rgba(255,255,255,0.65) 0 1px, transparent 2px),
-        radial-gradient(circle at 88% 30%, rgba(255,255,255,0.55) 0 1px, transparent 2px),
-        radial-gradient(circle at 57% 24%, rgba(255,255,255,0.45) 0 1px, transparent 2px);
-      opacity: 0.9;
-      z-index: -4;
-    }
-
-    .coast {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      height: 42vh;
+      inset: auto -10vw -12rem -10vw;
+      height: 22rem;
       pointer-events: none;
       z-index: -3;
+      opacity: 0.46;
       background:
-        linear-gradient(152deg, transparent 0 42%, rgba(5, 32, 42, 0.94) 42.3% 100%),
-        linear-gradient(22deg, transparent 0 58%, rgba(7, 48, 57, 0.8) 58.3% 100%);
-      clip-path: polygon(0 62%, 16% 54%, 27% 67%, 39% 48%, 54% 65%, 69% 50%, 82% 62%, 100% 44%, 100% 100%, 0 100%);
+        radial-gradient(70% 55% at 50% 0%, rgba(12, 127, 152, 0.18) 0 14%, transparent 15% 100%) 0 2rem / 18rem 6rem repeat-x,
+        linear-gradient(to top, rgba(178, 235, 239, 0.65), transparent);
     }
 
-    .waves {
+    .page::after {
+      content: "";
       position: fixed;
-      left: -8%;
-      right: -8%;
-      bottom: -3rem;
-      height: 17rem;
+      right: clamp(1rem, 7vw, 7rem);
+      top: clamp(4rem, 12vw, 8rem);
+      width: clamp(9rem, 20vw, 17rem);
+      aspect-ratio: 1;
+      border: 1px solid rgba(12, 127, 152, 0.11);
+      border-radius: 50%;
       pointer-events: none;
       z-index: -2;
-      opacity: 0.9;
+      opacity: 0.42;
       background:
-        radial-gradient(65% 70% at 50% 0%, rgba(244, 251, 250, 0.32) 0 12%, transparent 13% 100%) 0 0 / 12rem 5rem repeat-x,
-        radial-gradient(65% 70% at 50% 0%, rgba(142, 214, 209, 0.32) 0 11%, transparent 12% 100%) 4rem 2.4rem / 14rem 5.4rem repeat-x,
-        linear-gradient(to top, rgba(3, 34, 52, 0.96), rgba(14, 95, 122, 0.3), transparent);
-      animation: drift 18s linear infinite;
+        linear-gradient(45deg, transparent 48%, rgba(12, 127, 152, 0.1) 49% 51%, transparent 52%),
+        linear-gradient(-45deg, transparent 48%, rgba(12, 127, 152, 0.1) 49% 51%, transparent 52%),
+        radial-gradient(circle, rgba(12, 127, 152, 0.12) 0 8%, transparent 9% 100%);
     }
 
-    @keyframes drift {
-      from { transform: translateX(0); }
-      to { transform: translateX(8rem); }
-    }
-
-    .card {
-      width: min(980px, 100%);
-      padding: clamp(1.25rem, 3vw, 3rem);
-      border: 1px solid rgba(255, 255, 255, 0.32);
-      border-radius: 2rem;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 251, 250, 0.84)),
-        rgba(255, 255, 255, 0.86);
-      color: var(--ink);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(14px);
-    }
-
-    .hero {
+    .hero-card {
+      position: relative;
+      width: min(1180px, 100%);
+      min-height: min(760px, calc(100vh - 3rem));
       display: grid;
-      grid-template-columns: 1.05fr 0.95fr;
-      gap: clamp(1.5rem, 4vw, 3rem);
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
       align-items: center;
+      gap: clamp(1.5rem, 4vw, 4rem);
+      padding:
+        clamp(1.35rem, 4vw, 4rem)
+        clamp(1.25rem, 4vw, 4rem)
+        0;
+      border: 1px solid rgba(12, 127, 152, 0.14);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 255, 255, 0.86)),
+        var(--white);
+      box-shadow: var(--shadow);
+      overflow: hidden;
     }
 
-    .eyebrow {
-      display: inline-flex;
-      gap: 0.5rem;
-      align-items: center;
-      width: fit-content;
-      margin: 0 0 1rem;
-      padding: 0.45rem 0.8rem;
-      border: 1px solid rgba(14, 95, 122, 0.2);
-      border-radius: 999px;
-      color: #104d63;
-      background: rgba(142, 214, 209, 0.22);
-      font-size: 0.94rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
+    .portrait-side {
+      position: relative;
+      align-self: end;
+      min-height: 34rem;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .portrait-side::before {
+      content: "";
+      position: absolute;
+      left: 0.2rem;
+      bottom: 4rem;
+      width: 9.5rem;
+      height: 11rem;
+      opacity: 0.13;
+      background:
+        linear-gradient(90deg, transparent 0 35%, #0c7f98 36% 64%, transparent 65% 100%),
+        linear-gradient(180deg, transparent 0 14%, #0c7f98 15% 19%, transparent 20% 31%, #0c7f98 32% 36%, transparent 37%),
+        linear-gradient(160deg, transparent 0 52%, #0c7f98 53% 100%);
+      clip-path: polygon(44% 0, 56% 0, 64% 68%, 100% 88%, 100% 100%, 0 100%, 0 91%, 36% 70%);
+      filter: blur(0.1px);
+    }
+
+    .portrait-side::after {
+      content: "⌁  ⌁";
+      position: absolute;
+      left: clamp(1rem, 4vw, 2.75rem);
+      top: clamp(0.5rem, 5vw, 3rem);
+      color: rgba(12, 127, 152, 0.26);
+      font-size: clamp(2.2rem, 5vw, 4.5rem);
+      letter-spacing: 0.25em;
+      transform: rotate(-6deg);
+    }
+
+    .portrait {
+      position: relative;
+      z-index: 2;
+      display: block;
+      width: min(100%, 560px);
+      height: auto;
+      margin: 0 auto;
+      filter: drop-shadow(0 26px 42px rgba(25, 68, 82, 0.13));
+    }
+
+    .content {
+      position: relative;
+      z-index: 3;
+      padding-bottom: clamp(2rem, 5vw, 4.5rem);
     }
 
     h1 {
       margin: 0;
-      font-size: clamp(2.35rem, 7.2vw, 5.75rem);
-      line-height: 0.94;
-      letter-spacing: -0.07em;
+      max-width: 36rem;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(3rem, 6vw, 5.85rem);
+      line-height: 0.98;
+      letter-spacing: -0.055em;
+      color: var(--ink);
       text-wrap: balance;
     }
 
-    .intro {
-      max-width: 42rem;
-      margin: 1.25rem 0 0;
-      color: #284653;
-      font-size: clamp(1.05rem, 2.3vw, 1.35rem);
+    h1 span {
+      color: var(--teal);
+    }
+
+    .lede {
+      max-width: 41rem;
+      margin: 1.15rem 0 0;
+      color: var(--ink-soft);
+      font-size: clamp(1.08rem, 2vw, 1.32rem);
       line-height: 1.55;
     }
 
     .milestones {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.75rem;
-      margin: 1.6rem 0 0;
+      gap: 0.8rem;
+      margin: 1.65rem 0 0;
       padding: 0;
       list-style: none;
     }
 
     .milestones li {
-      padding: 0.75rem 0.9rem;
-      border: 1px solid rgba(6, 43, 63, 0.12);
-      border-radius: 1rem;
-      background: rgba(255, 255, 255, 0.72);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.72rem 1.05rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(234, 252, 253, 0.78);
+      color: #12344a;
       font-weight: 800;
-      color: #143748;
+      box-shadow: 0 8px 26px rgba(12, 127, 152, 0.06);
     }
 
-    .scene {
-      position: relative;
-      min-height: 25rem;
-      border-radius: 1.6rem;
-      overflow: hidden;
-      background:
-        radial-gradient(circle at 72% 18%, var(--sunrise) 0 3.5rem, transparent 3.6rem),
-        linear-gradient(180deg, #b7eef0 0%, #67b9c7 45%, #22768a 46%, #0c4c63 100%);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.36);
+    .milestones .icon {
+      color: var(--teal);
+      font-size: 1rem;
+      line-height: 1;
     }
 
-    .scene::before {
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      width: min(100%, 38rem);
+      margin: clamp(1.7rem, 4vw, 2.5rem) 0;
+      color: rgba(12, 127, 152, 0.7);
+    }
+
+    .divider::before,
+    .divider::after {
       content: "";
-      position: absolute;
-      left: -10%;
-      right: -10%;
-      bottom: 0;
-      height: 39%;
-      background:
-        radial-gradient(60% 42% at 20% 20%, rgba(255,255,255,0.45) 0 12%, transparent 13% 100%) 0 0 / 9rem 3rem repeat-x,
-        linear-gradient(180deg, rgba(255,255,255,0.18), rgba(7, 58, 79, 0.78));
+      height: 1px;
+      flex: 1;
+      background: linear-gradient(90deg, transparent, rgba(12, 127, 152, 0.22), transparent);
     }
 
-    .cliff {
-      position: absolute;
-      left: -5%;
-      right: 18%;
-      bottom: 0;
-      height: 46%;
-      background: linear-gradient(155deg, #6a5f4d 0%, #443b31 66%);
-      clip-path: polygon(0 46%, 18% 36%, 35% 54%, 52% 24%, 75% 43%, 100% 18%, 100% 100%, 0 100%);
-    }
-
-    .grass {
-      position: absolute;
-      left: 0;
-      right: 20%;
-      bottom: 33%;
-      height: 2.2rem;
-      background: #55764f;
-      clip-path: polygon(0 62%, 16% 30%, 32% 70%, 48% 22%, 64% 54%, 82% 16%, 100% 46%, 100% 100%, 0 100%);
-    }
-
-    .tower {
-      position: absolute;
-      left: 24%;
-      bottom: 43%;
-      width: 4.7rem;
-      height: 9.2rem;
-      background: linear-gradient(90deg, #693b31, #9a6558 52%, #5c302a);
-      border-radius: 0.45rem 0.45rem 0 0;
-      box-shadow: 0 0.35rem 0 rgba(0,0,0,0.14);
-    }
-
-    .tower::before {
-      content: "";
-      position: absolute;
-      left: -0.45rem;
-      right: -0.45rem;
-      top: -1.2rem;
-      height: 1.4rem;
-      border-radius: 0.45rem 0.45rem 0.1rem 0.1rem;
-      background: #4c2724;
-    }
-
-    .tower::after {
-      content: "";
-      position: absolute;
-      left: 1.35rem;
-      top: 2.1rem;
-      width: 1.9rem;
-      height: 2.3rem;
-      border-radius: 999px 999px 0.2rem 0.2rem;
-      background: rgba(255, 216, 154, 0.9);
-      box-shadow:
-        0 3rem 0 -0.25rem rgba(255, 216, 154, 0.75),
-        0 0 2.6rem rgba(255, 216, 154, 0.75);
-    }
-
-    .lighthouse {
-      position: absolute;
-      right: 17%;
-      bottom: 35%;
-      width: 3.3rem;
-      height: 11rem;
-      background:
-        linear-gradient(90deg, transparent 0 10%, rgba(0,0,0,0.08) 11% 20%, transparent 21% 100%),
-        repeating-linear-gradient(180deg, #fbfbf5 0 2.1rem, #d94f41 2.1rem 3.15rem);
-      clip-path: polygon(26% 0, 74% 0, 90% 100%, 10% 100%);
-      filter: drop-shadow(0 0.35rem 0.3rem rgba(0,0,0,0.16));
-    }
-
-    .lighthouse::before {
-      content: "";
-      position: absolute;
-      left: -0.22rem;
-      top: -1.15rem;
-      width: 3.7rem;
-      height: 1.35rem;
-      border-radius: 0.3rem;
-      background: #24353c;
-    }
-
-    .lighthouse::after {
-      content: "";
-      position: absolute;
-      left: 0.95rem;
-      top: -2.25rem;
-      width: 1.45rem;
-      height: 1.35rem;
-      border-radius: 0.25rem 0.25rem 50% 50%;
-      background: var(--sunrise);
-      box-shadow:
-        0 0 3rem 1.1rem rgba(255, 216, 154, 0.5),
-        -5rem 0.45rem 4rem rgba(255, 216, 154, 0.28);
-    }
-
-    .bird {
-      position: absolute;
-      width: 2rem;
-      height: 1rem;
-      border-top: 0.18rem solid rgba(6, 43, 63, 0.62);
+    .divider span {
+      display: grid;
+      place-items: center;
+      width: 2.6rem;
+      height: 2.6rem;
+      border: 1px solid var(--line);
       border-radius: 50%;
-    }
-
-    .bird.one { top: 18%; left: 18%; transform: rotate(-8deg); }
-    .bird.two { top: 28%; left: 48%; transform: scale(0.75) rotate(12deg); }
-    .bird.three { top: 15%; right: 18%; transform: scale(0.58) rotate(-10deg); }
-
-    .countdown-wrap {
-      margin-top: clamp(1.5rem, 4vw, 2.5rem);
-      padding-top: clamp(1.1rem, 3vw, 1.75rem);
-      border-top: 1px solid rgba(6, 43, 63, 0.14);
+      background: rgba(255, 255, 255, 0.72);
+      font-size: 1.15rem;
     }
 
     .countdown-label {
-      margin: 0 0 0.9rem;
-      color: #365969;
-      font-size: 1rem;
-      font-weight: 800;
+      margin: 0 0 0.35rem;
+      color: #356476;
+      font-size: 0.92rem;
+      font-weight: 900;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
+    }
+
+    .date-note {
+      margin: 0 0 1.1rem;
+      color: #5b7180;
+      font-size: 0.98rem;
+      line-height: 1.45;
     }
 
     .countdown {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 0.8rem;
+      width: min(100%, 40rem);
     }
 
     .timebox {
       min-width: 0;
-      padding: clamp(0.85rem, 2vw, 1.25rem);
-      border: 1px solid rgba(6, 43, 63, 0.12);
+      padding: clamp(0.8rem, 2vw, 1.2rem) 0.75rem;
+      border: 1px solid var(--line);
       border-radius: 1.25rem;
       background:
-        linear-gradient(180deg, rgba(255,255,255,0.95), rgba(236, 249, 248, 0.86));
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(234, 252, 253, 0.68));
       text-align: center;
+      box-shadow: 0 12px 30px rgba(12, 127, 152, 0.07);
     }
 
     .number {
       display: block;
-      font-variant-numeric: tabular-nums;
-      font-size: clamp(2rem, 6vw, 4.4rem);
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.1rem, 5vw, 4.2rem);
       line-height: 1;
-      font-weight: 900;
-      letter-spacing: -0.06em;
-      color: var(--deep-ocean);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.04em;
     }
 
     .unit {
       display: block;
-      margin-top: 0.4rem;
-      color: #426576;
-      font-weight: 800;
-      font-size: clamp(0.78rem, 2vw, 0.95rem);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      margin-top: 0.35rem;
+      color: #41596b;
+      font-size: clamp(0.83rem, 1.5vw, 1rem);
+      font-weight: 700;
     }
 
-    .target {
-      margin: 1rem 0 0;
-      color: #365969;
-      font-size: 0.98rem;
-      line-height: 1.5;
+    .card-icon {
+      display: block;
+      margin-top: 0.55rem;
+      color: var(--teal);
+      font-size: 1.05rem;
+      opacity: 0.75;
     }
 
-    footer {
-      margin-top: 1.4rem;
-      color: rgba(255,255,255,0.82);
+    .footer {
+      grid-column: 1 / -1;
+      margin: clamp(1.5rem, 3vw, 2.5rem) calc(clamp(1.25rem, 4vw, 4rem) * -1) 0;
+      padding:
+        clamp(1.25rem, 2.8vw, 2rem)
+        clamp(1rem, 4vw, 4rem);
+      border-top: 1px solid rgba(12, 127, 152, 0.12);
+      background:
+        radial-gradient(circle at 50% 0%, rgba(180, 238, 241, 0.45), transparent 24rem),
+        rgba(234, 252, 253, 0.72);
+      color: #40586a;
       text-align: center;
-      font-size: 0.94rem;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.28);
+      font-size: clamp(0.96rem, 1.6vw, 1.08rem);
+      line-height: 1.55;
     }
 
-    footer a {
-      color: inherit;
+    .footer .heart {
+      color: var(--teal);
+      opacity: 0.7;
+      margin-right: 0.55rem;
     }
 
-    @media (max-width: 820px) {
-      .hero {
+    @media (max-width: 900px) {
+      .hero-card {
         grid-template-columns: 1fr;
+        gap: 0;
+        padding-top: clamp(1rem, 4vw, 2rem);
+        text-align: center;
       }
 
-      .scene {
-        min-height: 19rem;
-        order: -1;
+      .portrait-side {
+        min-height: auto;
+        align-self: auto;
+        padding-top: 0.5rem;
+      }
+
+      .portrait-side::before {
+        left: auto;
+        right: 0.5rem;
+        bottom: 1rem;
+        transform: scale(0.82);
+      }
+
+      .portrait-side::after {
+        left: 1rem;
+        top: 1rem;
+        font-size: 2.3rem;
+      }
+
+      .portrait {
+        width: min(86vw, 520px);
+      }
+
+      .content {
+        padding-top: 0.5rem;
+        padding-bottom: 2rem;
+      }
+
+      h1,
+      .lede,
+      .countdown,
+      .divider {
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .milestones {
+        justify-content: center;
       }
     }
 
     @media (max-width: 540px) {
       .page {
-        padding: 1rem 0.75rem;
+        padding: 0;
+        align-items: stretch;
       }
 
-      .card {
-        border-radius: 1.35rem;
+      .hero-card {
+        min-height: 100vh;
+        border-radius: 0;
+        border-left: 0;
+        border-right: 0;
+        box-shadow: none;
+        padding-left: 1.05rem;
+        padding-right: 1.05rem;
       }
 
-      .countdown {
-        grid-template-columns: repeat(2, 1fr);
+      .portrait {
+        width: min(96vw, 430px);
+        margin-top: 0.4rem;
+      }
+
+      h1 {
+        font-size: clamp(2.65rem, 12vw, 4.2rem);
+      }
+
+      .lede {
+        font-size: 1.06rem;
+      }
+
+      .milestones {
+        gap: 0.55rem;
       }
 
       .milestones li {
-        width: 100%;
+        flex: 1 1 100%;
+        justify-content: center;
       }
 
-      .scene {
-        min-height: 16rem;
+      .divider {
+        margin-top: 1.45rem;
+        margin-bottom: 1.45rem;
       }
 
-      .tower {
-        transform: scale(0.82);
-        transform-origin: bottom center;
+      .countdown {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.65rem;
       }
 
-      .lighthouse {
-        transform: scale(0.82);
-        transform-origin: bottom center;
+      .timebox {
+        border-radius: 1rem;
       }
-    }
 
-    @media (prefers-reduced-motion: reduce) {
-      .waves {
-        animation: none;
+      .footer {
+        margin-left: -1.05rem;
+        margin-right: -1.05rem;
       }
     }
   </style>
@@ -443,74 +436,71 @@
 
 <body>
   <main class="page">
-    <div class="stars" aria-hidden="true"></div>
-    <div class="coast" aria-hidden="true"></div>
-    <div class="waves" aria-hidden="true"></div>
-
-    <section class="card" aria-labelledby="page-title">
-      <div class="hero">
-        <div>
-          <p class="eyebrow" aria-label="Newfoundland inspired adventure countdown">
-            ⚓ Newfoundland-inspired adventure
-          </p>
-
-          <h1 id="page-title">Justelle’s 15/20 Countdown is on!</h1>
-
-          <p class="intro">
-            A little sea air, a little Signal Hill spirit, and a countdown to a milestone worth celebrating.
-          </p>
-
-          <ul class="milestones" aria-label="Milestones being celebrated">
-            <li>15 years of marriage</li>
-            <li>20 years together</li>
-          </ul>
-        </div>
-
-        <div class="scene" role="img" aria-label="A stylized Newfoundland coastal scene with ocean waves, cliffs, a tower, a lighthouse, and sea birds.">
-          <span class="bird one" aria-hidden="true"></span>
-          <span class="bird two" aria-hidden="true"></span>
-          <span class="bird three" aria-hidden="true"></span>
-          <span class="grass" aria-hidden="true"></span>
-          <span class="cliff" aria-hidden="true"></span>
-          <span class="tower" aria-hidden="true"></span>
-          <span class="lighthouse" aria-hidden="true"></span>
-        </div>
+    <section class="hero-card" aria-labelledby="page-title">
+      <div class="portrait-side" aria-hidden="false">
+        <img
+          class="portrait"
+          src="justelle-caricature.png"
+          alt="Caricature-style illustration of Justelle standing together and smiling."
+        />
       </div>
 
-      <div class="countdown-wrap">
+      <div class="content">
+        <h1 id="page-title">
+          Justelle’s 15/20<br />
+          <span>Countdown is on!</span>
+        </h1>
+
+        <p class="lede">
+          From 15 to 20 and onward — the adventure continues.
+        </p>
+
+        <ul class="milestones" aria-label="Milestones being celebrated">
+          <li><span class="icon" aria-hidden="true">♥</span>15 years of marriage</li>
+          <li><span class="icon" aria-hidden="true">♥</span>20 years together</li>
+        </ul>
+
+        <div class="divider" aria-hidden="true">
+          <span>✦</span>
+        </div>
+
         <p class="countdown-label">Counting down to the moment</p>
+        <p class="date-note" id="targetText">
+          June 8, 2026 · 8:00 a.m. Toronto time
+        </p>
 
         <div class="countdown" aria-live="polite" aria-label="Live countdown timer">
           <div class="timebox">
             <span class="number" id="days">0</span>
             <span class="unit">Days</span>
+            <span class="card-icon" aria-hidden="true">≋</span>
           </div>
 
           <div class="timebox">
             <span class="number" id="hours">0</span>
             <span class="unit">Hours</span>
+            <span class="card-icon" aria-hidden="true">⚓</span>
           </div>
 
           <div class="timebox">
             <span class="number" id="minutes">0</span>
             <span class="unit">Minutes</span>
+            <span class="card-icon" aria-hidden="true">✦</span>
           </div>
 
           <div class="timebox">
             <span class="number" id="seconds">0</span>
             <span class="unit">Seconds</span>
+            <span class="card-icon" aria-hidden="true">♡</span>
           </div>
         </div>
-
-        <p class="target" id="targetText">
-          Target: June 8, 2026 at 8:00 a.m. America/Toronto time.
-        </p>
       </div>
-    </section>
 
-    <footer>
-      Made for Justelle — with ocean air, cliffside views, and room for the next adventure.
-    </footer>
+      <footer class="footer">
+        <span class="heart" aria-hidden="true">♥</span>
+        Made for Justelle — with ocean air, cliffside views, and room for the next adventure.
+      </footer>
+    </section>
   </main>
 
   <script>
@@ -518,9 +508,9 @@
       Countdown target:
       June 8, 2026 at 8:00 a.m. in America/Toronto.
 
-      This intentionally uses the IANA time zone "America/Toronto".
-      It does not force EST/UTC-5. Toronto is on daylight saving time in June,
-      so this target resolves correctly as local Toronto time.
+      This uses the IANA time zone "America/Toronto".
+      It does not force fixed EST/UTC-5. Toronto is on daylight saving time
+      in June, so the countdown resolves to the correct local Toronto time.
     */
 
     const targetZone = "America/Toronto";
@@ -581,7 +571,7 @@
       second: 0
     });
 
-    const formatter = new Intl.DateTimeFormat("en-CA", {
+    const targetFormatter = new Intl.DateTimeFormat("en-CA", {
       timeZone: targetZone,
       weekday: "long",
       year: "numeric",
@@ -592,24 +582,25 @@
       timeZoneName: "short"
     });
 
-    const targetText = document.getElementById("targetText");
-    targetText.textContent = "Target: " + formatter.format(new Date(targetTime)) + " — America/Toronto.";
-
     const daysEl = document.getElementById("days");
     const hoursEl = document.getElementById("hours");
     const minutesEl = document.getElementById("minutes");
     const secondsEl = document.getElementById("seconds");
+    const targetText = document.getElementById("targetText");
+
+    targetText.textContent =
+      targetFormatter.format(new Date(targetTime)) + " · America/Toronto";
 
     function updateCountdown() {
       const now = Date.now();
-      let difference = targetTime - now;
+      const difference = targetTime - now;
 
       if (difference <= 0) {
         daysEl.textContent = "0";
-        hoursEl.textContent = "0";
-        minutesEl.textContent = "0";
-        secondsEl.textContent = "0";
-        targetText.textContent = "The countdown has arrived. Here’s to the next adventure.";
+        hoursEl.textContent = "00";
+        minutesEl.textContent = "00";
+        secondsEl.textContent = "00";
+        targetText.textContent = "The countdown has arrived. The adventure continues.";
         document.title = "Justelle’s 15/20 Countdown has arrived!";
         return;
       }
@@ -625,7 +616,8 @@
       minutesEl.textContent = String(minutes).padStart(2, "0");
       secondsEl.textContent = String(seconds).padStart(2, "0");
 
-      document.title = `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s 15/20 Countdown`;
+      document.title =
+        `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s 15/20 Countdown`;
     }
 
     updateCountdown();
