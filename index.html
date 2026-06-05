@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Justelle’s 15/20 Countdown</title>
+  <meta
+    name="description"
+    content="A playful Newfoundland-inspired countdown for Justelle’s 15 years of marriage and 20 years together."
+  />
+
+  <style>
+    :root {
+      --deep-ocean: #062b3f;
+      --harbour-blue: #0e5f7a;
+      --sea-glass: #8ed6d1;
+      --foam: #f4fbfa;
+      --sunrise: #ffd89a;
+      --coral: #ff9f8f;
+      --ink: #10212b;
+      --card: rgba(255, 255, 255, 0.88);
+      --shadow: 0 24px 70px rgba(0, 24, 36, 0.35);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-height: 100%;
+      background: var(--deep-ocean);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family:
+        ui-rounded,
+        "Avenir Next",
+        "Segoe UI",
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        sans-serif;
+      color: var(--foam);
+      background:
+        radial-gradient(circle at 18% 18%, rgba(255, 216, 154, 0.35), transparent 26rem),
+        radial-gradient(circle at 82% 12%, rgba(142, 214, 209, 0.28), transparent 22rem),
+        linear-gradient(160deg, #061f32 0%, #0b4860 44%, #0d6f83 100%);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.16;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.18) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+      background-size: 72px 72px;
+      mask-image: linear-gradient(to bottom, black, transparent 82%);
+    }
+
+    .page {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+      isolation: isolate;
+    }
+
+    .stars {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(255,255,255,0.75) 0 1px, transparent 2px),
+        radial-gradient(circle at 34% 9%, rgba(255,255,255,0.65) 0 1px, transparent 2px),
+        radial-gradient(circle at 72% 15%, rgba(255,255,255,0.65) 0 1px, transparent 2px),
+        radial-gradient(circle at 88% 30%, rgba(255,255,255,0.55) 0 1px, transparent 2px),
+        radial-gradient(circle at 57% 24%, rgba(255,255,255,0.45) 0 1px, transparent 2px);
+      opacity: 0.9;
+      z-index: -4;
+    }
+
+    .coast {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 42vh;
+      pointer-events: none;
+      z-index: -3;
+      background:
+        linear-gradient(152deg, transparent 0 42%, rgba(5, 32, 42, 0.94) 42.3% 100%),
+        linear-gradient(22deg, transparent 0 58%, rgba(7, 48, 57, 0.8) 58.3% 100%);
+      clip-path: polygon(0 62%, 16% 54%, 27% 67%, 39% 48%, 54% 65%, 69% 50%, 82% 62%, 100% 44%, 100% 100%, 0 100%);
+    }
+
+    .waves {
+      position: fixed;
+      left: -8%;
+      right: -8%;
+      bottom: -3rem;
+      height: 17rem;
+      pointer-events: none;
+      z-index: -2;
+      opacity: 0.9;
+      background:
+        radial-gradient(65% 70% at 50% 0%, rgba(244, 251, 250, 0.32) 0 12%, transparent 13% 100%) 0 0 / 12rem 5rem repeat-x,
+        radial-gradient(65% 70% at 50% 0%, rgba(142, 214, 209, 0.32) 0 11%, transparent 12% 100%) 4rem 2.4rem / 14rem 5.4rem repeat-x,
+        linear-gradient(to top, rgba(3, 34, 52, 0.96), rgba(14, 95, 122, 0.3), transparent);
+      animation: drift 18s linear infinite;
+    }
+
+    @keyframes drift {
+      from { transform: translateX(0); }
+      to { transform: translateX(8rem); }
+    }
+
+    .card {
+      width: min(980px, 100%);
+      padding: clamp(1.25rem, 3vw, 3rem);
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      border-radius: 2rem;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 251, 250, 0.84)),
+        rgba(255, 255, 255, 0.86);
+      color: var(--ink);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: clamp(1.5rem, 4vw, 3rem);
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 0.5rem;
+      align-items: center;
+      width: fit-content;
+      margin: 0 0 1rem;
+      padding: 0.45rem 0.8rem;
+      border: 1px solid rgba(14, 95, 122, 0.2);
+      border-radius: 999px;
+      color: #104d63;
+      background: rgba(142, 214, 209, 0.22);
+      font-size: 0.94rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.35rem, 7.2vw, 5.75rem);
+      line-height: 0.94;
+      letter-spacing: -0.07em;
+      text-wrap: balance;
+    }
+
+    .intro {
+      max-width: 42rem;
+      margin: 1.25rem 0 0;
+      color: #284653;
+      font-size: clamp(1.05rem, 2.3vw, 1.35rem);
+      line-height: 1.55;
+    }
+
+    .milestones {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin: 1.6rem 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .milestones li {
+      padding: 0.75rem 0.9rem;
+      border: 1px solid rgba(6, 43, 63, 0.12);
+      border-radius: 1rem;
+      background: rgba(255, 255, 255, 0.72);
+      font-weight: 800;
+      color: #143748;
+    }
+
+    .scene {
+      position: relative;
+      min-height: 25rem;
+      border-radius: 1.6rem;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 72% 18%, var(--sunrise) 0 3.5rem, transparent 3.6rem),
+        linear-gradient(180deg, #b7eef0 0%, #67b9c7 45%, #22768a 46%, #0c4c63 100%);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.36);
+    }
+
+    .scene::before {
+      content: "";
+      position: absolute;
+      left: -10%;
+      right: -10%;
+      bottom: 0;
+      height: 39%;
+      background:
+        radial-gradient(60% 42% at 20% 20%, rgba(255,255,255,0.45) 0 12%, transparent 13% 100%) 0 0 / 9rem 3rem repeat-x,
+        linear-gradient(180deg, rgba(255,255,255,0.18), rgba(7, 58, 79, 0.78));
+    }
+
+    .cliff {
+      position: absolute;
+      left: -5%;
+      right: 18%;
+      bottom: 0;
+      height: 46%;
+      background: linear-gradient(155deg, #6a5f4d 0%, #443b31 66%);
+      clip-path: polygon(0 46%, 18% 36%, 35% 54%, 52% 24%, 75% 43%, 100% 18%, 100% 100%, 0 100%);
+    }
+
+    .grass {
+      position: absolute;
+      left: 0;
+      right: 20%;
+      bottom: 33%;
+      height: 2.2rem;
+      background: #55764f;
+      clip-path: polygon(0 62%, 16% 30%, 32% 70%, 48% 22%, 64% 54%, 82% 16%, 100% 46%, 100% 100%, 0 100%);
+    }
+
+    .tower {
+      position: absolute;
+      left: 24%;
+      bottom: 43%;
+      width: 4.7rem;
+      height: 9.2rem;
+      background: linear-gradient(90deg, #693b31, #9a6558 52%, #5c302a);
+      border-radius: 0.45rem 0.45rem 0 0;
+      box-shadow: 0 0.35rem 0 rgba(0,0,0,0.14);
+    }
+
+    .tower::before {
+      content: "";
+      position: absolute;
+      left: -0.45rem;
+      right: -0.45rem;
+      top: -1.2rem;
+      height: 1.4rem;
+      border-radius: 0.45rem 0.45rem 0.1rem 0.1rem;
+      background: #4c2724;
+    }
+
+    .tower::after {
+      content: "";
+      position: absolute;
+      left: 1.35rem;
+      top: 2.1rem;
+      width: 1.9rem;
+      height: 2.3rem;
+      border-radius: 999px 999px 0.2rem 0.2rem;
+      background: rgba(255, 216, 154, 0.9);
+      box-shadow:
+        0 3rem 0 -0.25rem rgba(255, 216, 154, 0.75),
+        0 0 2.6rem rgba(255, 216, 154, 0.75);
+    }
+
+    .lighthouse {
+      position: absolute;
+      right: 17%;
+      bottom: 35%;
+      width: 3.3rem;
+      height: 11rem;
+      background:
+        linear-gradient(90deg, transparent 0 10%, rgba(0,0,0,0.08) 11% 20%, transparent 21% 100%),
+        repeating-linear-gradient(180deg, #fbfbf5 0 2.1rem, #d94f41 2.1rem 3.15rem);
+      clip-path: polygon(26% 0, 74% 0, 90% 100%, 10% 100%);
+      filter: drop-shadow(0 0.35rem 0.3rem rgba(0,0,0,0.16));
+    }
+
+    .lighthouse::before {
+      content: "";
+      position: absolute;
+      left: -0.22rem;
+      top: -1.15rem;
+      width: 3.7rem;
+      height: 1.35rem;
+      border-radius: 0.3rem;
+      background: #24353c;
+    }
+
+    .lighthouse::after {
+      content: "";
+      position: absolute;
+      left: 0.95rem;
+      top: -2.25rem;
+      width: 1.45rem;
+      height: 1.35rem;
+      border-radius: 0.25rem 0.25rem 50% 50%;
+      background: var(--sunrise);
+      box-shadow:
+        0 0 3rem 1.1rem rgba(255, 216, 154, 0.5),
+        -5rem 0.45rem 4rem rgba(255, 216, 154, 0.28);
+    }
+
+    .bird {
+      position: absolute;
+      width: 2rem;
+      height: 1rem;
+      border-top: 0.18rem solid rgba(6, 43, 63, 0.62);
+      border-radius: 50%;
+    }
+
+    .bird.one { top: 18%; left: 18%; transform: rotate(-8deg); }
+    .bird.two { top: 28%; left: 48%; transform: scale(0.75) rotate(12deg); }
+    .bird.three { top: 15%; right: 18%; transform: scale(0.58) rotate(-10deg); }
+
+    .countdown-wrap {
+      margin-top: clamp(1.5rem, 4vw, 2.5rem);
+      padding-top: clamp(1.1rem, 3vw, 1.75rem);
+      border-top: 1px solid rgba(6, 43, 63, 0.14);
+    }
+
+    .countdown-label {
+      margin: 0 0 0.9rem;
+      color: #365969;
+      font-size: 1rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .countdown {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.8rem;
+    }
+
+    .timebox {
+      min-width: 0;
+      padding: clamp(0.85rem, 2vw, 1.25rem);
+      border: 1px solid rgba(6, 43, 63, 0.12);
+      border-radius: 1.25rem;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.95), rgba(236, 249, 248, 0.86));
+      text-align: center;
+    }
+
+    .number {
+      display: block;
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(2rem, 6vw, 4.4rem);
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: -0.06em;
+      color: var(--deep-ocean);
+    }
+
+    .unit {
+      display: block;
+      margin-top: 0.4rem;
+      color: #426576;
+      font-weight: 800;
+      font-size: clamp(0.78rem, 2vw, 0.95rem);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .target {
+      margin: 1rem 0 0;
+      color: #365969;
+      font-size: 0.98rem;
+      line-height: 1.5;
+    }
+
+    footer {
+      margin-top: 1.4rem;
+      color: rgba(255,255,255,0.82);
+      text-align: center;
+      font-size: 0.94rem;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.28);
+    }
+
+    footer a {
+      color: inherit;
+    }
+
+    @media (max-width: 820px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .scene {
+        min-height: 19rem;
+        order: -1;
+      }
+    }
+
+    @media (max-width: 540px) {
+      .page {
+        padding: 1rem 0.75rem;
+      }
+
+      .card {
+        border-radius: 1.35rem;
+      }
+
+      .countdown {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .milestones li {
+        width: 100%;
+      }
+
+      .scene {
+        min-height: 16rem;
+      }
+
+      .tower {
+        transform: scale(0.82);
+        transform-origin: bottom center;
+      }
+
+      .lighthouse {
+        transform: scale(0.82);
+        transform-origin: bottom center;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .waves {
+        animation: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="page">
+    <div class="stars" aria-hidden="true"></div>
+    <div class="coast" aria-hidden="true"></div>
+    <div class="waves" aria-hidden="true"></div>
+
+    <section class="card" aria-labelledby="page-title">
+      <div class="hero">
+        <div>
+          <p class="eyebrow" aria-label="Newfoundland inspired adventure countdown">
+            ⚓ Newfoundland-inspired adventure
+          </p>
+
+          <h1 id="page-title">Justelle’s 15/20 Countdown is on!</h1>
+
+          <p class="intro">
+            A little sea air, a little Signal Hill spirit, and a countdown to a milestone worth celebrating.
+          </p>
+
+          <ul class="milestones" aria-label="Milestones being celebrated">
+            <li>15 years of marriage</li>
+            <li>20 years together</li>
+          </ul>
+        </div>
+
+        <div class="scene" role="img" aria-label="A stylized Newfoundland coastal scene with ocean waves, cliffs, a tower, a lighthouse, and sea birds.">
+          <span class="bird one" aria-hidden="true"></span>
+          <span class="bird two" aria-hidden="true"></span>
+          <span class="bird three" aria-hidden="true"></span>
+          <span class="grass" aria-hidden="true"></span>
+          <span class="cliff" aria-hidden="true"></span>
+          <span class="tower" aria-hidden="true"></span>
+          <span class="lighthouse" aria-hidden="true"></span>
+        </div>
+      </div>
+
+      <div class="countdown-wrap">
+        <p class="countdown-label">Counting down to the moment</p>
+
+        <div class="countdown" aria-live="polite" aria-label="Live countdown timer">
+          <div class="timebox">
+            <span class="number" id="days">0</span>
+            <span class="unit">Days</span>
+          </div>
+
+          <div class="timebox">
+            <span class="number" id="hours">0</span>
+            <span class="unit">Hours</span>
+          </div>
+
+          <div class="timebox">
+            <span class="number" id="minutes">0</span>
+            <span class="unit">Minutes</span>
+          </div>
+
+          <div class="timebox">
+            <span class="number" id="seconds">0</span>
+            <span class="unit">Seconds</span>
+          </div>
+        </div>
+
+        <p class="target" id="targetText">
+          Target: June 8, 2026 at 8:00 a.m. America/Toronto time.
+        </p>
+      </div>
+    </section>
+
+    <footer>
+      Made for Justelle — with ocean air, cliffside views, and room for the next adventure.
+    </footer>
+  </main>
+
+  <script>
+    /*
+      Countdown target:
+      June 8, 2026 at 8:00 a.m. in America/Toronto.
+
+      This intentionally uses the IANA time zone "America/Toronto".
+      It does not force EST/UTC-5. Toronto is on daylight saving time in June,
+      so this target resolves correctly as local Toronto time.
+    */
+
+    const targetZone = "America/Toronto";
+
+    function getTimeZoneOffsetMs(timeZone, date) {
+      const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23"
+      });
+
+      const parts = formatter.formatToParts(date);
+      const values = {};
+
+      for (const part of parts) {
+        if (part.type !== "literal") {
+          values[part.type] = part.value;
+        }
+      }
+
+      const asUtc = Date.UTC(
+        Number(values.year),
+        Number(values.month) - 1,
+        Number(values.day),
+        Number(values.hour),
+        Number(values.minute),
+        Number(values.second)
+      );
+
+      return asUtc - date.getTime();
+    }
+
+    function zonedTimeToUtcMs({ timeZone, year, month, day, hour, minute, second }) {
+      const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
+      const offset = getTimeZoneOffsetMs(timeZone, new Date(utcGuess));
+      let utcTime = utcGuess - offset;
+
+      const correctedOffset = getTimeZoneOffsetMs(timeZone, new Date(utcTime));
+      if (correctedOffset !== offset) {
+        utcTime = utcGuess - correctedOffset;
+      }
+
+      return utcTime;
+    }
+
+    const targetTime = zonedTimeToUtcMs({
+      timeZone: targetZone,
+      year: 2026,
+      month: 6,
+      day: 8,
+      hour: 8,
+      minute: 0,
+      second: 0
+    });
+
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: targetZone,
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short"
+    });
+
+    const targetText = document.getElementById("targetText");
+    targetText.textContent = "Target: " + formatter.format(new Date(targetTime)) + " — America/Toronto.";
+
+    const daysEl = document.getElementById("days");
+    const hoursEl = document.getElementById("hours");
+    const minutesEl = document.getElementById("minutes");
+    const secondsEl = document.getElementById("seconds");
+
+    function updateCountdown() {
+      const now = Date.now();
+      let difference = targetTime - now;
+
+      if (difference <= 0) {
+        daysEl.textContent = "0";
+        hoursEl.textContent = "0";
+        minutesEl.textContent = "0";
+        secondsEl.textContent = "0";
+        targetText.textContent = "The countdown has arrived. Here’s to the next adventure.";
+        document.title = "Justelle’s 15/20 Countdown has arrived!";
+        return;
+      }
+
+      const totalSeconds = Math.floor(difference / 1000);
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      daysEl.textContent = String(days);
+      hoursEl.textContent = String(hours).padStart(2, "0");
+      minutesEl.textContent = String(minutes).padStart(2, "0");
+      secondsEl.textContent = String(seconds).padStart(2, "0");
+
+      document.title = `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s 15/20 Countdown`;
+    }
+
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
+  </script>
+</body>
+</html>
