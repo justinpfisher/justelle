@@ -1,4 +1,5 @@
 <!doctype html>
+
 <html lang="en-CA">
 <head>
   <meta charset="utf-8" />
@@ -250,6 +251,10 @@
       width: min(100%, 40rem);
     }
 
+    .countdown.hidden {
+      display: none;
+    }
+
     .countdown.moment-mode {
       grid-template-columns: repeat(3, minmax(0, 1fr));
       width: min(100%, 31rem);
@@ -428,6 +433,7 @@
       }
     }
   </style>
+
 </head>
 
 <body>
@@ -442,63 +448,66 @@
           />
         </div>
 
-        <div class="content">
-          <h1 id="page-title">
-            Justelle’s 15/20<br />
-            <span>Countdown is on!</span>
-          </h1>
+```
+    <div class="content">
+      <h1 id="page-title">
+        Justelle’s 15/20<br />
+        <span>Countdown is on!</span>
+      </h1>
 
-          <p class="lede">
-            From 15 to 20 and onward — the adventure continues.
-          </p>
+      <p class="lede" id="ledeText">
+        From 15 to 20 and onward — the adventure continues.
+      </p>
 
-          <ul class="milestones" aria-label="Milestones being celebrated">
-            <li><span class="icon" aria-hidden="true">♥</span>15 years of marriage</li>
-            <li><span class="icon" aria-hidden="true">♥</span>20 years together</li>
-          </ul>
+      <ul class="milestones" aria-label="Milestones being celebrated">
+        <li><span class="icon" aria-hidden="true">♥</span>15 years of marriage</li>
+        <li><span class="icon" aria-hidden="true">♥</span>20 years together</li>
+      </ul>
 
-          <div class="divider" aria-hidden="true">
-            <span>✦</span>
-          </div>
-
-          <p class="countdown-label" id="countdownLabel">Counting down to the trip</p>
-          <p class="date-note" id="targetText">
-            June 8, 2026 · 8:00 a.m. Toronto time
-          </p>
-
-          <div class="countdown" id="countdownGrid" aria-live="polite" aria-label="Live countdown timer">
-            <div class="timebox">
-              <span class="number" id="days">0</span>
-              <span class="unit">Days</span>
-              <span class="card-icon" aria-hidden="true">≋</span>
-            </div>
-
-            <div class="timebox">
-              <span class="number" id="hours">0</span>
-              <span class="unit">Hours</span>
-              <span class="card-icon" aria-hidden="true">⚓</span>
-            </div>
-
-            <div class="timebox">
-              <span class="number" id="minutes">0</span>
-              <span class="unit">Minutes</span>
-              <span class="card-icon" aria-hidden="true">✦</span>
-            </div>
-
-            <div class="timebox" id="secondsBox">
-              <span class="number" id="seconds">0</span>
-              <span class="unit">Seconds</span>
-              <span class="card-icon" aria-hidden="true">♡</span>
-            </div>
-          </div>
-        </div>
+      <div class="divider" aria-hidden="true">
+        <span>✦</span>
       </div>
 
-      <footer class="footer">
-        <span class="heart" aria-hidden="true">♥</span>
-        Made for Justelle — with ocean air, cliffside views, and room for the next adventure.
-      </footer>
-    </section>
+      <p class="countdown-label" id="countdownLabel">Counting down to the trip</p>
+      <p class="date-note" id="targetText">
+        June 8, 2026 · 8:00 a.m. Toronto time
+      </p>
+
+      <div class="countdown" id="countdownGrid" aria-live="polite" aria-label="Live countdown timer">
+        <div class="timebox">
+          <span class="number" id="days">0</span>
+          <span class="unit">Days</span>
+          <span class="card-icon" aria-hidden="true">≋</span>
+        </div>
+
+        <div class="timebox">
+          <span class="number" id="hours">0</span>
+          <span class="unit">Hours</span>
+          <span class="card-icon" aria-hidden="true">⚓</span>
+        </div>
+
+        <div class="timebox">
+          <span class="number" id="minutes">0</span>
+          <span class="unit">Minutes</span>
+          <span class="card-icon" aria-hidden="true">✦</span>
+        </div>
+
+        <div class="timebox" id="secondsBox">
+          <span class="number" id="seconds">0</span>
+          <span class="unit">Seconds</span>
+          <span class="card-icon" aria-hidden="true">♡</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <span class="heart" aria-hidden="true">♥</span>
+    Made for Justelle — with ocean air, cliffside views, and room for the next adventure.
+  </footer>
+</section>
+```
+
   </main>
 
   <script>
@@ -560,13 +569,43 @@
       second: 0
     });
 
-    const momentTarget = zonedTimeToUtcMs({
+    const fifteenTwentyDayStart = zonedTimeToUtcMs({
       timeZone: targetZone,
       year: 2026,
       month: 6,
       day: 24,
       hour: 0,
-      minute: 1,
+      minute: 0,
+      second: 0
+    });
+
+    const twentyCountdownStart = zonedTimeToUtcMs({
+      timeZone: targetZone,
+      year: 2026,
+      month: 6,
+      day: 25,
+      hour: 0,
+      minute: 0,
+      second: 0
+    });
+
+    const twentyYearsDayStart = zonedTimeToUtcMs({
+      timeZone: targetZone,
+      year: 2026,
+      month: 8,
+      day: 11,
+      hour: 0,
+      minute: 0,
+      second: 0
+    });
+
+    const finalCountdownEnd = zonedTimeToUtcMs({
+      timeZone: targetZone,
+      year: 2026,
+      month: 8,
+      day: 12,
+      hour: 0,
+      minute: 0,
       second: 0
     });
 
@@ -589,53 +628,25 @@
     const countdownGrid = document.getElementById("countdownGrid");
     const countdownLabel = document.getElementById("countdownLabel");
     const targetText = document.getElementById("targetText");
+    const ledeText = document.getElementById("ledeText");
 
-    function setMode(mode, activeTarget) {
-      if (mode === "trip") {
-        countdownLabel.textContent = "Counting down to the trip";
+    function showCountdown({ label, target, showSeconds, titleSuffix }) {
+      countdownGrid.classList.remove("hidden");
+
+      if (showSeconds) {
         secondsBox.classList.remove("hidden");
         countdownGrid.classList.remove("moment-mode");
-      }
-
-      if (mode === "moment") {
-        countdownLabel.textContent = "Countdown to the moment";
+      } else {
         secondsBox.classList.add("hidden");
         countdownGrid.classList.add("moment-mode");
       }
 
+      countdownLabel.textContent = label;
       targetText.textContent =
-        targetFormatter.format(new Date(activeTarget)) + " · America/Toronto";
-    }
+        targetFormatter.format(new Date(target)) + " · America/Toronto";
 
-    function updateCountdown() {
       const now = Date.now();
-
-      let mode = "trip";
-      let activeTarget = tripTarget;
-
-      if (now >= tripTarget && now < momentTarget) {
-        mode = "moment";
-        activeTarget = momentTarget;
-      }
-
-      if (now >= momentTarget) {
-        countdownLabel.textContent = "The moment has arrived";
-        targetText.textContent = "The countdown is complete. The adventure continues.";
-        secondsBox.classList.add("hidden");
-        countdownGrid.classList.add("moment-mode");
-
-        daysEl.textContent = "0";
-        hoursEl.textContent = "00";
-        minutesEl.textContent = "00";
-        secondsEl.textContent = "00";
-
-        document.title = "Justelle’s 15/20 Moment has arrived!";
-        return;
-      }
-
-      setMode(mode, activeTarget);
-
-      const difference = activeTarget - now;
+      const difference = Math.max(0, target - now);
       const totalSeconds = Math.floor(difference / 1000);
 
       const days = Math.floor(totalSeconds / 86400);
@@ -648,19 +659,112 @@
       minutesEl.textContent = String(minutes).padStart(2, "0");
       secondsEl.textContent = String(seconds).padStart(2, "0");
 
-      if (mode === "trip") {
-        document.title =
-          `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s trip countdown`;
+      document.title =
+        `${days}d ${String(hours).padStart(2, "0")}h — ${titleSuffix}`;
+    }
+
+    function showMessage({ label, note, lede, title, hideCountdown }) {
+      countdownLabel.textContent = label;
+      targetText.textContent = note;
+
+      if (lede) {
+        ledeText.textContent = lede;
       }
 
-      if (mode === "moment") {
-        document.title =
-          `${days}d ${String(hours).padStart(2, "0")}h — Justelle’s moment countdown`;
+      if (hideCountdown) {
+        countdownGrid.classList.add("hidden");
+      } else {
+        countdownGrid.classList.remove("hidden");
+        secondsBox.classList.add("hidden");
+        countdownGrid.classList.add("moment-mode");
+
+        daysEl.textContent = "0";
+        hoursEl.textContent = "00";
+        minutesEl.textContent = "00";
+        secondsEl.textContent = "00";
       }
+
+      document.title = title;
+    }
+
+    function updateCountdown() {
+      const now = Date.now();
+
+      if (now < tripTarget) {
+        ledeText.textContent = "From 15 to 20 and onward — the adventure continues.";
+
+        showCountdown({
+          label: "Counting down to the trip",
+          target: tripTarget,
+          showSeconds: true,
+          titleSuffix: "Justelle’s trip countdown"
+        });
+
+        return;
+      }
+
+      if (now >= tripTarget && now < fifteenTwentyDayStart) {
+        ledeText.textContent = "From 15 to 20 and onward — the adventure continues.";
+
+        showCountdown({
+          label: "Countdown to the moment",
+          target: fifteenTwentyDayStart,
+          showSeconds: false,
+          titleSuffix: "Justelle’s 15/20 countdown"
+        });
+
+        return;
+      }
+
+      if (now >= fifteenTwentyDayStart && now < twentyCountdownStart) {
+        showMessage({
+          label: "Happy 15/20!",
+          note: "15 years of marriage. 20 years together. The adventure continues.",
+          lede: "Today is the 15/20 moment — cliffside, seaside, and right on time.",
+          title: "Happy 15/20!",
+          hideCountdown: true
+        });
+
+        return;
+      }
+
+      if (now >= twentyCountdownStart && now < twentyYearsDayStart) {
+        ledeText.textContent = "15 years celebrated. Now the countdown rolls on to 20.";
+
+        showCountdown({
+          label: "Countdown to 20 years!",
+          target: twentyYearsDayStart,
+          showSeconds: true,
+          titleSuffix: "Countdown to 20 years!"
+        });
+
+        return;
+      }
+
+      if (now >= twentyYearsDayStart && now < finalCountdownEnd) {
+        showMessage({
+          label: "Happy 20 years!",
+          note: "20 years together — and the adventure keeps going.",
+          lede: "Two decades of Justelle. That deserves the whole ocean.",
+          title: "Happy 20 years!",
+          hideCountdown: true
+        });
+
+        return;
+      }
+
+      showMessage({
+        label: "The countdowns are complete",
+        note: "15/20 is officially in the books. The adventure continues.",
+        lede: "From 15 to 20 and onward — the story keeps going.",
+        title: "Justelle’s 15/20 Countdown",
+        hideCountdown: true
+      });
     }
 
     updateCountdown();
     setInterval(updateCountdown, 1000);
   </script>
+
 </body>
 </html>
