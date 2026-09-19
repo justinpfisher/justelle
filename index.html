@@ -1,770 +1,459 @@
 <!doctype html>
-
 <html lang="en-CA">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <title>Justelle’s 15/20 Countdown</title>
-  <meta
-    name="description"
-    content="Justelle’s 15/20 Countdown: 15 years of marriage, 20 years together, and the adventure continues."
-  />
+  <meta name="theme-color" content="#f1faf9" />
+  <meta name="description" content="Justelle. Still us. Our time together, and room for the next adventure." />
+  <title>Justelle. Still us.</title>
 
   <style>
     :root {
-      --ink: #102233;
-      --ink-soft: #43596a;
-      --teal: #0c7f98;
-      --teal-dark: #075f75;
-      --aqua: #eafcfd;
-      --aqua-2: #f7ffff;
-      --white: #ffffff;
-      --line: rgba(12, 127, 152, 0.22);
-      --shadow: 0 28px 80px rgba(26, 73, 88, 0.14);
-      --radius: 34px;
+      color-scheme: light;
+      --ink: #193b42;
+      --ink-soft: #526b6f;
+      --teal: #177d80;
+      --line: #d7e8e5;
+      --paper: #fcfefd;
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
-    html {
-      min-height: 100%;
-      background: #f7ffff;
-    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
 
     body {
       margin: 0;
-      min-height: 100vh;
-      font-family:
-        ui-sans-serif,
-        system-ui,
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
+      min-width: 280px;
       color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
-        radial-gradient(circle at 10% 16%, rgba(174, 234, 238, 0.45), transparent 22rem),
-        radial-gradient(circle at 86% 24%, rgba(204, 245, 247, 0.6), transparent 24rem),
-        linear-gradient(135deg, #ffffff 0%, #f3feff 48%, #e9fbfc 100%);
-      overflow-x: hidden;
+        radial-gradient(ellipse at 8% 12%, #dcefeb 0, transparent 48%),
+        radial-gradient(ellipse at 94% 85%, #e5f0e9 0, transparent 45%),
+        #f1faf9;
+      -webkit-font-smoothing: antialiased;
     }
 
     .page {
-      position: relative;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: clamp(1rem, 3vw, 2.25rem);
-      isolation: isolate;
+      width: min(1160px, calc(100% - 64px));
+      margin: 48px auto 32px;
     }
 
-    .hero-card {
-      position: relative;
-      width: min(1240px, 100%);
-      min-height: min(780px, calc(100vh - 2rem));
-      display: flex;
-      flex-direction: column;
-      border: 1px solid rgba(12, 127, 152, 0.14);
-      border-radius: var(--radius);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 255, 255, 0.9)),
-        var(--white);
-      box-shadow: var(--shadow);
+    .keepsake {
       overflow: hidden;
+      border: 1px solid #ffffff;
+      border-radius: 32px;
+      background: var(--paper);
+      box-shadow: 0 24px 80px #193b420d;
     }
 
-    .hero-main {
-      position: relative;
-      flex: 1;
+    .hero {
       display: grid;
-      grid-template-columns: minmax(0, 0.98fr) minmax(0, 1.02fr);
+      grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
       align-items: center;
-      gap: clamp(1.5rem, 4vw, 4rem);
-      padding:
-        clamp(1.8rem, 4vw, 4rem)
-        clamp(1.35rem, 4.5vw, 4.4rem)
-        clamp(1.25rem, 3vw, 2.5rem);
-    }
-
-    .hero-main::after {
-      content: "";
-      position: absolute;
-      right: -3.5rem;
-      top: 4rem;
-      width: clamp(10rem, 20vw, 18rem);
-      aspect-ratio: 1;
-      border: 1px solid rgba(12, 127, 152, 0.11);
-      border-radius: 50%;
-      pointer-events: none;
-      opacity: 0.28;
-      background:
-        linear-gradient(45deg, transparent 48%, rgba(12, 127, 152, 0.1) 49% 51%, transparent 52%),
-        linear-gradient(-45deg, transparent 48%, rgba(12, 127, 152, 0.1) 49% 51%, transparent 52%),
-        radial-gradient(circle, rgba(12, 127, 152, 0.12) 0 8%, transparent 9% 100%);
+      gap: 40px;
+      padding: 62px 64px 0 38px;
     }
 
     .portrait-side {
       position: relative;
-      align-self: stretch;
-      display: flex;
-      align-items: flex-end;
-      justify-content: center;
-      min-height: 620px;
+      align-self: end;
+      margin: 0;
       isolation: isolate;
     }
 
     .portrait-side::before {
-      content: "";
       position: absolute;
-      left: 0.25rem;
-      bottom: 4.2rem;
-      width: 8rem;
-      height: 9rem;
-      opacity: 0.105;
+      inset: 14% 3% 0;
       z-index: -1;
-      background:
-        linear-gradient(90deg, transparent 0 35%, var(--teal) 36% 64%, transparent 65% 100%),
-        linear-gradient(180deg, transparent 0 14%, var(--teal) 15% 19%, transparent 20% 31%, var(--teal) 32% 36%, transparent 37%),
-        linear-gradient(160deg, transparent 0 52%, var(--teal) 53% 100%);
-      clip-path: polygon(44% 0, 56% 0, 64% 68%, 100% 88%, 100% 100%, 0 100%, 0 91%, 36% 70%);
+      border-radius: 50% 50% 0 0;
+      background: linear-gradient(180deg, #edf7f4, #f8fcf9);
+      content: "";
     }
 
     .portrait {
-      position: relative;
-      z-index: 2;
       display: block;
-      width: auto;
-      height: min(72vh, 720px);
-      max-width: 112%;
-      object-fit: contain;
-      object-position: center bottom;
-      filter: drop-shadow(0 24px 42px rgba(25, 68, 82, 0.12));
-      transform: translateX(-0.5rem);
+      width: 100%;
+      height: auto;
+      filter: drop-shadow(0 12px 20px #193b4209);
     }
 
-    .content {
-      position: relative;
-      z-index: 3;
-      max-width: 560px;
+    .intro { padding-bottom: 44px; }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 22px;
+      color: var(--teal);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
     }
+
+    .eyebrow::before {
+      width: 25px;
+      height: 1px;
+      background: currentColor;
+      content: "";
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
 
     h1 {
-      margin: 0;
+      margin-bottom: 18px;
       font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(3rem, 5.15vw, 5.1rem);
-      line-height: 0.99;
-      letter-spacing: -0.055em;
-      color: var(--ink);
-      text-wrap: balance;
+      font-size: clamp(64px, 7.2vw, 88px);
+      font-weight: 400;
+      letter-spacing: -0.065em;
+      line-height: 1.02;
     }
 
     h1 span {
+      display: block;
       color: var(--teal);
+      font-style: italic;
     }
 
     .lede {
-      margin: 1.15rem 0 0;
+      margin-bottom: 30px;
       color: var(--ink-soft);
-      font-size: clamp(1.08rem, 2vw, 1.28rem);
-      line-height: 1.55;
+      font-size: 16px;
+      line-height: 1.6;
     }
 
     .milestones {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+      border-top: 1px solid var(--line);
+      padding-top: 24px;
+    }
+
+    .milestone h2 {
+      margin-bottom: 10px;
+      color: var(--ink-soft);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .elapsed {
+      margin-bottom: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .year-number {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 44px;
+      letter-spacing: -0.045em;
+      line-height: 1;
+    }
+
+    .year-unit { margin-left: 3px; font-size: 14px; }
+
+    .extra-days {
+      display: block;
+      min-height: 1.5em;
+      margin-top: 6px;
+      color: var(--teal);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .since {
+      margin-bottom: 0;
+      color: var(--ink-soft);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .anniversary {
+      margin: 24px 0 0;
+      border-left: 2px solid var(--teal);
+      padding: 10px 14px;
+      color: var(--teal);
+      background: #eff8f4;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .plans {
+      border-top: 1px solid var(--line);
+      padding: 32px 48px 38px;
+      background: linear-gradient(120deg, #f5faf6, #eff8f6);
+    }
+
+    .section-heading {
       display: flex;
-      flex-wrap: wrap;
-      gap: 0.8rem;
-      margin: 1.55rem 0 0;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 25px;
+      font-weight: 400;
+      letter-spacing: -0.025em;
+    }
+
+    .section-heading::after {
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+      content: "";
+    }
+
+    .trip-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr));
+      gap: 20px;
+      margin: 0;
       padding: 0;
       list-style: none;
     }
 
-    .milestones li {
-      display: inline-flex;
+    .trip {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
       align-items: center;
-      gap: 0.55rem;
-      padding: 0.72rem 1.05rem;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: rgba(234, 252, 253, 0.78);
-      color: #12344a;
-      font-weight: 800;
-      box-shadow: 0 8px 26px rgba(12, 127, 152, 0.06);
+      gap: 18px;
+      border: 1px solid #dce9e1;
+      border-radius: 16px;
+      padding: 23px 24px;
+      background: #fcfefb;
     }
 
-    .milestones .icon {
-      color: var(--teal);
-      font-size: 1rem;
-      line-height: 1;
-    }
-
-    .divider {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      width: min(100%, 38rem);
-      margin: clamp(1.5rem, 3.5vw, 2.25rem) 0;
-      color: rgba(12, 127, 152, 0.7);
-    }
-
-    .divider::before,
-    .divider::after {
-      content: "";
-      height: 1px;
-      flex: 1;
-      background: linear-gradient(90deg, transparent, rgba(12, 127, 152, 0.22), transparent);
-    }
-
-    .divider span {
+    .trip-icon {
       display: grid;
       place-items: center;
-      width: 2.55rem;
-      height: 2.55rem;
-      border: 1px solid var(--line);
+      width: 64px;
+      height: 64px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.72);
-      font-size: 1.1rem;
+      color: #59765d;
+      background: #edf3e9;
     }
 
-    .countdown-label {
-      margin: 0 0 0.35rem;
-      color: #356476;
-      font-size: 0.92rem;
-      font-weight: 900;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
+    .trip-icon.sea { color: #327d83; background: #e8f4f3; }
+
+    .trip-icon svg {
+      width: 40px;
+      height: 40px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.35;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
-    .date-note {
-      margin: 0 0 1.05rem;
-      color: #5b7180;
-      font-size: 0.98rem;
-      line-height: 1.45;
-    }
-
-    .countdown {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 0.8rem;
-      width: min(100%, 40rem);
-    }
-
-    .countdown.hidden {
-      display: none;
-    }
-
-    .countdown.moment-mode {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      width: min(100%, 31rem);
-    }
-
-    .timebox {
-      min-width: 0;
-      padding: clamp(0.8rem, 2vw, 1.15rem) 0.75rem;
-      border: 1px solid var(--line);
-      border-radius: 1.25rem;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(234, 252, 253, 0.68));
-      text-align: center;
-      box-shadow: 0 12px 30px rgba(12, 127, 152, 0.07);
-    }
-
-    .timebox.hidden {
-      display: none;
-    }
-
-    .number {
-      display: block;
-      color: var(--ink);
+    .trip h3 {
+      margin-bottom: 5px;
       font-family: Georgia, "Times New Roman", serif;
-      font-size: clamp(2.1rem, 5vw, 4rem);
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -0.04em;
+      font-size: 26px;
+      font-weight: 400;
+      letter-spacing: -0.035em;
     }
 
-    .unit {
-      display: block;
-      margin-top: 0.35rem;
-      color: #41596b;
-      font-size: clamp(0.83rem, 1.5vw, 1rem);
-      font-weight: 700;
-    }
-
-    .card-icon {
-      display: block;
-      margin-top: 0.55rem;
-      color: var(--teal);
-      font-size: 1.05rem;
-      opacity: 0.75;
-    }
+    .trip-date { margin-bottom: 8px; color: var(--ink-soft); font-size: 13px; }
+    .trip-status { margin-bottom: 0; color: var(--teal); font-size: 11px; }
 
     .footer {
-      margin-top: auto;
-      padding:
-        clamp(1.2rem, 2.6vw, 1.8rem)
-        clamp(1rem, 4vw, 4rem);
-      border-top: 1px solid rgba(12, 127, 152, 0.12);
-      background:
-        radial-gradient(circle at 50% 0%, rgba(180, 238, 241, 0.45), transparent 24rem),
-        rgba(234, 252, 253, 0.72);
-      color: #40586a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 9px;
+      margin-top: 24px;
+      color: var(--ink-soft);
+      font-size: 11px;
+      line-height: 1.7;
       text-align: center;
-      font-size: clamp(0.96rem, 1.6vw, 1.08rem);
-      line-height: 1.55;
     }
 
-    .footer .heart {
-      color: var(--teal);
-      opacity: 0.7;
-      margin-right: 0.55rem;
+    .footer svg { width: 13px; height: 13px; flex-shrink: 0; fill: var(--teal); }
+
+    @media (max-width: 1000px) {
+      .page { width: calc(100% - 40px); margin-top: 28px; }
+      .hero { gap: 28px; padding: 44px 36px 0 24px; }
+      h1 { font-size: 68px; }
+      .milestones { gap: 14px; }
+      .plans { padding: 30px 32px; }
+      .trip { gap: 14px; padding: 20px; }
     }
 
-    @media (max-width: 980px) {
-      .hero-main {
-        grid-template-columns: 1fr;
-        gap: 0.5rem;
-        text-align: center;
-      }
-
-      .hero-main::after {
-        right: -5rem;
-        top: 2rem;
-      }
-
-      .portrait-side {
-        min-height: auto;
-        align-self: auto;
-      }
-
-      .portrait {
-        width: min(88vw, 560px);
-        height: auto;
-        max-width: 100%;
-        transform: none;
-      }
-
-      .content {
-        max-width: 680px;
-        margin: 0 auto;
-      }
-
-      h1,
-      .lede,
-      .countdown,
-      .divider {
-        margin-left: auto;
-        margin-right: auto;
-      }
-
-      .milestones {
-        justify-content: center;
-      }
+    @media (max-width: 720px) {
+      .page { width: min(520px, calc(100% - 28px)); margin-top: 18px; }
+      .keepsake { border-radius: 24px; }
+      .hero { grid-template-columns: 1fr; gap: 0; padding: 36px 28px 0; }
+      .intro { grid-row: 1; padding-bottom: 24px; }
+      .eyebrow { margin-bottom: 18px; }
+      h1 { font-size: 68px; }
+      .lede { margin-bottom: 24px; font-size: 15px; }
+      .milestones { padding-top: 20px; }
+      .portrait-side { width: min(100%, 320px); justify-self: center; }
+      .plans { padding: 26px 22px; }
+      .section-heading h2 { font-size: 24px; }
+      .trip-list { grid-template-columns: 1fr; gap: 14px; }
+      .trip { padding: 18px; }
+      .footer { margin-top: 20px; font-size: 10px; }
     }
 
-    @media (max-width: 540px) {
-      .page {
-        padding: 0;
-        align-items: stretch;
-      }
-
-      .hero-card {
-        min-height: 100vh;
-        border-radius: 0;
-        border-left: 0;
-        border-right: 0;
-        box-shadow: none;
-      }
-
-      .hero-main {
-        padding:
-          1rem
-          1.05rem
-          1.35rem;
-      }
-
-      .portrait {
-        width: min(94vw, 460px);
-        margin-top: 0.3rem;
-      }
-
-      h1 {
-        font-size: clamp(2.55rem, 11vw, 4.05rem);
-      }
-
-      .lede {
-        font-size: 1.06rem;
-      }
-
-      .milestones {
-        gap: 0.55rem;
-      }
-
-      .milestones li {
-        flex: 1 1 100%;
-        justify-content: center;
-      }
-
-      .divider {
-        margin-top: 1.35rem;
-        margin-bottom: 1.35rem;
-      }
-
-      .countdown,
-      .countdown.moment-mode {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.65rem;
-        width: min(100%, 40rem);
-      }
-
-      .countdown.moment-mode .timebox:last-of-type {
-        grid-column: 1 / -1;
-      }
-
-      .timebox {
-        border-radius: 1rem;
-      }
-
-      .footer {
-        padding-left: 1.05rem;
-        padding-right: 1.05rem;
-      }
+    @media (max-width: 360px) {
+      .hero { padding: 30px 20px 0; }
+      h1 { font-size: 58px; }
+      .year-number { font-size: 38px; }
+      .plans { padding: 24px 16px; }
+      .trip { grid-template-columns: 48px minmax(0, 1fr); gap: 12px; padding: 16px; }
+      .trip-icon { width: 48px; height: 48px; }
+      .trip-icon svg { width: 32px; height: 32px; }
     }
   </style>
-
 </head>
 
 <body>
   <main class="page">
-    <section class="hero-card" aria-labelledby="page-title">
-      <div class="hero-main">
-        <div class="portrait-side">
-          <img
-            class="portrait"
-            src="justelle-caricature.png"
-            alt="Caricature-style illustration of Justelle standing together and smiling."
-          />
+    <div class="keepsake">
+      <section class="hero" aria-labelledby="page-title">
+        <figure class="portrait-side">
+          <img class="portrait" src="justelle-caricature.png" width="1088" height="1269"
+            alt="Justin and Estelle, smiling together in their sunglasses." fetchpriority="high" />
+        </figure>
+
+        <div class="intro">
+          <p class="eyebrow">Our story, since 2006</p>
+          <h1 id="page-title">Justelle.<span>Still us.</span></h1>
+          <p class="lede">And the story keeps going.</p>
+
+          <div class="milestones">
+            <section class="milestone" aria-labelledby="together-title">
+              <h2 id="together-title">Together</h2>
+              <p class="elapsed" id="together-elapsed" hidden>
+                <span class="year-number" id="together-years"></span>
+                <span class="year-unit" id="together-year-unit">years</span>
+                <span class="extra-days" id="together-days"></span>
+              </p>
+              <p class="since">Since <time datetime="2006-08-11">August 11, 2006</time></p>
+            </section>
+
+            <section class="milestone" aria-labelledby="married-title">
+              <h2 id="married-title">Married</h2>
+              <p class="elapsed" id="married-elapsed" hidden>
+                <span class="year-number" id="married-years"></span>
+                <span class="year-unit" id="married-year-unit">years</span>
+                <span class="extra-days" id="married-days"></span>
+              </p>
+              <p class="since">Since <time datetime="2011-06-24">June 24, 2011</time></p>
+            </section>
+          </div>
+
+          <p class="anniversary" id="anniversary" role="status" hidden></p>
         </div>
+      </section>
 
-```
-    <div class="content">
-      <h1 id="page-title">
-        Justelle’s 15/20<br />
-        <span>Countdown is on!</span>
-      </h1>
-
-      <p class="lede" id="ledeText">
-        From 15 to 20 and onward — the adventure continues.
-      </p>
-
-      <ul class="milestones" aria-label="Milestones being celebrated">
-        <li><span class="icon" aria-hidden="true">♥</span>15 years of marriage</li>
-        <li><span class="icon" aria-hidden="true">♥</span>20 years together</li>
-      </ul>
-
-      <div class="divider" aria-hidden="true">
-        <span>✦</span>
-      </div>
-
-      <p class="countdown-label" id="countdownLabel">Counting down to the trip</p>
-      <p class="date-note" id="targetText">
-        June 8, 2026 · 8:00 a.m. Toronto time
-      </p>
-
-      <div class="countdown" id="countdownGrid" aria-live="polite" aria-label="Live countdown timer">
-        <div class="timebox">
-          <span class="number" id="days">0</span>
-          <span class="unit">Days</span>
-          <span class="card-icon" aria-hidden="true">≋</span>
-        </div>
-
-        <div class="timebox">
-          <span class="number" id="hours">0</span>
-          <span class="unit">Hours</span>
-          <span class="card-icon" aria-hidden="true">⚓</span>
-        </div>
-
-        <div class="timebox">
-          <span class="number" id="minutes">0</span>
-          <span class="unit">Minutes</span>
-          <span class="card-icon" aria-hidden="true">✦</span>
-        </div>
-
-        <div class="timebox" id="secondsBox">
-          <span class="number" id="seconds">0</span>
-          <span class="unit">Seconds</span>
-          <span class="card-icon" aria-hidden="true">♡</span>
-        </div>
-      </div>
+      <section class="plans" id="plans" aria-labelledby="plans-title">
+        <div class="section-heading"><h2 id="plans-title">Next up for us</h2></div>
+        <ul class="trip-list">
+          <li class="trip" data-plan-month="2027-07">
+            <div class="trip-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48"><path d="M4 36 18 12l14 24M25 24l6-10 13 22M6 36h37M12 22l6 4 5-5" /><path d="m28 20 3 3 3-3" /></svg>
+            </div>
+            <div>
+              <h3>Calgary</h3>
+              <p class="trip-date"><time datetime="2027-07">July 2027</time></p>
+              <p class="trip-status" hidden></p>
+            </div>
+          </li>
+          <li class="trip" data-plan-month="2028-03">
+            <div class="trip-icon sea" aria-hidden="true">
+              <svg viewBox="0 0 48 48"><circle cx="33" cy="13" r="5" /><path d="M5 29c4-4 8-4 12 0s8 4 12 0 8-4 14 0M5 37c4-4 8-4 12 0s8 4 12 0 8-4 14 0M7 21h14" /></svg>
+            </div>
+            <div>
+              <h3>Philippines</h3>
+              <p class="trip-date"><time datetime="2028-03">March 2028</time></p>
+              <p class="trip-status" hidden></p>
+            </div>
+          </li>
+        </ul>
+      </section>
     </div>
-  </div>
 
-  <footer class="footer">
-    <span class="heart" aria-hidden="true">♥</span>
-    Made for Justelle — with ocean air, cliffside views, and room for the next adventure.
-  </footer>
-</section>
-```
-
+    <footer class="footer">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21S2 14.5 2 7.5A5.5 5.5 0 0 1 12 4a5.5 5.5 0 0 1 10 3.5C22 14.5 12 21 12 21Z" /></svg>
+      <span>Made for Justelle. Room for the next adventure.</span>
+    </footer>
   </main>
 
   <script>
-    const targetZone = "America/Toronto";
+    const milestones = [
+      { id: "together", year: 2006, month: 8, day: 11 },
+      { id: "married", year: 2011, month: 6, day: 24 }
+    ];
+    const dayFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Toronto",
+      year: "numeric", month: "numeric", day: "numeric"
+    });
 
-    function getTimeZoneOffsetMs(timeZone, date) {
-      const formatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23"
-      });
+    function torontoDate(now) {
+      const parts = {};
+      for (const { type, value } of dayFormatter.formatToParts(now)) {
+        if (type !== "literal") parts[type] = Number(value);
+      }
+      return parts;
+    }
 
-      const parts = formatter.formatToParts(date);
-      const values = {};
+    function elapsedSince(start, today) {
+      // Compare calendar dates, so daylight-saving changes never add or lose a day.
+      let years = today.year - start.year;
+      if (today.month < start.month || (today.month === start.month && today.day < start.day)) {
+        years -= 1;
+      }
+      const lastAnniversary = Date.UTC(start.year + years, start.month - 1, start.day);
+      const currentDay = Date.UTC(today.year, today.month - 1, today.day);
+      return { years, days: Math.round((currentDay - lastAnniversary) / 86400000) };
+    }
 
-      for (const part of parts) {
-        if (part.type !== "literal") {
-          values[part.type] = part.value;
+    function refreshPage(now = new Date()) {
+      const today = torontoDate(now);
+      let greeting = "";
+
+      for (const milestone of milestones) {
+        const { years, days } = elapsedSince(milestone, today);
+        document.getElementById(`${milestone.id}-years`).textContent = String(years);
+        document.getElementById(`${milestone.id}-year-unit`).textContent = years === 1 ? "year" : "years";
+        document.getElementById(`${milestone.id}-days`).textContent =
+          days === 0 ? "and counting" : `and ${days} ${days === 1 ? "day" : "days"}`;
+        document.getElementById(`${milestone.id}-elapsed`).hidden = false;
+
+        if (days === 0) {
+          const occasion = milestone.id === "together" ? "together" : "married";
+          greeting = `${years} ${years === 1 ? "year" : "years"} ${occasion} today. Happy anniversary, us.`;
         }
       }
 
-      const asUtc = Date.UTC(
-        Number(values.year),
-        Number(values.month) - 1,
-        Number(values.day),
-        Number(values.hour),
-        Number(values.minute),
-        Number(values.second)
-      );
+      const anniversary = document.getElementById("anniversary");
+      if (anniversary.textContent !== greeting) anniversary.textContent = greeting;
+      anniversary.hidden = !greeting;
+      document.title = greeting ? "Happy anniversary, Justelle." : "Justelle. Still us.";
 
-      return asUtc - date.getTime();
+      let upcomingPlans = 0;
+      for (const trip of document.querySelectorAll("[data-plan-month]")) {
+        const [year, month] = trip.dataset.planMonth.split("-").map(Number);
+        const monthsAway = (year - today.year) * 12 + month - today.month;
+        // Only a month is known: never invent a departure day or mark a trip completed.
+        trip.hidden = monthsAway < 0;
+        if (!trip.hidden) upcomingPlans += 1;
+        const status = trip.querySelector(".trip-status");
+        status.textContent = monthsAway === 0 ? "This month" :
+          monthsAway === 1 ? "Next month" : monthsAway > 1 ? `In ${monthsAway} months` : "";
+        status.hidden = monthsAway < 0;
+      }
+      document.getElementById("plans").hidden = upcomingPlans === 0;
     }
 
-    function zonedTimeToUtcMs({ timeZone, year, month, day, hour, minute, second }) {
-      const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
-      const offset = getTimeZoneOffsetMs(timeZone, new Date(utcGuess));
-      let utcTime = utcGuess - offset;
-
-      const correctedOffset = getTimeZoneOffsetMs(timeZone, new Date(utcTime));
-      if (correctedOffset !== offset) {
-        utcTime = utcGuess - correctedOffset;
-      }
-
-      return utcTime;
-    }
-
-    const tripTarget = zonedTimeToUtcMs({
-      timeZone: targetZone,
-      year: 2026,
-      month: 6,
-      day: 8,
-      hour: 8,
-      minute: 0,
-      second: 0
+    refreshPage();
+    setInterval(refreshPage, 60000);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshPage();
     });
-
-    const fifteenTwentyDayStart = zonedTimeToUtcMs({
-      timeZone: targetZone,
-      year: 2026,
-      month: 6,
-      day: 24,
-      hour: 0,
-      minute: 0,
-      second: 0
-    });
-
-    const twentyCountdownStart = zonedTimeToUtcMs({
-      timeZone: targetZone,
-      year: 2026,
-      month: 6,
-      day: 25,
-      hour: 0,
-      minute: 0,
-      second: 0
-    });
-
-    const twentyYearsDayStart = zonedTimeToUtcMs({
-      timeZone: targetZone,
-      year: 2026,
-      month: 8,
-      day: 11,
-      hour: 0,
-      minute: 0,
-      second: 0
-    });
-
-    const finalCountdownEnd = zonedTimeToUtcMs({
-      timeZone: targetZone,
-      year: 2026,
-      month: 8,
-      day: 12,
-      hour: 0,
-      minute: 0,
-      second: 0
-    });
-
-    const targetFormatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: targetZone,
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      timeZoneName: "short"
-    });
-
-    const daysEl = document.getElementById("days");
-    const hoursEl = document.getElementById("hours");
-    const minutesEl = document.getElementById("minutes");
-    const secondsEl = document.getElementById("seconds");
-    const secondsBox = document.getElementById("secondsBox");
-    const countdownGrid = document.getElementById("countdownGrid");
-    const countdownLabel = document.getElementById("countdownLabel");
-    const targetText = document.getElementById("targetText");
-    const ledeText = document.getElementById("ledeText");
-
-    function showCountdown({ label, target, showSeconds, titleSuffix }) {
-      countdownGrid.classList.remove("hidden");
-
-      if (showSeconds) {
-        secondsBox.classList.remove("hidden");
-        countdownGrid.classList.remove("moment-mode");
-      } else {
-        secondsBox.classList.add("hidden");
-        countdownGrid.classList.add("moment-mode");
-      }
-
-      countdownLabel.textContent = label;
-      targetText.textContent =
-        targetFormatter.format(new Date(target)) + " · America/Toronto";
-
-      const now = Date.now();
-      const difference = Math.max(0, target - now);
-      const totalSeconds = Math.floor(difference / 1000);
-
-      const days = Math.floor(totalSeconds / 86400);
-      const hours = Math.floor((totalSeconds % 86400) / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      const seconds = totalSeconds % 60;
-
-      daysEl.textContent = String(days);
-      hoursEl.textContent = String(hours).padStart(2, "0");
-      minutesEl.textContent = String(minutes).padStart(2, "0");
-      secondsEl.textContent = String(seconds).padStart(2, "0");
-
-      document.title =
-        `${days}d ${String(hours).padStart(2, "0")}h — ${titleSuffix}`;
-    }
-
-    function showMessage({ label, note, lede, title, hideCountdown }) {
-      countdownLabel.textContent = label;
-      targetText.textContent = note;
-
-      if (lede) {
-        ledeText.textContent = lede;
-      }
-
-      if (hideCountdown) {
-        countdownGrid.classList.add("hidden");
-      } else {
-        countdownGrid.classList.remove("hidden");
-        secondsBox.classList.add("hidden");
-        countdownGrid.classList.add("moment-mode");
-
-        daysEl.textContent = "0";
-        hoursEl.textContent = "00";
-        minutesEl.textContent = "00";
-        secondsEl.textContent = "00";
-      }
-
-      document.title = title;
-    }
-
-    function updateCountdown() {
-      const now = Date.now();
-
-      if (now < tripTarget) {
-        ledeText.textContent = "From 15 to 20 and onward — the adventure continues.";
-
-        showCountdown({
-          label: "Counting down to the trip",
-          target: tripTarget,
-          showSeconds: true,
-          titleSuffix: "Justelle’s trip countdown"
-        });
-
-        return;
-      }
-
-      if (now >= tripTarget && now < fifteenTwentyDayStart) {
-        ledeText.textContent = "From 15 to 20 and onward — the adventure continues.";
-
-        showCountdown({
-          label: "Countdown to the moment",
-          target: fifteenTwentyDayStart,
-          showSeconds: false,
-          titleSuffix: "Justelle’s 15/20 countdown"
-        });
-
-        return;
-      }
-
-      if (now >= fifteenTwentyDayStart && now < twentyCountdownStart) {
-        showMessage({
-          label: "Happy 15/20!",
-          note: "15 years of marriage. 20 years together. The adventure continues.",
-          lede: "Today is the 15/20 moment — cliffside, seaside, and right on time.",
-          title: "Happy 15/20!",
-          hideCountdown: true
-        });
-
-        return;
-      }
-
-      if (now >= twentyCountdownStart && now < twentyYearsDayStart) {
-        ledeText.textContent = "15 years celebrated. Now the countdown rolls on to 20.";
-
-        showCountdown({
-          label: "Countdown to 20 years!",
-          target: twentyYearsDayStart,
-          showSeconds: true,
-          titleSuffix: "Countdown to 20 years!"
-        });
-
-        return;
-      }
-
-      if (now >= twentyYearsDayStart && now < finalCountdownEnd) {
-        showMessage({
-          label: "Happy 20 years!",
-          note: "20 years together — and the adventure keeps going.",
-          lede: "Two decades of Justelle. That deserves the whole ocean.",
-          title: "Happy 20 years!",
-          hideCountdown: true
-        });
-
-        return;
-      }
-
-      showMessage({
-        label: "The countdowns are complete",
-        note: "15/20 is officially in the books. The adventure continues.",
-        lede: "From 15 to 20 and onward — the story keeps going.",
-        title: "Justelle’s 15/20 Countdown",
-        hideCountdown: true
-      });
-    }
-
-    updateCountdown();
-    setInterval(updateCountdown, 1000);
   </script>
-
 </body>
 </html>
