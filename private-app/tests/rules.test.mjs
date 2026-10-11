@@ -1,0 +1,117 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
+import {doc,collection,getDoc,getDocs,setDoc,updateDoc,serverTimestamp} from 'firebase/firestore';
+import {ref,uploadBytes,getBytes} from 'firebase/storage';
+import {firebaseBackend} from '../web/firebase-backend.mjs';
+import {sha256} from '../web/media.mjs';
+
+const projectId='demo-justelle-pilot',room='fictional-room',a='fictional-a',b='fictional-b';
+const imageId='00000000-0000-4000-8000-000000000001';
+const png=new Uint8Array(await readFile(new URL('./fictional-landscape.png',import.meta.url)));
+const membership={uids:[a,b],people:{[a]:'person-a',[b]:'person-b'},labels:{[a]:'Fictional A',[b]:'Fictional B'}};
+async function context() {
+  const env=await initializeTestEnvironment({
+    projectId,
+    firestore:{host:'127.0.0.1',port:8081,rules:await readFile(new URL('../firebase/firestore.rules',import.meta.url),'utf8')},
+    storage:{host:'127.0.0.1',port:9199,rules:await readFile(new URL('../firebase/storage.rules',import.meta.url),'utf8')}
+  });
+  await env.clearFirestore();await env.clearStorage();
+  await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'rooms',room),membership));
+  const user=uid=>env.authenticatedContext(uid,{justelle_room:room,justelle_member:true});
+  return {env,A:user(a),B:user(b),X:user('outsider'),U:env.unauthenticatedContext(),noClaim:env.authenticatedContext(a)};
+}
+const message=(ctx,id)=>doc(ctx.firestore(),'rooms',room,'messages',id);
+const decision=(ctx,id)=>doc(ctx.firestore(),'rooms',room,'decisions',id);
+const adventure=(ctx,id)=>doc(ctx.firestore(),'rooms',room,'adventures',id);
+const att=(ctx,id)=>doc(ctx.firestore(),'rooms',room,'attachments',id);
+const media=(ctx,id=imageId)=>ref(ctx.storage('gs://'+projectId+'.firebasestorage.app'),'rooms/'+room+'/media/'+id);
+function messageData(uid=a,ids=[]) {
+  return {body:'Fictional coastal idea',author_uid:uid,author_id:uid===a?'person-a':'person-b',
+    kind:'person',conversation_id:'conversation-shared',adventure_id:null,attachment_ids:ids,created_at:serverTimestamp()};
+}
+function proposalData(uid=a,replaces=null) {
+  return {body:'Fictional museum visit',why:'Testing agreement',author_uid:uid,author_id:uid===a?'person-a':'person-b',
+    origin:'human',conversation_id:'conversation-shared',adventure_id:null,source_message_id:null,replaces_id:replaces,
+    status:'proposed',approvals:{},approval_times:{},created_at:serverTimestamp(),locked_at:null};
+}
+function ideaData(uid=a) {
+  return {id:'idea-1',title:'Fictional garden',phase:'idea',phases:['idea'],author_uid:uid,
+    author_id:uid===a?'person-a':'person-b',last_modified_by:'person-a',conversation_id:'conversation-shared',
+    source_message_id:null,created_at:serverTimestamp(),updated_at:serverTimestamp()};
+}
+test('Two authorised members share immutable messages; outsiders, unauthenticated clients and forged authors fail',async()=>{
+  const {env,A,B,X,U,noClaim}=await context();
+  try {
+    await assertSucceeds(setDoc(message(A,'message-1'),messageData()));
+    await assertSucceeds(setDoc(message(B,'message-2'),messageData(b)));
+    assert.equal((await getDocs(collection(B.firestore(),'rooms',room,'messages'))).size,2);
+    await assertFails(getDocs(collection(X.firestore(),'rooms',room,'messages')));
+    await assertFails(getDoc(message(U,'message-1')));
+    await assertFails(getDoc(message(noClaim,'message-1')));
+    await assertFails(setDoc(message(A,'fake-author'),messageData(b)));
+    await assertFails(setDoc(message(A,'fake-ai'),{...messageData(),kind:'ai'}));
+    await assertFails(updateDoc(message(A,'message-1'),{body:'Erase history'}));
+  }finally{await env.cleanup();}
+});
+test('Original images are read by members only; cross-user overwrite, direct reads and wrong MIME fail',async()=>{
+  const {env,A,B,X,U}=await context();
+  try {
+    const metadata={contentType:'image/png',customMetadata:{author_uid:a,attachment_id:imageId,role:'original'}};
+    await assertSucceeds(uploadBytes(media(A),png,metadata));
+    assert.deepEqual(Buffer.from(await getBytes(media(B))),Buffer.from(png));
+    await assertFails(getBytes(media(X)));
+    await assertFails(getBytes(media(U)));
+    await assertFails(uploadBytes(media(B),png,{...metadata,customMetadata:{...metadata.customMetadata,author_uid:b}}));
+    await assertFails(uploadBytes(media(A,'not-image.txt'),png,{contentType:'text/plain',customMetadata:metadata.customMetadata}));
+    const digest=await sha256(png);
+    const meta={id:imageId,author_uid:a,author_id:'person-a',name:'fictional-landscape.png',
+      mime:'image/png',size:png.length,sha256:digest,original_path:'rooms/'+room+'/media/'+imageId,preview_path:null,created_at:serverTimestamp()};
+    await assertSucceeds(setDoc(att(A,imageId),meta));
+    assert.equal((await getDoc(att(B,imageId))).data().sha256,digest);
+    await assertFails(getDoc(att(X,imageId)));
+    await assertFails(setDoc(att(B,'00000000-0000-4000-8000-000000000008'),{...meta,id:'00000000-0000-4000-8000-000000000008'}));
+    await assertSucceeds(setDoc(message(A,'message-photo'),messageData(a,[imageId])));
+  }finally{await env.cleanup();}
+});
+test('Simultaneous human approvals lock once, never let a single member lock or change an agreement',async()=>{
+  const {env,A,B,X}=await context();
+  try {
+    await assertSucceeds(setDoc(decision(A,'decision-1'),proposalData()));
+    await assertFails(updateDoc(decision(A,'decision-1'),{'status':'locked'}));
+    await assertFails(updateDoc(decision(A,'decision-1'),{'approvals.fictional-a':true,'approvals.fictional-b':true,'status':'locked'}));
+    await assertFails(updateDoc(decision(X,'decision-1'),{'approvals.outsider':true}));
+    const one=firebaseBackend({db:A.firestore(),storage:null,roomId:room,membership});
+    const two=firebaseBackend({db:B.firestore(),storage:null,roomId:room,membership});
+    const results=await Promise.allSettled([one.approve({uid:a},'decision-1'),two.approve({uid:b},'decision-1')]);
+    for(const [index,result] of results.entries()) {
+      if(result.status==='rejected') await (index===0?one:two).approve({uid:index===0?a:b},'decision-1');
+    }
+    const locked=(await getDoc(decision(A,'decision-1'))).data();
+    assert.equal(locked.status,'locked');
+    assert.deepEqual(Object.keys(locked.approvals).sort(),[a,b]);
+    assert.deepEqual(Object.keys(locked.approval_times).sort(),[a,b]);
+    assert.ok(locked.locked_at);
+    await assertFails(updateDoc(decision(A,'decision-1'),{body:'Silently replace confirmed plan'}));
+    await assertFails(updateDoc(decision(B,'decision-1'),{status:'proposed'}));
+    await assertSucceeds(setDoc(decision(B,'decision-revision'),proposalData(b,'decision-1')));
+    assert.equal((await getDoc(decision(A,'decision-1'))).data().body,'Fictional museum visit');
+    assert.equal((await getDoc(decision(A,'decision-revision'))).data().status,'proposed');
+  }finally{await env.cleanup();}
+});
+test('Idea stages only progress in order with attributable append-only phase history',async()=>{
+  const {env,A,B,X}=await context();
+  try {
+    await assertSucceeds(setDoc(adventure(A,'idea-1'),ideaData()));
+    await assertFails(updateDoc(adventure(B,'idea-1'),{phase:'memory',phases:['idea','memory'],updated_at:serverTimestamp(),last_modified_by:'person-b'}));
+    const two=firebaseBackend({db:B.firestore(),storage:null,roomId:room,membership});
+    for(const next of ['plan','experience','memory']) {
+      await two.advance({uid:b},'idea-1');
+      assert.equal((await getDoc(adventure(A,'idea-1'))).data().phase,next);
+    }
+    assert.deepEqual((await getDoc(adventure(B,'idea-1'))).data().phases,['idea','plan','experience','memory']);
+    await assertFails(updateDoc(adventure(A,'idea-1'),{phase:'idea'}));
+    await assertFails(getDoc(adventure(X,'idea-1')));
+  }finally{await env.cleanup();}
+});
