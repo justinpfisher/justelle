@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isMember(roomId) {
+      return request.auth != null &&
+        request.auth.token.justelle_member == true &&
+        request.auth.token.justelle_room == roomId &&
+        exists(/databases/$(database)/documents/rooms/$(roomId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.uids;
+    }
+    function roomMembers(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data.uids;
+    }
+    function validNewText() {
+      return request.resource.data.keys().hasAll(['body','author_uid','created_at']) &&
+        request.resource.data.keys().hasOnly(['body','author_uid','created_at']) &&
+        request.resource.data.body is string &&
+        request.resource.data.body.size()>0 && request.resource.data.body.size()<=2000 &&
+        request.resource.data.author_uid==request.auth.uid &&
+        request.resource.data.created_at is string;
+    }
+    function validNewDecision() {
+      return request.resource.data.keys().hasAll(['body','author_uid','created_at','status','approvals']) &&
+        request.resource.data.keys().hasOnly(['body','author_uid','created_at','status','approvals']) &&
+        request.resource.data.body is string && request.resource.data.body.size()>0 && request.resource.data.body.size()<=2000 &&
+        request.resource.data.author_uid==request.auth.uid &&
+        request.resource.data.created_at is string &&
+        request.resource.data.status=='proposed' && request.resource.data.approvals=={};
+    }
+    function validVote(roomId) {
+      let previous=resource.data.approvals;
+      let next=request.resource.data.approvals;
+      let inserted=next.diff(previous).addedKeys();
+      return resource.data.status=='proposed' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','approvals']) &&
+        inserted.hasOnly([request.auth.uid]) && inserted.size()==1 &&
+        next.diff(previous).removedKeys().size()==0 &&
+        next.diff(previous).changedKeys().size()==0 &&
+        next[request.auth.uid] == true &&
+        next.keys().hasOnly(roomMembers(roomId)) &&
+        request.resource.data.status ==
+          (next.keys().hasAll(roomMembers(roomId)) ? 'locked' : 'proposed');
+    }
+    match /rooms/{roomId} {
+      allow get: if isMember(roomId);
+      allow list,create,update,delete: if false;
+      match /messages/{messageId} {
+        allow get,list: if isMember(roomId);
+        allow create: if isMember(roomId) && validNewText();
+        allow update,delete: if false;
+      }
+      match /decisions/{decisionId} {
+        allow get,list: if isMember(roomId);
+        allow create: if isMember(roomId) && validNewDecision();
+        allow update: if isMember(roomId) && validVote(roomId);
+        allow delete: if false;
+      }
+    }
+    match /{allPaths=**} {allow read,write: if false;}
+  }
+}

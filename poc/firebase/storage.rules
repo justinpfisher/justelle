@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+ match /b/{bucket}/o {
+   function member(roomId) {
+     return request.auth != null && request.auth.token.justelle_member == true &&
+       request.auth.token.justelle_room == roomId;
+   }
+   match /rooms/{roomId}/media/{fileId} {
+     allow get, list: if member(roomId);
+     allow create: if member(roomId) &&
+       request.resource.size>0 && request.resource.size<=1024*1024 &&
+       request.resource.contentType.matches('image/(png|jpeg)') &&
+       request.resource.metadata.author_uid==request.auth.uid;
+     allow update,delete: if false;
+   }
+   match /{allPaths=**} {allow read,write: if false;}
+ }
+}

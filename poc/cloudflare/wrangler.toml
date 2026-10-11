@@ -1,0 +1,15 @@
+name = "justelle-infrastructure-poc"
+main = "src/index.mjs"
+compatibility_date = "2026-10-10"
+# LOCAL-ONLY illustrative binding identifiers. Do not deploy against any real project.
+[vars]
+ROOM_ID = "fictional-room"
+FIREBASE_PROJECT_ID = "demo-justelle-poc"
+# No MEMBER_MAP_JSON: production and dev API fail closed until deliberately configured.
+[[d1_databases]]
+binding = "DB"
+database_name = "justelle-fictional-poc"
+database_id = "00000000-0000-0000-0000-000000000000"
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "justelle-fictional-poc"
