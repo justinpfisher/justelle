@@ -29,7 +29,7 @@ async function context(){
 }
 const messageRef=(c,id)=>doc(c.firestore(),'rooms',room,'messages',id);
 const decisionRef=(c,id)=>doc(c.firestore(),'rooms',room,'decisions',id);
-const storageRef=c=>ref(c.storage(`gs://${projectId}.firebasestorage.app`),path);
+const storageRef=(c,id=fileId)=>ref(c.storage(`gs://${projectId}.firebasestorage.app`),`rooms/${room}/media/${id}.png`);
 
 // All tests use emulated Firestore/Storage and mock Auth claims, not real cloud resources.
 test('Firebase: two users share messages, outsiders cannot read or spoof authorship',async()=>{
@@ -78,20 +78,21 @@ test('Firebase: exported fictional records and media restore into independent SQ
   const {env,A,B}=await context();
   try {
     const msg='fictional-message-export';const did='fictional-decision-export';
+    const exportFileId='00000000-0000-4000-8000-000000000002';
     await setDoc(messageRef(A,msg),{body:'Fictional shared chat',author_uid:a,created_at:'2026-10-10T00:00:00Z'});
     await setDoc(decisionRef(A,did),{body:'Fictional agreed plan',author_uid:a,created_at:'2026-10-10T00:00:00Z',status:'proposed',approvals:{}});
     await updateDoc(decisionRef(A,did),{[`approvals.${a}`]:true});
     await updateDoc(decisionRef(B,did),{[`approvals.${b}`]:true,status:'locked'});
-    await uploadBytes(storageRef(A),png,{contentType:'image/png',customMetadata:{author_uid:a}});
+    await uploadBytes(storageRef(A,exportFileId),png,{contentType:'image/png',customMetadata:{author_uid:a}});
     const docs=await getDocs(collection(B.firestore(),'rooms',room,'messages'));
     const decisions=await getDocs(collection(B.firestore(),'rooms',room,'decisions'));
-    const bytes=Buffer.from(await getBytes(storageRef(B)));
-    const metadata=await getMetadata(storageRef(B));
+    const bytes=Buffer.from(await getBytes(storageRef(B,exportFileId)));
+    const metadata=await getMetadata(storageRef(B,exportFileId));
     const bundle={format:'justelle-poc-v1',room,
       messages:docs.docs.map(d=>({id:d.id,room,body:d.data().body,author_id:d.data().author_uid===a?'person-a':'person-b',created_at:d.data().created_at})),
       decisions:decisions.docs.map(d=>({id:d.id,room,author_id:d.data().author_uid===a?'person-a':'person-b',body:d.data().body,status:d.data().status,created_at:d.data().created_at})),
       approvals:decisions.docs.flatMap(d=>Object.keys(d.data().approvals).map(uid=>({decision_id:d.id,person_id:uid===a?'person-a':'person-b',created_at:'2026-10-10T00:00:00Z'}))),
-      files:[{id:fileId,room,author_id:metadata.customMetadata.author_uid===a?'person-a':'person-b',mime:metadata.contentType,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.toString('base64'),created_at:'2026-10-10T00:00:00Z'}]
+      files:[{id:exportFileId,room,author_id:metadata.customMetadata.author_uid===a?'person-a':'person-b',mime:metadata.contentType,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.toString('base64'),created_at:'2026-10-10T00:00:00Z'}]
     };
     const restored=await mkdtemp(join(tmpdir(),'justelle-firebase-poc-'));
     assert.deepEqual(await restoreArchive(bundle,restored),{messages:1,decisions:1,locked:1,files:1});
