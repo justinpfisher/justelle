@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#17696a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="A private space for conversations, ideas and adventures.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+  <title>Justelle. Still us.</title>
+</head>
+<body>
+<main class="shell">
+  <header class="masthead">
+    <img class="brand-art" src="/justelle-caricature.png" alt="The approved Justelle illustration">
+    <div class="brand">
+      <h1>Justelle<span class="period">.</span></h1>
+      <p>Still us.</p>
+    </div>
+    <button type="button" id="sign-out" class="text-button" hidden>Sign out</button>
+  </header>
+  <p class="pilot" role="note"><span class="pilot-dot"></span> Local fictional-data pilot · Not connected to the public website</p>
+  <p id="notice" role="status" aria-live="polite"></p>
+  <p id="error" role="alert" aria-live="assertive"></p>
+  <section class="login-card" id="login">
+    <h2>A place for two.</h2>
+    <p>Sign in with a fictional account created by the local emulator. This prototype is not authorised for personal content.</p>
+    <form id="login-form">
+      <label for="email">Test email</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="password">Test password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <button type="submit" class="primary full">Sign in</button>
+    </form>
+  </section>
+  <div id="private-app" hidden>
+    <nav class="tabs" aria-label="Private areas">
+      <button type="button" class="selected" data-tab="conversation" aria-current="page">Conversation</button>
+      <button type="button" data-tab="agreements">Agreements</button>
+      <button type="button" data-tab="adventures">Adventures</button>
+    </nav>
+    <section id="conversation-tab" class="panel" aria-label="Our shared conversation">
+      <div class="section-header">
+        <div><p class="eyebrow">Our space</p><h2>The conversation</h2></div>
+        <span class="shared-note">Shared by two</span>
+      </div>
+      <ol id="messages" class="timeline" role="log" aria-label="Shared messages"></ol>
+      <p id="conversation-empty" class="empty">Start with a question, an idea or a photograph.</p>
+      <form id="message-form" class="composer">
+        <label for="message-input" class="sr-only">Write a message</label>
+        <textarea id="message-input" rows="2" maxlength="4000" placeholder="What are we thinking about?"></textarea>
+        <div id="staged-images" class="staged" aria-live="polite"></div>
+        <div class="composer-actions">
+          <label for="image-input" class="attachment-button">+ Image<span class="sr-only"> (PNG, JPEG or HEIC)</span></label>
+          <input id="image-input" type="file" accept="image/*,.heic,.heif" multiple>
+          <select id="idea-context" aria-label="Associate with an adventure"><option value="">General conversation</option></select>
+          <button class="primary" id="send-button" type="submit">Send</button>
+        </div>
+        <p class="fineprint">Images remain private and attached to their message. Up to three per message, 12 MB each.</p>
+      </form>
+    </section>
+    <section id="agreements-tab" class="panel" hidden aria-label="Proposals and agreements">
+      <div class="section-header">
+        <div><p class="eyebrow">From possibilities to plans</p><h2>Agreements</h2></div>
+      </div>
+      <p class="intro">Ideas can be explored freely. A decision is locked only after both people agree.</p>
+      <form id="proposal-form" class="soft-card">
+        <label for="proposal-input">Suggest a plan</label>
+        <textarea id="proposal-input" rows="3" maxlength="4000" required placeholder="What shall we agree on?"></textarea>
+        <label for="reason-input" class="subtle-label">Why or what changed? (optional)</label>
+        <textarea id="reason-input" rows="2" maxlength="2000" placeholder="Context worth preserving"></textarea>
+        <div id="revision-context" class="revision-context" hidden></div>
+        <button type="button" class="text-button" id="cancel-revision" hidden>Cancel revision</button>
+        <button type="submit" class="primary">Propose, not decide</button>
+      </form>
+      <div id="decisions" class="decision-list"></div>
+      <p id="decisions-empty" class="empty">No proposals yet. They will appear here with each person's approval.</p>
+    </section>
+    <section id="adventures-tab" class="panel" hidden aria-label="Ideas and adventures">
+      <div class="section-header">
+        <div><p class="eyebrow">Collect the little and big things</p><h2>Adventures</h2></div>
+      </div>
+      <p class="intro">Save an idea, develop a plan, enjoy the experience, and return to the memory. The original conversation stays intact.</p>
+      <form id="idea-form" class="soft-card">
+        <label for="idea-input">A new idea</label>
+        <input type="text" id="idea-input" maxlength="160" required placeholder="A place, moment or possibility">
+        <button type="submit" class="primary">Save idea</button>
+      </form>
+      <div id="adventures" class="adventure-list"></div>
+      <p id="adventures-empty" class="empty">Your saved ideas will gather here.</p>
+      <div class="export-area">
+        <h3>Keep our history</h3>
+        <p>Export an independent JSON archive containing original images, attribution and decision history. Pilot exports are not encrypted: use fictional data only.</p>
+        <button id="export-button" class="secondary" type="button">Export fictional archive</button>
+      </div>
+    </section>
+  </div>
+  <footer>Local prototype · Fictional accounts and photographs only · No live AI or paid service</footer>
+</main>
+<script type="module" src="/main.mjs"></script>
+</body>
+</html>
