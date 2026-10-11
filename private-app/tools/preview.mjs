@@ -27,7 +27,8 @@ async function finish(exitCode=0) {
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function waitFor(url) {
   for(let attempt=0;attempt<90;attempt++) {
-    try { const response=await fetch(url);if(response.status<500)return; } catch{}
+    if(ending) throw Error('Emulator process ended before services became ready');
+    try { await fetch(url);return; } catch{}
     await pause(450);
   }
   throw Error('Local service could not start: '+url);
