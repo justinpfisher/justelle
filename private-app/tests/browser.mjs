@@ -117,7 +117,9 @@ try{
   // A saves a *source-linked* adventure from an existing general-chat message.
   const original=A.locator('#messages .bubble').filter({hasText:'Please suggest a plan for a fictional floating museum visit.'}).first();
   await original.getByRole('button',{name:'Start an adventure'}).click();
-  const topic1=await A.locator('#topic-list .topic-chip.selected').getAttribute('data-topic-id');
+  const newSelectedTopic=A.locator('#topic-list .topic-chip.selected:not([data-topic-id="conversation-shared"])');
+  await newSelectedTopic.waitFor({state:'visible',timeout:15000});
+  const topic1=await newSelectedTopic.getAttribute('data-topic-id');
   assert.ok(topic1?.startsWith('conversation-')&&topic1!=='conversation-shared');
   assert.equal(await A.locator('#messages .bubble').count(),0,'The new discussion starts empty without moving the source message');
   await A.getByText(/Started in our chat/).waitFor({timeout:15000});
