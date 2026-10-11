@@ -21,12 +21,14 @@ The script uses local Firebase Authentication, Firestore and Storage emulators o
 
 ## Current experience
 
-- Two individual fictional member accounts share a real-time conversation and attached images. **In the conversation, Enter sends and Alt+Enter inserts a new line** (Shift+Enter also remains available for line breaks). Enter continues to insert a newline in proposal and other multi-line editors; the Send button works on touchscreens.
+- Two fictional members share **Our chat** and can open individual discussions for each named adventure. Every discussion has its own messages, images and associated plans; the original chat message used to create an adventure is preserved and referenced, not moved or duplicated.
+- Conversations display **the latest 40 messages at first**, with **Load earlier messages** and **Jump to newest**. Older messages and images remain in the provider-neutral archive, regardless of what's onscreen. Adventures are labelled clearly so users know which topic they're discussing.
+- **Enter sends** within a conversation, **Alt+Enter** (or Shift+Enter) inserts a new line. Other multi-line editors behave normally; the Send button remains available for iPhone users. The last selected discussion is remembered on the local device after signing in again.
 - Image files can be PNG or JPEG; iPhone HEIC/HEIF originals remain intact while the browser attempts to create a separate JPEG preview with heic2any. An unsupported conversion fails without uploading anything. Up to three images per message, each no more than 12 MB, with errors and retry through the message composer.
 - Image retrieval uses the authenticated Firebase Storage SDK. No reusable getDownloadURL token link is deliberately generated; a hosted direct URL test remains required.
-- The test AI gateway verifies the member's Auth ID token and room membership, then obtains original image bytes and SHA-256 checksums, and passes them through a replaceable provider interface. **The deterministic test provider does not understand image pixels** and does not contact a paid model. AI suggestions are stored as proposals, never decisions.
-- Plans use conversational statuses such as **Just a suggestion**, **You said yes. Waiting for [other member] to weigh in**, and **We both said yes**. These are displayed from the current viewer’s perspective; each person's name and agreement time is also shown. Underneath, both people must expressly agree to a proposal before it is locked. Locked versions and approval timestamps are preserved. A change to an agreed plan creates a separate suggestion linked to the original. The AI cannot agree on anyone’s behalf.
-- A saved idea progresses through idea, plan, experience and memory. Source messages and their attachments remain separate, recoverable records.
+- The emulator-only test AI gateway verifies member authentication and room membership, loads **only the active discussion context** and related confirmed plans, and checks original-image SHA-256 digests before passing bytes through a replaceable provider interface. **The deterministic assistant cannot answer factual questions or interpret images**, states that limitation clearly, and makes draft plans **only when explicitly asked**. No external AI API is called.
+- Plans appear **within the discussion they concern**, not in an unrelated global list. Human suggestions can be agreed to by both members or passed on by either person. The interface says **Just a suggestion**, **You said yes. Waiting for [other member] to weigh in**, **Not for us**, or **We both said yes**. Who agreed or declined is retained. A new agreed version supersedes an old one in the interface without changing the original record. Competing agreed revisions are surfaced for clarification, never silently resolved by AI.
+- An adventure tracks exploring, planning, an experience and eventually a memory. **Its stage is not the same as mutual agreement**, which still requires two explicit confirmations for significant decisions. The source message and all linked attachments remain independent records.
 - The browser can export provider-neutral Justelle-memory-v1 JSON, including stable person IDs, conversations, provenance, proposals, approvals, revisions, adventures and original file bytes with SHA-256 digests.
 - The independent restore utility verifies checksums and relationships before writing a fresh, ordinary SQLite file plus individual original media files. It does not require Firebase or an AI provider.
 
@@ -39,7 +41,17 @@ From the private-app directory:
     npx playwright install chromium
     npm run test:browser
 
-GitHub Actions runs the same commands using Node 22 and Java 21. Check the actual PR #5 Actions run status for the current pass/fail result rather than interpreting committed test source as evidence. The official Firebase Rules emulators are used for access controls; Chromium exercises two independent 390px browser sessions, messages, images, AI replies, approvals, adventure progression, exports and reopen persistence. All accounts, conversations and fixture images are fictional.
+GitHub Actions runs the same commands using Node 22 and Java 21. Consult the most recent PR #5 Actions result rather than treating committed tests as proof of success. Firebase official emulators check outsider/unauthenticated denial, cross-discussion isolation, declined proposals, immutable history and authentication; Chromium at 390 px tests two independent accounts, named discussions, source messages, 40-message paging and jump-to-latest, previews, the honest mock AI, approval and rejection, adventure stages, independent export/restore and browser-profile reopen. All test records and images are fictional.
+
+
+## Usability boundaries for the next private trial
+
+The new user-facing architecture is **general chat + a discussion per adventure**, with inline plans and limited initial message loading. It intentionally avoids creating a separate chat for every passing thought. This remains a fictional local pilot, not a service with real long-term content.
+
+- **Still to build or test:** cross-device unread indicators, full-history search, automatic linking/deduplication of closely related adventures, real iPhone Safari/Home Screen behaviour, production image handling and a real vision-capable AI. Avoid claiming those capabilities.
+- **Agreement conflicts:** the interface warns if independent proposed replacements of one earlier decision are both agreed. Full prevention of concurrent contradictory agreements requires a stronger server-side decision-group invariant before real content is used.
+- **Compatibility:** existing pilot messages in the shared room remain readable. New adventure-specific chats use their own stable IDs. Old fiction-only emulator data is disposable and may reset each time the preview restarts.
+- **After pulling a source update:** stop the running pilot with Ctrl+C and restart `npm.cmd run pilot` so that Firestore Security Rules and the mock AI gateway reload too. New disposable credentials are printed in the terminal.
 
 ## Offline restoration
 
