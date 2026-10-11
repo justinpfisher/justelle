@@ -1,0 +1,141 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function roomPath(roomId) {
+      return /databases/$(database)/documents/rooms/$(roomId);
+    }
+    function member(roomId) {
+      return request.auth != null &&
+        request.auth.token.justelle_member == true &&
+        request.auth.token.justelle_room == roomId &&
+        exists(roomPath(roomId)) &&
+        request.auth.uid in get(roomPath(roomId)).data.uids &&
+        request.auth.uid in get(roomPath(roomId)).data.people.keys();
+    }
+    function room(roomId) { return get(roomPath(roomId)).data; }
+    function person(roomId) { return room(roomId).people[request.auth.uid]; }
+    function authored(roomId) {
+      return request.resource.data.author_uid == request.auth.uid &&
+        request.resource.data.author_id == person(roomId);
+    }
+    function nowCreated() {
+      return request.resource.data.created_at == request.time;
+    }
+    function conversation(roomId) {
+      return request.resource.data.conversation_id == 'conversation-shared';
+    }
+    function validMessage(roomId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['body','author_uid','author_id','kind','conversation_id','adventure_id','attachment_ids','created_at']) &&
+        d.keys().hasOnly(['body','author_uid','author_id','kind','conversation_id','adventure_id','attachment_ids','created_at']) &&
+        authored(roomId) && nowCreated() && conversation(roomId) &&
+        d.kind == 'person' && d.body is string && d.body.size() <= 4000 &&
+        d.attachment_ids is list && d.attachment_ids.size() <= 3 &&
+        (d.body.size() > 0 || d.attachment_ids.size() > 0) &&
+        (d.adventure_id == null || d.adventure_id is string);
+    }
+    function validAttachment(roomId, attachmentId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['id','author_uid','author_id','name','mime','size','sha256','original_path','preview_path','created_at']) &&
+        d.keys().hasOnly(['id','author_uid','author_id','name','mime','size','sha256','original_path','preview_path','created_at']) &&
+        authored(roomId) && nowCreated() &&
+        d.id == attachmentId && d.name is string && d.name.size() <= 180 &&
+        d.mime in ['image/png','image/jpeg','image/heic','image/heif'] &&
+        d.size is int && d.size > 0 && d.size <= 12582912 &&
+        d.sha256 is string && d.sha256.matches('[a-f0-9]{64}') &&
+        d.original_path == 'rooms/' + roomId + '/media/' + attachmentId &&
+        (d.preview_path == null || (
+          d.mime in ['image/heic','image/heif'] &&
+          d.preview_path == 'rooms/' + roomId + '/media/' + attachmentId + '-preview'));
+    }
+    function validProposal(roomId, decisionId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at']) &&
+        d.keys().hasOnly(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at']) &&
+        authored(roomId) && nowCreated() && conversation(roomId) &&
+        d.origin == 'human' &&
+        d.body is string && d.body.size() > 0 && d.body.size() <= 4000 &&
+        d.why is string && d.why.size() <= 2000 &&
+        (d.adventure_id == null || d.adventure_id is string) &&
+        (d.source_message_id == null || d.source_message_id is string) &&
+        d.status == 'proposed' && d.approvals == {} && d.approval_times == {} && d.locked_at == null &&
+        (d.replaces_id == null || (
+          d.replaces_id is string &&
+          d.replaces_id != decisionId &&
+          exists(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)) &&
+          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.status == 'locked'));
+    }
+    function validApproval(roomId) {
+      let old = resource.data;
+      let next = request.resource.data;
+      let changed = next.approvals.diff(old.approvals);
+      let times = next.approval_times.diff(old.approval_times);
+      let both = next.approvals.keys().hasAll(room(roomId).uids);
+      return old.status == 'proposed' &&
+        room(roomId).uids.size() == 2 &&
+        next.diff(old).affectedKeys().hasOnly(['approvals','approval_times','status','locked_at']) &&
+        changed.addedKeys().size() == 1 &&
+        changed.addedKeys().hasOnly([request.auth.uid]) &&
+        changed.changedKeys().size() == 0 && changed.removedKeys().size() == 0 &&
+        times.addedKeys().size() == 1 && times.addedKeys().hasOnly([request.auth.uid]) &&
+        times.changedKeys().size() == 0 && times.removedKeys().size() == 0 &&
+        next.approvals.keys().hasOnly(room(roomId).uids) &&
+        next.approval_times.keys().hasOnly(room(roomId).uids) &&
+        next.approvals.keys().hasAll(next.approval_times.keys()) &&
+        next.approval_times.keys().hasAll(next.approvals.keys()) &&
+        next.approvals[request.auth.uid] == true &&
+        next.approval_times[request.auth.uid] == request.time &&
+        next.status == (both ? 'locked' : 'proposed') &&
+        (both ? next.locked_at == request.time : next.locked_at == null);
+    }
+    function validIdea(roomId, adventureId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at']) &&
+        d.keys().hasOnly(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at']) &&
+        authored(roomId) && nowCreated() && conversation(roomId) &&
+        d.id == adventureId && d.title is string && d.title.size() > 0 && d.title.size() <= 160 &&
+        d.phase == 'idea' && d.phases == ['idea'] &&
+        d.last_modified_by == person(roomId) &&
+        (d.source_message_id == null || d.source_message_id is string) &&
+        d.updated_at == request.time;
+    }
+    function validNextPhase(roomId) {
+      let old = resource.data;
+      let d = request.resource.data;
+      return d.diff(old).affectedKeys().hasOnly(['phase','phases','updated_at','last_modified_by']) &&
+        ((old.phase == 'idea' && d.phase == 'plan') ||
+         (old.phase == 'plan' && d.phase == 'experience') ||
+         (old.phase == 'experience' && d.phase == 'memory')) &&
+        d.phases == old.phases + [d.phase] &&
+        d.updated_at == request.time &&
+        d.last_modified_by == person(roomId);
+    }
+    match /rooms/{roomId} {
+      allow get: if member(roomId);
+      allow list, create, update, delete: if false;
+      match /messages/{messageId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validMessage(roomId);
+        allow update, delete: if false;
+      }
+      match /attachments/{attachmentId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validAttachment(roomId, attachmentId);
+        allow update, delete: if false;
+      }
+      match /decisions/{decisionId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validProposal(roomId, decisionId);
+        allow update: if member(roomId) && validApproval(roomId);
+        allow delete: if false;
+      }
+      match /adventures/{adventureId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validIdea(roomId, adventureId);
+        allow update: if member(roomId) && validNextPhase(roomId);
+        allow delete: if false;
+      }
+    }
+    match /{other=**} { allow read, write: if false; }
+  }
+}

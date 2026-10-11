@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.firebase/
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.jsonl
+backups/
+exports/
+playwright-report/
+test-results/
