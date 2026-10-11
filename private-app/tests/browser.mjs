@@ -45,6 +45,9 @@ try {
   await A.locator('#staged-images img').waitFor();
   await A.locator('#ask-ai-button').click();
   await B.getByText('Could we plan a fictional floating museum visit?',{exact:true}).waitFor({timeout:20000});
+  await B.locator('#message-input').fill('Fictional member B replies with a new thought.');
+  await B.locator('#send-button').click();
+  await A.getByText('Fictional member B replies with a new thought.',{exact:true}).waitFor({timeout:15000});
   await B.locator('.image-tile').first().waitFor();
   await B.waitForFunction(()=>document.querySelector('.image-tile')?.naturalWidth>0,{timeout:15000});
   await B.getByText(/I received 1 original image securely/).waitFor({timeout:20000});
