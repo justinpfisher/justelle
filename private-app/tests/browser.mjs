@@ -109,6 +109,7 @@ try{
   await A.locator('#proposal-form button[type="submit"]').click();
   await B.getByText('Just a suggestion',{exact:true}).first().waitFor();
   await B.locator('#decisions .record-card').first().getByRole('button',{name:'Not for me'}).click();
+  await B.locator('#decisions details summary').click();
   await B.getByText('Not for us',{exact:true}).first().waitFor();
   await B.getByText('We both said yes',{exact:true}).first().waitFor();
   await B.locator('#close-plans').click();
@@ -137,7 +138,7 @@ try{
   await A.locator('[data-tab="adventures"]').click();
   await A.locator('#idea-input').fill('Fictional coastal walk');
   await A.locator('#idea-form button').click();
-  await A.locator('#topic-title').getByText('Fictional coastal walk').waitFor();
+  await A.getByRole('heading',{name:'Fictional coastal walk',exact:true}).waitFor();
   const topic2=await A.locator('#topic-list .topic-chip.selected').getAttribute('data-topic-id');
   assert.notEqual(topic2,topic1);
   await A.locator('#message-input').fill('Only in the coastal walk conversation.');
@@ -217,12 +218,12 @@ try{
 
   // Re-opening the browser profile keeps both authentication and active topic.
   await A.reload();await A.locator('#private-app').waitFor({state:'visible',timeout:25000});
-  await A.locator('#topic-title').getByText('Fictional coastal walk').waitFor();
+  await A.getByRole('heading',{name:'Fictional coastal walk',exact:true}).waitFor();
   await ctxA.close();ctxA=null;
   ctxA=await chromium.launchPersistentContext(dirA,{headless:true,viewport:{width:390,height:844},acceptDownloads:true});
   const again=await ctxA.newPage();await again.goto(base);
   await again.locator('#private-app').waitFor({state:'visible',timeout:25000});
-  await again.locator('#topic-title').getByText('Fictional coastal walk').waitFor();
+  await again.getByRole('heading',{name:'Fictional coastal walk',exact:true}).waitFor();
   assert.equal(await again.locator('#login').isVisible(),false);
   assert.deepEqual(pageErrors,[]);
   console.log('BROWSER PASS: scoped chats, 40-message pages, jump to latest, source-linked adventures, two-member plans, decline/revision history, transparent AI, image preview, independent restore and session persistence');
