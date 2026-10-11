@@ -16,7 +16,7 @@ connectStorageEmulator(storage,location.hostname,9199);
 await setPersistence(auth,browserLocalPersistence);
 
 const $=id=>document.getElementById(id);
-let backend=null,stop=[],pending=[],replacesId=null,sourceMessageId=null;
+let backend=null,stop=[],pending=[],replacesId=null,sourceMessageId=null,sending=false;
 let records={messages:[],attachments:[],decisions:[],adventures:[]};
 const mediaUrls=new Map();
 const muted=new Set();
@@ -107,7 +107,7 @@ function renderMessages() {
           setNotice('Idea saved. You can develop it under Adventures.');
         }catch(e){error(e);}
       };
-      const propose=element('button',null,'Propose a plan');
+      const propose=element('button',null,'Suggest a plan');
       propose.type='button';
       propose.onclick=()=>{
         replacesId=null;sourceMessageId=message.id;
@@ -121,37 +121,74 @@ function renderMessages() {
     list.append(bubble);
   }
 }
+function decisionWording(decision) {
+  const me=auth.currentUser.uid;
+  const other=backend.membership.uids.find(uid=>uid!==me);
+  const otherName=labels()[other]||'the other person';
+  if(decision.status==='locked') return {
+    tag:'We both said yes',
+    message:'This is our plan. If we want to change it, we’ll decide together again.'
+  };
+  if(decision.approvals?.[me] && decision.approvals?.[other]) return {
+    tag:'We both said yes',
+    message:'Our plan is being saved.'
+  };
+  if(decision.approvals?.[me]) return {
+    tag:'Still deciding',
+    message:'You said yes. Waiting for '+otherName+' to weigh in.'
+  };
+  if(decision.approvals?.[other]) return {
+    tag:'Still deciding',
+    message:otherName+' said yes. What do you think?'
+  };
+  return {
+    tag:'Just a suggestion',
+    message:'Nothing is settled yet. We can each say yes when we’re ready.'
+  };
+}
 function renderDecisions() {
   const root=$('decisions');
   root.replaceChildren();
   $('decisions-empty').hidden=records.decisions.length>0;
   for(const d of records.decisions.slice().reverse()) {
     const card=element('article','record-card');card.dataset.decisionId=d.id;
-    const count=Object.keys(d.approvals||{}).length;
-    card.append(element('span','tag'+(d.status==='locked'?' locked':''),d.status==='locked'?'Locked · 2/2 approvals':'Proposed · '+count+'/2 approvals'));
+    const wording=decisionWording(d);
+    card.append(element('span','tag'+(d.status==='locked'?' locked':''),wording.tag));
     card.append(element('h3',null,d.body));
-    card.append(element('p','meta','By '+authorName(d.author_id)+' · '+stamp(d.created_at)));
+    card.append(element('p','meta','Suggested by '+authorName(d.author_id)+' · '+stamp(d.created_at)));
+    card.append(element('p','decision-summary',wording.message));
+    for(const uid of backend.membership.uids) {
+      if(d.approvals?.[uid]) {
+        const name=uid===auth.currentUser.uid?'You':(labels()[uid]||'The other person');
+        const when=d.approval_times?.[uid];
+        card.append(element('p','meta agreement-history',name+' said yes'+(when?.toDate?' · '+stamp(when):'')));
+      }
+    }
     if(d.why) card.append(element('p','context',d.why));
-    if(d.replaces_id) card.append(element('p','context','Proposed replacement of earlier agreement '+d.replaces_id.slice(0,8)+'. Original remains preserved.'));
+    if(d.replaces_id) {
+      const earlier=records.decisions.find(previous=>previous.id===d.replaces_id);
+      const summary=earlier?'“'+earlier.body.slice(0,140)+(earlier.body.length>140?'…':'')+'”':'our earlier plan';
+      card.append(element('p','context','This would change '+summary+'. The earlier plan stays as it is until we both say yes.'));
+    }
     const actions=element('div','actions');
     if(d.status==='proposed') {
       const voted=Boolean(d.approvals?.[auth.currentUser.uid]);
-      const agree=element('button',voted?'secondary':'primary',voted?'Your agreement recorded':'I agree');
+      const agree=element('button',voted?'secondary':'primary',voted?'You said yes':'Yes, I agree');
       agree.type='button';agree.disabled=voted;
       agree.onclick=async()=>{
         clearError();
-        try {await backend.approve(auth.currentUser,d.id);setNotice('Your agreement is recorded. Two approvals are needed to lock.');}
+        try {await backend.approve(auth.currentUser,d.id);setNotice('You said yes. This becomes our plan once we both agree.');}
         catch(e){error(e);}
       };
       actions.append(agree);
     } else {
-      const revise=element('button','secondary','Suggest revision');
+      const revise=element('button','secondary','Suggest a change');
       revise.type='button';
       revise.onclick=()=>{
         replacesId=d.id;sourceMessageId=null;
         $('proposal-input').value=d.body;
         $('reason-input').value='';
-        $('revision-context').textContent='Creating a new proposal to replace this locked version. The original remains unchanged.';
+        $('revision-context').textContent='This will be a new suggestion. Our agreed plan stays as it is until we both say yes to a change.';
         $('revision-context').hidden=false;$('cancel-revision').hidden=false;
         $('proposal-input').focus();
         $('proposal-form').scrollIntoView({block:'start',behavior:'smooth'});
@@ -215,9 +252,10 @@ $('image-input').addEventListener('change',async e=>{
   setNotice('');
 });
 async function sendMessage(askAI=false) {
-  if(!backend || !auth.currentUser)return;
+  if(sending||!backend||!auth.currentUser)return;
   clearError();const body=$('message-input').value;
   if(!body.trim()&&!pending.length){error(Error('Enter a message or choose an image.'));return;}
+  sending=true;
   const button=$('send-button'),aiButton=$('ask-ai-button');
   button.disabled=true;aiButton.disabled=true;
   try {
@@ -233,9 +271,26 @@ async function sendMessage(askAI=false) {
     setNotice('Shared with both members.');
     if(askAI) await requestAI(id);
   }catch(e){error(e);}
-  finally{button.disabled=false;aiButton.disabled=false;}
+  finally{sending=false;button.disabled=false;aiButton.disabled=false;}
 }
 $('message-form').addEventListener('submit',e=>{e.preventDefault();void sendMessage();});
+$('message-input').addEventListener('keydown',event=>{
+  if(event.key!=='Enter'||event.isComposing||event.keyCode===229)return;
+  if(event.altKey) {
+    // Browsers do not consistently treat Alt+Enter as a newline in textareas.
+    event.preventDefault();
+    const input=event.currentTarget;
+    if(input.value.length>=input.maxLength)return;
+    input.setRangeText('\n',input.selectionStart,input.selectionEnd,'end');
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    return;
+  }
+  // Shift+Enter retains the browser's normal newline behaviour.
+  if(event.shiftKey||event.ctrlKey||event.metaKey)return;
+  event.preventDefault();
+  if(event.repeat||sending||(!$('message-input').value.trim()&&!pending.length))return;
+  $('message-form').requestSubmit($('send-button'));
+});
 const askButton=element('button','secondary','Ask AI');
 askButton.id='ask-ai-button';askButton.type='button';askButton.onclick=()=>sendMessage(true);
 $('send-button').before(askButton);
@@ -250,7 +305,7 @@ async function requestAI(messageId) {
     });
     const answer=await response.json();
     if(!response.ok)throw Error(answer.error||'AI gateway unavailable');
-    setNotice(answer.replayed?'The test AI has already answered this message.':'Test AI replied. A proposal, if any, still needs both approvals.');
+    setNotice(answer.replayed?'Justelle’s test AI already answered this message.':'Justelle’s test AI replied. Any plan it suggests is up to both of you.');
   }catch(e){error(e);}
 }
 $('proposal-form').addEventListener('submit',async e=>{
@@ -262,7 +317,7 @@ $('proposal-form').addEventListener('submit',async e=>{
     });
     $('proposal-input').value='';$('reason-input').value='';
     replacesId=null;sourceMessageId=null;$('revision-context').hidden=true;$('cancel-revision').hidden=true;
-    setNotice('Saved as a proposal, not a decision.');
+    setNotice('It’s just a suggestion for now. It becomes our plan only when we both say yes.');
   }catch(e){error(e);}
 });
 $('cancel-revision').onclick=()=>{
