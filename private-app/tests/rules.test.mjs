@@ -34,11 +34,11 @@ function messageData(uid=a,ids=[]) {
 function proposalData(uid=a,replaces=null) {
   return {body:'Fictional museum visit',why:'Testing agreement',author_uid:uid,author_id:uid===a?'person-a':'person-b',
     origin:'human',conversation_id:'conversation-shared',adventure_id:null,source_message_id:null,replaces_id:replaces,
-    status:'proposed',approvals:{},approval_times:{},created_at:serverTimestamp(),locked_at:null};
+    status:'proposed',approvals:{},approval_times:{},created_at:serverTimestamp(),locked_at:null,declined_by:null,declined_at:null};
 }
 function ideaData(uid=a) {
   return {id:'idea-1',title:'Fictional garden',phase:'idea',phases:['idea'],author_uid:uid,
-    author_id:uid===a?'person-a':'person-b',last_modified_by:'person-a',conversation_id:'conversation-shared',
+    author_id:uid===a?'person-a':'person-b',last_modified_by:'person-a',conversation_id:'conversation-idea-1',
     source_message_id:null,created_at:serverTimestamp(),updated_at:serverTimestamp()};
 }
 test('Two authorised members share immutable messages; outsiders, unauthenticated clients and forged authors fail',async()=>{
@@ -113,5 +113,57 @@ test('Idea stages only progress in order with attributable append-only phase his
     assert.deepEqual((await getDoc(adventure(B,'idea-1'))).data().phases,['idea','plan','experience','memory']);
     await assertFails(updateDoc(adventure(A,'idea-1'),{phase:'idea'}));
     await assertFails(getDoc(adventure(X,'idea-1')));
+  }finally{await env.cleanup();}
+});
+
+
+test('Adventure discussions stay scoped, old shared chat stays separate and spoofing a topic fails',async()=>{
+  const {env,A,B,X,U}=await context();
+  try{
+    await assertSucceeds(setDoc(adventure(A,'idea-1'),ideaData()));
+    await assertSucceeds(setDoc(message(A,'topic-message'),{
+      ...messageData(),conversation_id:'conversation-idea-1',adventure_id:'idea-1'
+    }));
+    await assertSucceeds(setDoc(message(B,'general-message'),messageData(b)));
+    await assertFails(setDoc(message(A,'wrong-topic'),{
+      ...messageData(),conversation_id:'conversation-unrelated',adventure_id:'idea-1'
+    }));
+    await assertFails(setDoc(message(A,'unbacked-topic'),{
+      ...messageData(),conversation_id:'conversation-missing',adventure_id:'missing'
+    }));
+    const provider=firebaseBackend({db:A.firestore(),storage:null,roomId:room,membership});
+    const general=await provider.readPage('conversation-shared');
+    const topic=await provider.readPage('conversation-idea-1');
+    assert.deepEqual(general.items.map(m=>m.id),['general-message']);
+    assert.deepEqual(topic.items.map(m=>m.id),['topic-message']);
+    await assertFails(getDoc(message(X,'topic-message')));
+    await assertFails(getDoc(message(U,'topic-message')));
+    await assertFails(updateDoc(adventure(B,'idea-1'),{conversation_id:'conversation-hijacked'}));
+    await assertFails(setDoc(decision(A,'wrong-decision'),{
+      ...proposalData(),conversation_id:'conversation-shared',adventure_id:'idea-1'
+    }));
+    await assertSucceeds(setDoc(decision(A,'topic-decision'),{
+      ...proposalData(),conversation_id:'conversation-idea-1',adventure_id:'idea-1'
+    }));
+  }finally{await env.cleanup();}
+});
+
+test('A member can pass on a suggestion without erasing it or altering a confirmed plan',async()=>{
+  const {env,A,B,X}=await context();
+  try{
+    await assertSucceeds(setDoc(decision(A,'optional-plan'),proposalData()));
+    const one=firebaseBackend({db:A.firestore(),storage:null,roomId:room,membership});
+    const two=firebaseBackend({db:B.firestore(),storage:null,roomId:room,membership});
+    await one.approve({uid:a},'optional-plan');
+    await two.decline({uid:b},'optional-plan');
+    const d=(await getDoc(decision(A,'optional-plan'))).data();
+    assert.equal(d.status,'declined');
+    assert.equal(d.declined_by,'person-b');
+    assert.ok(d.declined_at);
+    assert.equal(d.approvals[a],true); // History of both perspectives is retained.
+    assert.equal(await one.approve({uid:a},'optional-plan'),false);
+    await assertFails(updateDoc(decision(B,'optional-plan'),{status:'locked'}));
+    await assertFails(updateDoc(decision(A,'optional-plan'),{body:'Erase rejection'}));
+    await assertFails(updateDoc(decision(X,'optional-plan'),{status:'proposed'}));
   }finally{await env.cleanup();}
 });
