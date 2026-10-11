@@ -540,6 +540,7 @@ onAuthStateChanged(auth,async user=>{
       records.adventures=rows;
       if(first){
         first=false;
+        renderAdventures();
         selectTopic(wanted&&rows.some(a=>a.id===wanted)?wanted:null);
       }else{
         renderAdventures();void renderSourceNote(topicVersion);
