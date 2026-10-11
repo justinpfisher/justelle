@@ -1,6 +1,6 @@
 // Creates fictional accounts in *local Firebase emulators only*. Passwords are
 // randomly generated at test runtime and are never committed or logged.
-import {initializeApp} from 'firebase-admin/app';
+import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getFirestore} from 'firebase-admin/firestore';
 import {randomBytes} from 'node:crypto';
@@ -23,4 +23,6 @@ for(const name of ['a','b']) {
 await db.doc('rooms/fictional-room').set({uids:['fictional-a','fictional-b']});
 const filename=join(tmpdir(),`justelle-poc-${process.pid}.json`);
 await writeFile(filename,JSON.stringify(fixture),{mode:0o600,flag:'wx'});
+await db.terminate();
+await deleteApp(app);
 process.stdout.write(filename+'\n');
