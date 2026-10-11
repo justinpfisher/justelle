@@ -40,29 +40,59 @@ try {
   A.on('pageerror',e=>pagesErrors.push('A: '+e.message));
   B.on('pageerror',e=>pagesErrors.push('B: '+e.message));
   await login(A,fixture.a);await login(B,fixture.b);
-  await A.locator('#message-input').fill('Could we plan a fictional floating museum visit?');
+  // Enter sends from the conversation, while Alt+Enter inserts a line break
+  // without posting prematurely. No shortcuts apply to the plan editor.
+  const composerA=A.locator('#message-input');
+  await composerA.fill('A fictional first line');
+  await composerA.press('Alt+Enter');
+  await A.keyboard.type('and a second line');
+  assert.equal(await composerA.inputValue(),'A fictional first line\nand a second line');
+  assert.equal(await B.locator('#messages .bubble').count(),0,'Alt+Enter should not send');
+  await composerA.press('Enter');
+  const multiline=B.locator('#messages .bubble').filter({hasText:'A fictional first line'}).first();
+  await multiline.waitFor({timeout:15000});
+  assert.equal(await multiline.locator('p').first().textContent(),'A fictional first line\nand a second line');
+  assert.equal(await composerA.inputValue(),'','Enter should clear the successfully sent message');
+  assert.equal(await B.locator('#messages .bubble').filter({hasText:'A fictional first line'}).count(),1);
+
+  await composerA.fill('Draft while choosing IME characters');
+  await composerA.evaluate(node=>node.dispatchEvent(new KeyboardEvent('keydown',{
+    key:'Enter',bubbles:true,cancelable:true,isComposing:true
+  })));
+  assert.equal(await composerA.inputValue(),'Draft while choosing IME characters','IME composition must not send');
+  assert.equal(await A.locator('#messages .bubble').filter({hasText:'Draft while choosing IME characters'}).count(),0);
+
+  await composerA.fill('Could we plan a fictional floating museum visit?');
   await A.locator('#image-input').setInputFiles({name:'fictional-landscape.png',mimeType:'image/png',buffer:await readFile(new URL('./fictional-landscape.png',import.meta.url))});
   await A.locator('#staged-images img').waitFor();
   await A.locator('#ask-ai-button').click();
   await B.getByText('Could we plan a fictional floating museum visit?',{exact:true}).waitFor({timeout:20000});
   await B.locator('#message-input').fill('Fictional member B replies with a new thought.');
-  await B.locator('#send-button').click();
+  await B.locator('#message-input').press('Enter');
   await A.getByText('Fictional member B replies with a new thought.',{exact:true}).waitFor({timeout:15000});
   await B.locator('.image-tile').first().waitFor();
   await B.waitForFunction(()=>document.querySelector('.image-tile')?.naturalWidth>0,{timeout:15000});
   await B.getByText(/I received 1 original image securely/).waitFor({timeout:20000});
   await B.locator('[data-tab="agreements"]').click();
   await B.getByText(/Fictional suggestion to explore/).waitFor({timeout:15000});
-  const agreeB=B.locator('.record-card button').filter({hasText:'I agree'}).first();
-  await agreeB.click();
-  await B.getByText('Proposed · 1/2 approvals',{exact:false}).waitFor({timeout:15000});
+  const firstCardB=B.locator('#decisions .record-card').first();
+  assert.equal(await firstCardB.locator('.tag').textContent(),'Just a suggestion');
+  assert.match(await firstCardB.locator('.decision-summary').textContent(),/Nothing is settled yet/);
+  await firstCardB.getByRole('button',{name:'Yes, I agree'}).click();
+  await B.getByText('You said yes. Waiting for Fictional A to weigh in.',{exact:true}).waitFor({timeout:15000});
   await A.locator('[data-tab="agreements"]').click();
-  await A.locator('.record-card button').filter({hasText:'I agree'}).first().click();
-  await B.getByText('Locked · 2/2 approvals',{exact:false}).waitFor({timeout:15000});
-  await A.locator('.record-card button').filter({hasText:'Suggest revision'}).first().click();
+  await A.getByText('Fictional B said yes. What do you think?',{exact:true}).waitFor({timeout:15000});
+  await A.locator('#decisions .record-card').first().getByRole('button',{name:'Yes, I agree'}).click();
+  await B.getByText('We both said yes',{exact:true}).waitFor({timeout:15000});
+  assert.match(await firstCardB.innerText(),/You said yes/);
+  assert.match(await firstCardB.innerText(),/Fictional A said yes/);
+  assert.doesNotMatch(await firstCardB.innerText(),/pending|approvals|2\/2/i);
+  await A.locator('.record-card button').filter({hasText:'Suggest a change'}).first().click();
   await A.locator('#reason-input').fill('Fictional new information');
+  await A.locator('#reason-input').press('Enter');
+  assert.equal(await A.locator('#reason-input').inputValue(),'Fictional new information\n');
   await A.locator('#proposal-form button[type="submit"]').click();
-  await A.getByText(/Proposed replacement of earlier agreement/).waitFor({timeout:15000});
+  await A.getByText(/The earlier plan stays as it is until we both say yes/).waitFor({timeout:15000});
   await A.locator('[data-tab="adventures"]').click();
   await A.locator('#idea-input').fill('Fictional coastal walk');
   await A.locator('#idea-form button').click();
@@ -89,7 +119,7 @@ try {
   await again.locator('#private-app').waitFor({state:'visible',timeout:25000});
   assert.equal(await again.locator('#login').isVisible(),false);
   assert.deepEqual(pagesErrors,[]);
-  console.log('BROWSER PASS: 390px independent accounts, two-way snapshots, image preview, secured mock vision bytes, two approvals, revisions, adventures, independent export/restore, persistent browser-profile login');
+  console.log('BROWSER PASS: 390px independent accounts, Enter-to-send, Alt+Enter newline, IME protection, human-readable two-member decisions, image preview, mock AI, revisions, adventures, portable restore and persistent sign-in');
 } finally {
   await ctxA?.close();await ctxB?.close();app.kill('SIGTERM');await unlink(fixtureFile).catch(()=>{});
 }
