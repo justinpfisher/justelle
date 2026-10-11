@@ -64,7 +64,7 @@ try {
   await A.locator('#idea-input').fill('Fictional coastal walk');
   await A.locator('#idea-form button').click();
   await B.locator('[data-tab="adventures"]').click();
-  await B.getByText('Fictional coastal walk',{exact:true}).waitFor({timeout:15000});
+  await B.getByRole('heading',{name:'Fictional coastal walk',exact:true}).waitFor({timeout:15000});
   for(const label of ['Move to plan','Move to experience','Move to memory']) {
     await B.getByRole('button',{name:label}).first().click();
   }
