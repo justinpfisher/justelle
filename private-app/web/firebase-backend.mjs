@@ -40,6 +40,10 @@ export function firebaseBackend({db,storage,roomId,membership}) {
       const snap=await getDoc(docAt('messages',id));
       return snap.exists()?{id:snap.id,...snap.data()}:null;
     },
+    async getAttachment(id) {
+      const snap=await getDoc(docAt('attachments',id));
+      return snap.exists()?{id:snap.id,...snap.data()}:null;
+    },
     async addMessage(user,{body,attachmentIds=[],adventureId=null}) {
       if(!body.trim() && !attachmentIds.length) throw Error('Write something or attach an image.');
       const id=crypto.randomUUID(),scope=context(adventureId);
