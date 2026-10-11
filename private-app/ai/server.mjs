@@ -46,7 +46,24 @@ export async function createResponse(token,sourceMessageId) {
     if(buffer.length!==meta.size || createHash('sha256').update(buffer).digest('hex')!==meta.sha256) throw Error('Attachment integrity mismatch');
     images.push({id,mime:meta.mime,bytes:new Uint8Array(buffer)}); // Provider receives original bytes.
   }
-  const response=await ai.respond({message:source,images,context:{room_id:roomId}});
+  // Supply the adapter only the current discussion, never unrelated room history.
+  // This preserves source messages and connected decisions without making the
+  // external model the owner of permanent Justelle memory.
+  const recent=await db.collection('rooms/'+roomId+'/messages')
+    .where('conversation_id','==',source.conversation_id)
+    .orderBy('created_at','desc').limit(12).get();
+  const recentMessages=recent.docs.map(d=>({
+    id:d.id,body:d.data().body,kind:d.data().kind,author_id:d.data().author_id,
+    conversation_id:d.data().conversation_id
+  })).reverse();
+  const agreements=await db.collection('rooms/'+roomId+'/decisions')
+    .where('conversation_id','==',source.conversation_id).get();
+  const confirmed=agreements.docs.filter(d=>d.data().status==='locked').slice(-8)
+    .map(d=>({id:d.id,body:d.data().body,replaces_id:d.data().replaces_id||null}));
+  const response=await ai.respond({message:source,images,context:{
+    room_id:roomId,conversation_id:source.conversation_id,
+    adventure_id:source.adventure_id||null,messages:recentMessages,confirmed_decisions:confirmed
+  }});
   const message={
     body:response.reply,kind:'ai',author_id:'ai-mock',author_uid:null,conversation_id:'conversation-shared',
     adventure_id:source.adventure_id||null,attachment_ids:[],source_message_id:sourceMessageId,
