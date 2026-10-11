@@ -99,8 +99,10 @@ try {
   await A.locator('#idea-form button').click();
   await B.locator('[data-tab="adventures"]').click();
   await B.getByRole('heading',{name:'Fictional coastal walk',exact:true}).waitFor({timeout:15000});
-  for(const label of ['Move to plan','Move to experience','Move to memory']) {
-    await B.getByRole('button',{name:label}).first().click();
+  for(const phase of ['plan','experience','memory']) {
+    await B.getByRole('button',{name:'Move to '+phase}).first().click();
+    await B.getByText('We’ve moved this to '+phase+'. Everything we saved earlier is still here.',{exact:true}).waitFor({timeout:15000});
+    assert.equal((await B.locator('#error').textContent()).trim(),'','Successful adventure advancement must not show an error');
   }
   await B.getByText(/idea → plan → experience → memory/).waitFor({timeout:15000});
   const [download]=await Promise.all([A.waitForEvent('download',{timeout:30000}),A.locator('#export-button').click()]);
