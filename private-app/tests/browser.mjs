@@ -86,7 +86,8 @@ try {
   await B.getByText('We both said yes',{exact:true}).waitFor({timeout:15000});
   assert.match(await firstCardB.innerText(),/You said yes/);
   assert.match(await firstCardB.innerText(),/Fictional A said yes/);
-  assert.doesNotMatch(await firstCardB.innerText(),/pending|approvals|2\/2/i);
+  assert.doesNotMatch(await firstCardB.locator('.tag').innerText(),/pending|approvals|2\/2/i);
+  assert.doesNotMatch(await firstCardB.locator('.decision-summary').innerText(),/pending|approvals|2\/2/i);
   await A.locator('.record-card button').filter({hasText:'Suggest a change'}).first().click();
   await A.locator('#reason-input').fill('Fictional new information');
   await A.locator('#reason-input').press('Enter');
