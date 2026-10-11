@@ -21,11 +21,11 @@ The script uses local Firebase Authentication, Firestore and Storage emulators o
 
 ## Current experience
 
-- Two individual fictional member accounts share a real-time conversation and attached images.
+- Two individual fictional member accounts share a real-time conversation and attached images. **In the conversation, Enter sends and Alt+Enter inserts a new line** (Shift+Enter also remains available for line breaks). Enter continues to insert a newline in proposal and other multi-line editors; the Send button works on touchscreens.
 - Image files can be PNG or JPEG; iPhone HEIC/HEIF originals remain intact while the browser attempts to create a separate JPEG preview with heic2any. An unsupported conversion fails without uploading anything. Up to three images per message, each no more than 12 MB, with errors and retry through the message composer.
 - Image retrieval uses the authenticated Firebase Storage SDK. No reusable getDownloadURL token link is deliberately generated; a hosted direct URL test remains required.
 - The test AI gateway verifies the member's Auth ID token and room membership, then obtains original image bytes and SHA-256 checksums, and passes them through a replaceable provider interface. **The deterministic test provider does not understand image pixels** and does not contact a paid model. AI suggestions are stored as proposals, never decisions.
-- Both people must expressly approve each proposal to lock it; locked versions and their approval times are preserved. A change to a locked agreement creates a separate revision proposal linked to the original. The AI cannot approve on anyone's behalf.
+- Plans use conversational statuses such as **Just a suggestion**, **You said yes. Waiting for [other member] to weigh in**, and **We both said yes**. These are displayed from the current viewer’s perspective; each person's name and agreement time is also shown. Underneath, both people must expressly agree to a proposal before it is locked. Locked versions and approval timestamps are preserved. A change to an agreed plan creates a separate suggestion linked to the original. The AI cannot agree on anyone’s behalf.
 - A saved idea progresses through idea, plan, experience and memory. Source messages and their attachments remain separate, recoverable records.
 - The browser can export provider-neutral Justelle-memory-v1 JSON, including stable person IDs, conversations, provenance, proposals, approvals, revisions, adventures and original file bytes with SHA-256 digests.
 - The independent restore utility verifies checksums and relationships before writing a fresh, ordinary SQLite file plus individual original media files. It does not require Firebase or an AI provider.
