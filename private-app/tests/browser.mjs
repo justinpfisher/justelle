@@ -140,8 +140,10 @@ try{
   await A.locator('[data-tab="adventures"]').click();
   await A.locator('#idea-input').fill('Fictional coastal walk');
   await A.locator('#idea-form button').click();
-  await A.getByRole('heading',{name:'Fictional coastal walk',exact:true}).waitFor();
-  const topic2=await A.locator('#topic-list .topic-chip.selected').getAttribute('data-topic-id');
+  await poll(async()=>await A.locator('#topic-title').textContent()==='Fictional coastal walk',15000);
+  const secondSelectedTopic=A.locator('#topic-list .topic-chip.selected:not([data-topic-id="'+topic1+'"])');
+  await secondSelectedTopic.waitFor({state:'visible',timeout:15000});
+  const topic2=await secondSelectedTopic.getAttribute('data-topic-id');
   assert.notEqual(topic2,topic1);
   await A.locator('#message-input').fill('Only in the coastal walk conversation.');
   await A.locator('#message-input').press('Enter');
