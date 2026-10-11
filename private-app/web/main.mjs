@@ -33,6 +33,8 @@ function stamp(time) {
   try {return time?.toDate?.()?.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})||'Saving…';}catch{return 'Saving…';}
 }
 function tab(name) {
+  const previous=document.querySelector('[data-tab].selected')?.dataset.tab;
+  if(previous && previous!==name) setNotice('');
   document.querySelectorAll('[data-tab]').forEach(button=>{
     const active=button.dataset.tab===name;
     button.classList.toggle('selected',active);
@@ -214,7 +216,7 @@ function renderAdventures() {
     if(i<3){
       const advance=element('button','secondary','Move to '+phaseList[i+1]);
       advance.type='button';advance.onclick=async()=>{
-        clearError();try{await backend.advance(auth.currentUser,a.id);setNotice('Adventure advanced; prior phases retained.');}catch(e){error(e);}
+        clearError();try{await backend.advance(auth.currentUser,a.id);setNotice('We’ve moved this to '+next+'. Everything we saved earlier is still here.');}catch(e){error(e);}
       };actions.append(advance);
     }
     const discuss=element('button','text-button','Discuss');
@@ -268,7 +270,7 @@ async function sendMessage(askAI=false) {
     $('message-input').value='';
     for(const item of pending)revokePrepared(item);
     pending=[];refreshPending();
-    setNotice('Shared with both members.');
+    setNotice('Sent to both of you.');
     if(askAI) await requestAI(id);
   }catch(e){error(e);}
   finally{sending=false;button.disabled=false;aiButton.disabled=false;}
