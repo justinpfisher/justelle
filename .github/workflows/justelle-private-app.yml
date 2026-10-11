@@ -35,3 +35,5 @@ jobs:
         working-directory: private-app
       - run: npm run test:browser
         working-directory: private-app
+      - run: npm run test:preview
+        working-directory: private-app
