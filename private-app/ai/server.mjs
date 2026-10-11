@@ -49,10 +49,10 @@ export async function createResponse(token,sourceMessageId) {
   // Supply the adapter only the current discussion, never unrelated room history.
   // This preserves source messages and connected decisions without making the
   // external model the owner of permanent Justelle memory.
-  const recent=await db.collection('rooms/'+roomId+'/messages')
+  const recentThread=await db.collection('rooms/'+roomId+'/messages')
     .where('conversation_id','==',source.conversation_id)
     .orderBy('created_at','desc').limit(12).get();
-  const recentMessages=recent.docs.map(d=>({
+  const recentMessages=recentThread.docs.map(d=>({
     id:d.id,body:d.data().body,kind:d.data().kind,author_id:d.data().author_id,
     conversation_id:d.data().conversation_id
   })).reverse();
@@ -65,7 +65,7 @@ export async function createResponse(token,sourceMessageId) {
     adventure_id:source.adventure_id||null,messages:recentMessages,confirmed_decisions:confirmed
   }});
   const message={
-    body:response.reply,kind:'ai',author_id:'ai-mock',author_uid:null,conversation_id:'conversation-shared',
+    body:response.reply,kind:'ai',author_id:'ai-mock',author_uid:null,conversation_id:source.conversation_id,
     adventure_id:source.adventure_id||null,attachment_ids:[],source_message_id:sourceMessageId,
     created_at:FieldValue.serverTimestamp()
   };
@@ -77,9 +77,10 @@ export async function createResponse(token,sourceMessageId) {
     const proposalRef=db.doc('rooms/'+roomId+'/decisions/ai-'+sourceMessageId);
     batch.create(proposalRef,{
       body:response.proposal.body,why:response.proposal.why,author_uid:null,author_id:'ai-mock',origin:'ai',
-      conversation_id:'conversation-shared',adventure_id:source.adventure_id||null,
+      conversation_id:source.conversation_id,adventure_id:source.adventure_id||null,
       source_message_id:sourceMessageId,replaces_id:null,
-      status:'proposed',approvals:{},approval_times:{},created_at:FieldValue.serverTimestamp(),locked_at:null
+      status:'proposed',approvals:{},approval_times:{},created_at:FieldValue.serverTimestamp(),locked_at:null,
+      declined_by:null,declined_at:null
     });
   }
   try {await batch.commit();} catch(e) {
