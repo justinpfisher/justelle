@@ -35,19 +35,54 @@
       <button type="submit" class="primary full">Sign in</button>
     </form>
   </section>
+
   <div id="private-app" hidden>
     <nav class="tabs" aria-label="Private areas">
-      <button type="button" class="selected" data-tab="conversation" aria-current="page">Conversation</button>
-      <button type="button" data-tab="agreements">Our plans</button>
+      <button type="button" class="selected" data-tab="conversation" aria-current="page">Chat</button>
       <button type="button" data-tab="adventures">Adventures</button>
     </nav>
-    <section id="conversation-tab" class="panel" aria-label="Our shared conversation">
-      <div class="section-header">
-        <div><p class="eyebrow">Our space</p><h2>The conversation</h2></div>
-        <span class="shared-note">Shared by two</span>
+
+    <section id="conversation-tab" class="panel chat-panel" aria-label="Our shared conversations">
+      <div class="topic-header">
+        <p class="eyebrow">Pick up where we left off</p>
+        <div id="topic-list" class="topic-list" role="group" aria-label="Choose a discussion">
+          <button class="topic-chip selected" type="button" aria-pressed="true">Our chat</button>
+        </div>
       </div>
-      <ol id="messages" class="timeline" role="log" aria-label="Shared messages"></ol>
-      <p id="conversation-empty" class="empty">Start with a question, an idea or a photograph.</p>
+      <div class="section-header conversation-heading">
+        <div><p id="topic-eyebrow" class="eyebrow">Our shared space</p><h2 id="topic-title">Our chat</h2></div>
+        <button type="button" id="plans-toggle" class="secondary" aria-expanded="false" aria-controls="agreements-tab">Our plans</button>
+      </div>
+      <p id="topic-subtitle" class="conversation-subtitle">Everything that doesn't belong to a particular adventure.</p>
+      <p id="topic-source-note" class="source-note" hidden></p>
+      <div class="plans-preview" id="plans-preview" hidden></div>
+
+      <section id="agreements-tab" class="inline-plans" aria-label="Plans for this discussion" hidden>
+        <div class="section-header">
+          <div><p class="eyebrow">Things we're considering</p><h3>Our plans</h3></div>
+          <button type="button" id="close-plans" class="text-button">Close</button>
+        </div>
+        <p class="intro">It's just a suggestion until we both say yes. Saying no doesn't erase the idea.</p>
+        <form id="proposal-form" class="soft-card">
+          <label for="proposal-input">Suggest something</label>
+          <textarea id="proposal-input" rows="3" maxlength="4000" required placeholder="What could we do together?"></textarea>
+          <label for="reason-input" class="subtle-label">Anything else worth remembering? (optional)</label>
+          <textarea id="reason-input" rows="2" maxlength="2000" placeholder="Why this could work, or why we'd change it"></textarea>
+          <div id="revision-context" class="revision-context" hidden></div>
+          <button type="button" class="text-button" id="cancel-revision" hidden>Cancel change</button>
+          <button type="submit" class="primary">Share suggestion</button>
+        </form>
+        <div id="decisions" class="decision-list"></div>
+        <p id="decisions-empty" class="empty">No suggestions here yet. You can add one whenever you're ready.</p>
+      </section>
+
+      <div id="timeline-scroll" class="timeline-scroll" tabindex="0" role="region" aria-label="Messages in this discussion">
+        <button id="earlier-button" class="secondary earlier-button" type="button" hidden>Load earlier messages</button>
+        <ol id="messages" class="timeline" role="log" aria-label="Shared messages"></ol>
+        <p id="conversation-empty" class="empty">Start with a question, a thought or an image.</p>
+      </div>
+      <button id="jump-latest" type="button" class="text-button jump-latest" hidden>Jump to newest messages ↓</button>
+
       <form id="message-form" class="composer">
         <label for="message-input" class="sr-only">Write a message</label>
         <textarea id="message-input" rows="2" maxlength="4000" aria-describedby="typing-help" placeholder="What are we thinking about?"></textarea>
@@ -56,44 +91,28 @@
         <div class="composer-actions">
           <label for="image-input" class="attachment-button">+ Image<span class="sr-only"> (PNG, JPEG or HEIC)</span></label>
           <input id="image-input" type="file" accept="image/*,.heic,.heif" multiple>
-          <select id="idea-context" aria-label="Associate with an adventure"><option value="">General conversation</option></select>
+          <button type="button" id="ask-ai-button" class="secondary">Ask AI</button>
           <button class="primary" id="send-button" type="submit">Send</button>
         </div>
-        <p class="fineprint">Images remain private and attached to their message. Up to three per message, 12 MB each.</p>
+        <p class="fineprint">Images stay in this discussion. Up to three per message, 12 MB each.</p>
       </form>
     </section>
-    <section id="agreements-tab" class="panel" hidden aria-label="Our plans and suggestions">
+
+    <section id="adventures-tab" class="panel" aria-label="Our adventures" hidden>
       <div class="section-header">
-        <div><p class="eyebrow">From possibilities to plans</p><h2>Our plans</h2></div>
+        <div><p class="eyebrow">Possibilities, plans and memories</p><h2>Adventures</h2></div>
       </div>
-      <p class="intro">We can explore ideas freely. A plan becomes ours only when we both say yes.</p>
-      <form id="proposal-form" class="soft-card">
-        <label for="proposal-input">Suggest a plan</label>
-        <textarea id="proposal-input" rows="3" maxlength="4000" required placeholder="What could we do together?"></textarea>
-        <label for="reason-input" class="subtle-label">Why or what changed? (optional)</label>
-        <textarea id="reason-input" rows="2" maxlength="2000" placeholder="Context worth preserving"></textarea>
-        <div id="revision-context" class="revision-context" hidden></div>
-        <button type="button" class="text-button" id="cancel-revision" hidden>Cancel change</button>
-        <button type="submit" class="primary">Share suggestion</button>
-      </form>
-      <div id="decisions" class="decision-list"></div>
-      <p id="decisions-empty" class="empty">Nothing here yet. Once one of us suggests a plan, we can decide on it together.</p>
-    </section>
-    <section id="adventures-tab" class="panel" hidden aria-label="Ideas and adventures">
-      <div class="section-header">
-        <div><p class="eyebrow">Collect the little and big things</p><h2>Adventures</h2></div>
-      </div>
-      <p class="intro">Save an idea, develop a plan, enjoy the experience, and return to the memory. The original conversation stays intact.</p>
+      <p class="intro">A place for restaurant ideas, outings and big trips. Each adventure has its own discussion, images and plans.</p>
       <form id="idea-form" class="soft-card">
-        <label for="idea-input">A new idea</label>
+        <label for="idea-input">Something we could do</label>
         <input type="text" id="idea-input" maxlength="160" required placeholder="A place, moment or possibility">
-        <button type="submit" class="primary">Save idea</button>
+        <button type="submit" class="primary">Save and discuss</button>
       </form>
       <div id="adventures" class="adventure-list"></div>
-      <p id="adventures-empty" class="empty">Your saved ideas will gather here.</p>
+      <p id="adventures-empty" class="empty">Nothing here yet. Save an idea or start one from a chat message.</p>
       <div class="export-area">
         <h3>Keep our history</h3>
-        <p>Export an independent JSON archive containing original images, attribution and decision history. Pilot exports are not encrypted: use fictional data only.</p>
+        <p>Export a fictional test archive with both people's contributions, decisions and original images. This local pilot export is not encrypted.</p>
         <button id="export-button" class="secondary" type="button">Export fictional archive</button>
       </div>
     </section>
