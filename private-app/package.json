@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite web --host 127.0.0.1",
     "test:rules": "cd firebase && firebase emulators:exec --project demo-justelle-pilot --only firestore,storage \"node --test ../tests/rules.test.mjs\"",
-    "test:archive": "node --test tests/archive.test.mjs",
+    "test:archive": "node --test tests/archive.test.mjs tests/topics.test.mjs tests/ai.test.mjs",
     "test:browser": "cd firebase && firebase emulators:exec --project demo-justelle-pilot --only auth,firestore,storage \"bash ../tests/run-browser.sh\"",
     "test": "npm run test:archive && npm run test:rules && npm run test:browser",
     "pilot": "node tools/preview.mjs",
