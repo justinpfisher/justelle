@@ -10,7 +10,7 @@ export const deterministicProvider={
     const wantsProposal=/(plan|suggest|could|should|what if|idea|\?)/i.test(message.body);
     const proposal=wantsProposal?{
       body:'Fictional suggestion to explore: '+trimmed,
-      why:'Drafted by the deterministic local test assistant; requires two human approvals.'
+      why:'A suggestion from Justelle’s test AI. Nothing is decided until you both say yes.'
     }:null;
     return {reply,proposal};
   }
