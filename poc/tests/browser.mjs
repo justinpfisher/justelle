@@ -10,7 +10,7 @@ const fixtureFile=process.argv[2];
 if(!fixtureFile) throw Error('Require path to ephemeral fixture credentials');
 const fixture=JSON.parse(await readFile(fixtureFile,'utf8'));
 const base='http://127.0.0.1:5173/';
-const app=spawn('npx',['vite','web','--host','127.0.0.1','--port','5173','--strictPort'],{stdio:'pipe',env:process.env,cwd:fileURLToPath(new URL('../',import.meta.url))});
+const app=spawn(process.execPath,['node_modules/vite/bin/vite.js','web','--host','127.0.0.1','--port','5173','--strictPort'],{stdio:'ignore',env:process.env,cwd:fileURLToPath(new URL('../',import.meta.url))});
 let browserA,browserB;
 const wait=async()=>{for(let i=0;i<60;i++){try{const r=await fetch(base);if(r.ok)return;}catch{}await new Promise(r=>setTimeout(r,500));}throw Error('Web pilot did not start');};
 async function login(page,info){
