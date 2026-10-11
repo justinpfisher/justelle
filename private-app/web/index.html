@@ -38,7 +38,7 @@
   <div id="private-app" hidden>
     <nav class="tabs" aria-label="Private areas">
       <button type="button" class="selected" data-tab="conversation" aria-current="page">Conversation</button>
-      <button type="button" data-tab="agreements">Agreements</button>
+      <button type="button" data-tab="agreements">Our plans</button>
       <button type="button" data-tab="adventures">Adventures</button>
     </nav>
     <section id="conversation-tab" class="panel" aria-label="Our shared conversation">
@@ -50,7 +50,8 @@
       <p id="conversation-empty" class="empty">Start with a question, an idea or a photograph.</p>
       <form id="message-form" class="composer">
         <label for="message-input" class="sr-only">Write a message</label>
-        <textarea id="message-input" rows="2" maxlength="4000" placeholder="What are we thinking about?"></textarea>
+        <textarea id="message-input" rows="2" maxlength="4000" aria-describedby="typing-help" placeholder="What are we thinking about?"></textarea>
+        <p class="typing-hint" id="typing-help">Enter sends · Alt+Enter starts a new line</p>
         <div id="staged-images" class="staged" aria-live="polite"></div>
         <div class="composer-actions">
           <label for="image-input" class="attachment-button">+ Image<span class="sr-only"> (PNG, JPEG or HEIC)</span></label>
@@ -61,22 +62,22 @@
         <p class="fineprint">Images remain private and attached to their message. Up to three per message, 12 MB each.</p>
       </form>
     </section>
-    <section id="agreements-tab" class="panel" hidden aria-label="Proposals and agreements">
+    <section id="agreements-tab" class="panel" hidden aria-label="Our plans and suggestions">
       <div class="section-header">
-        <div><p class="eyebrow">From possibilities to plans</p><h2>Agreements</h2></div>
+        <div><p class="eyebrow">From possibilities to plans</p><h2>Our plans</h2></div>
       </div>
-      <p class="intro">Ideas can be explored freely. A decision is locked only after both people agree.</p>
+      <p class="intro">We can explore ideas freely. A plan becomes ours only when we both say yes.</p>
       <form id="proposal-form" class="soft-card">
         <label for="proposal-input">Suggest a plan</label>
-        <textarea id="proposal-input" rows="3" maxlength="4000" required placeholder="What shall we agree on?"></textarea>
+        <textarea id="proposal-input" rows="3" maxlength="4000" required placeholder="What could we do together?"></textarea>
         <label for="reason-input" class="subtle-label">Why or what changed? (optional)</label>
         <textarea id="reason-input" rows="2" maxlength="2000" placeholder="Context worth preserving"></textarea>
         <div id="revision-context" class="revision-context" hidden></div>
-        <button type="button" class="text-button" id="cancel-revision" hidden>Cancel revision</button>
-        <button type="submit" class="primary">Propose, not decide</button>
+        <button type="button" class="text-button" id="cancel-revision" hidden>Cancel change</button>
+        <button type="submit" class="primary">Share suggestion</button>
       </form>
       <div id="decisions" class="decision-list"></div>
-      <p id="decisions-empty" class="empty">No proposals yet. They will appear here with each person's approval.</p>
+      <p id="decisions-empty" class="empty">Nothing here yet. Once one of us suggests a plan, we can decide on it together.</p>
     </section>
     <section id="adventures-tab" class="panel" hidden aria-label="Ideas and adventures">
       <div class="section-header">
