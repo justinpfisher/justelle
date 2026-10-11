@@ -21,8 +21,16 @@ service cloud.firestore {
     function nowCreated() {
       return request.resource.data.created_at == request.time;
     }
+    function adventurePath(roomId, adventureId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/adventures/$(adventureId);
+    }
     function conversation(roomId) {
-      return request.resource.data.conversation_id == 'conversation-shared';
+      let d = request.resource.data;
+      return (d.adventure_id == null && d.conversation_id == 'conversation-shared') ||
+        (d.adventure_id is string &&
+          d.conversation_id == 'conversation-' + d.adventure_id &&
+          exists(adventurePath(roomId, d.adventure_id)) &&
+          get(adventurePath(roomId, d.adventure_id)).data.conversation_id == d.conversation_id);
     }
     function validMessage(roomId) {
       let d = request.resource.data;
@@ -50,20 +58,22 @@ service cloud.firestore {
     }
     function validProposal(roomId, decisionId) {
       let d = request.resource.data;
-      return d.keys().hasAll(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at']) &&
-        d.keys().hasOnly(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at']) &&
+      return d.keys().hasAll(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at','declined_by','declined_at']) &&
+        d.keys().hasOnly(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at','declined_by','declined_at']) &&
         authored(roomId) && nowCreated() && conversation(roomId) &&
         d.origin == 'human' &&
         d.body is string && d.body.size() > 0 && d.body.size() <= 4000 &&
         d.why is string && d.why.size() <= 2000 &&
         (d.adventure_id == null || d.adventure_id is string) &&
         (d.source_message_id == null || d.source_message_id is string) &&
-        d.status == 'proposed' && d.approvals == {} && d.approval_times == {} && d.locked_at == null &&
+        d.status == 'proposed' && d.approvals == {} && d.approval_times == {} &&
+        d.locked_at == null && d.declined_by == null && d.declined_at == null &&
         (d.replaces_id == null || (
           d.replaces_id is string &&
           d.replaces_id != decisionId &&
           exists(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)) &&
-          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.status == 'locked'));
+          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.status == 'locked' &&
+          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.conversation_id == d.conversation_id));
     }
     function validApproval(roomId) {
       let old = resource.data;
@@ -88,11 +98,21 @@ service cloud.firestore {
         next.status == (both ? 'locked' : 'proposed') &&
         (both ? next.locked_at == request.time : next.locked_at == null);
     }
+    function validDecline(roomId) {
+      let old = resource.data;
+      let d = request.resource.data;
+      return old.status == 'proposed' &&
+        d.diff(old).affectedKeys().hasOnly(['status','declined_by','declined_at']) &&
+        d.status == 'declined' &&
+        d.declined_by == person(roomId) &&
+        d.declined_at == request.time;
+    }
     function validIdea(roomId, adventureId) {
       let d = request.resource.data;
       return d.keys().hasAll(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at']) &&
         d.keys().hasOnly(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at']) &&
-        authored(roomId) && nowCreated() && conversation(roomId) &&
+        authored(roomId) && nowCreated() &&
+        d.conversation_id == 'conversation-' + adventureId &&
         d.id == adventureId && d.title is string && d.title.size() > 0 && d.title.size() <= 160 &&
         d.phase == 'idea' && d.phases == ['idea'] &&
         d.last_modified_by == person(roomId) &&
@@ -129,7 +149,8 @@ service cloud.firestore {
       match /decisions/{decisionId} {
         allow get, list: if member(roomId);
         allow create: if member(roomId) && validProposal(roomId, decisionId);
-        allow update: if member(roomId) && validApproval(roomId);
+        allow update: if member(roomId) &&
+          (validApproval(roomId) || validDecline(roomId));
         allow delete: if false;
       }
       match /adventures/{adventureId} {
