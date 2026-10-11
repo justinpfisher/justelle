@@ -34,9 +34,10 @@ async function waitFor(url) {
 }
 async function createFictionalAccounts() {
   const processSeed=launch(process.execPath,['tests/seed-emulator.mjs'],{stdio:['ignore','pipe','inherit']});
+  const completion=new Promise(resolve=>processSeed.once('close',resolve));
   let output='';
   for await (const chunk of processSeed.stdout) output+=chunk.toString('utf8');
-  const code=await new Promise(resolve=>processSeed.once('close',resolve));
+  const code=await completion;
   if(code!==0)throw Error('Fictional emulator account seeding failed');
   temporaryCredentials=output.trim();
   return JSON.parse(await readFile(temporaryCredentials,'utf8'));
