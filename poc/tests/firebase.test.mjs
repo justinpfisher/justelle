@@ -20,6 +20,9 @@ async function context(){
     firestore:{host:'127.0.0.1',port:8081,rules:await readFile(new URL('../firebase/firestore.rules',import.meta.url),'utf8')},
     storage:{host:'127.0.0.1',port:9199,rules:await readFile(new URL('../firebase/storage.rules',import.meta.url),'utf8')}
   });
+  // Each test must start from empty emulated stores; cleanup() only closes clients.
+  await env.clearFirestore();
+  await env.clearStorage();
   await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'rooms',room),{uids:[a,b]}));
   const ctx=uid=>env.authenticatedContext(uid,{justelle_room:room,justelle_member:true});
   return {env,A:ctx(a),B:ctx(b),X:ctx('fictional-outsider'),U:env.unauthenticatedContext()};
