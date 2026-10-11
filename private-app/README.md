@@ -15,7 +15,7 @@ You will need Node.js 22 or newer, Java 21 or newer, npm and a modern browser. A
 
 4. Open http://127.0.0.1:5173/ on that computer.
 5. The terminal displays two disposable fictional email/password pairs. Open two separate browser profiles (not two tabs of the same profile), then sign in once to each account. The pair can exchange messages, attachments and proposals in real time.
-6. Ctrl+C stops all local services and removes the temporary credential file. The emulator content is disposable.
+6. **To stop the preview cleanly, type `q` and press Enter in its PowerShell window.** This is recommended on Windows because Ctrl+C through an npm batch process can leave the Java Firestore emulator behind. Ctrl+C remains supported. The runner removes its temporary credential file and stops its child processes; emulator data is disposable.
 
 The script uses local Firebase Authentication, Firestore and Storage emulators only, plus a protected local mock AI gateway. No accounts, real email invites, live Firebase cloud services, paid model API or domain change is involved. Browser reopening within the same profile retains sign-in while the emulator remains running. It cannot establish actual installed iPhone Safari/Home Screen persistence, which must be tested separately after an authorised hosted trial.
 
@@ -51,7 +51,27 @@ The new user-facing architecture is **general chat + a discussion per adventure*
 - **Still to build or test:** cross-device unread indicators, full-history search, automatic linking/deduplication of closely related adventures, real iPhone Safari/Home Screen behaviour, production image handling and a real vision-capable AI. Avoid claiming those capabilities.
 - **Agreement conflicts:** the interface warns if independent proposed replacements of one earlier decision are both agreed. Full prevention of concurrent contradictory agreements requires a stronger server-side decision-group invariant before real content is used.
 - **Compatibility:** existing pilot messages in the shared room remain readable. New adventure-specific chats use their own stable IDs. Old fiction-only emulator data is disposable and may reset each time the preview restarts.
-- **After pulling a source update:** stop the running pilot with Ctrl+C and restart `npm.cmd run pilot` so that Firestore Security Rules and the mock AI gateway reload too. New disposable credentials are printed in the terminal.
+- **After pulling a source update:** type `q` and press Enter to stop the running pilot, then restart `npm.cmd run pilot` so Firestore Security Rules and the mock AI gateway reload. New disposable credentials are printed in the terminal.
+
+## Windows port-8081 troubleshooting
+
+If the pilot reports "Firestore Emulator, port taken", a previous Windows Java emulator may still be holding port 8081 after Ctrl+C. You do not need to reinstall Java, Node or Firebase. The runner checks common ports before launching and now stops the entire launched process tree, with a Windows-specific startup/shutdown test.
+
+In PowerShell, inspect the owner of port 8081:
+
+    $listener = Get-NetTCPConnection -LocalPort 8081 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($listener) {
+        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
+        $processInfo | Select-Object ProcessId, Name, CommandLine
+        if ($processInfo.CommandLine -match 'cloud-firestore-emulator') {
+            Stop-Process -Id $processInfo.ProcessId -Force
+            Write-Host "Stopped the previous Firestore emulator."
+        } else {
+            Write-Host "Another application owns port 8081; nothing was stopped."
+        }
+    }
+
+Only stop the verified Firestore instance, never a random Java process. Then run npm.cmd run pilot again. Future exits should use q followed by Enter.
 
 ## Offline restoration
 
