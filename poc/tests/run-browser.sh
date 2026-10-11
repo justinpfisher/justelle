@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-fixture="$(node ../tests/seed-emulator.mjs)"
-node ../tests/browser.mjs "$fixture"
+fixture="$(timeout 70s node ../tests/seed-emulator.mjs)"
+timeout 120s node ../tests/browser.mjs "$fixture"
