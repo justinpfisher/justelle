@@ -1,13 +1,13 @@
 # Justelle infrastructure comparison: fictional-only proof of concept
 
-**Status: local Cloudflare-contract tests PASS; official Firebase emulator tests and real-device tests NOT YET RUN.** This bundle is not a production app and should not be deployed to `justelle.life` or used with personal content. It requires no cloud accounts, bills or API credentials to run its local tests.
+**Status: Cloudflare-compatible local tests 5/5 PASS; official Firebase emulator tests 4/4 PASS; headless Chromium mobile-viewport interaction/persistence test PASS; real iPhone/hosted tests NOT RUN.** This bundle is not a production app and should not be deployed to `justelle.life` or used with personal content. It requires no cloud accounts, bills or API credentials to run its local tests.
 
 ## Purpose
 
 Two alternatives implement the same contract:
 
 1. **Cloudflare Worker + D1 + R2 + Firebase Authentication:** a private API, portable SQLite-based records, selected files in private object storage, JWT verification against Firebase signing keys, and authorisation for exactly two approved accounts. Runs locally in Node with SQLite and a D1/R2 compatibility test harness; no live Cloudflare account is configured.
-2. **Integrated Firebase:** Firebase Authentication, Firestore, and Firebase Storage protected by Security Rules. Tests target the official local Firebase emulator; the local test runner in this environment could not download required packages, so **its results remain unverified**. Firebase Storage requires a billing-enabled Blaze project for real Cloud Storage in 2026, even if usage falls under free allowances.
+2. **Integrated Firebase:** Firebase Authentication, Firestore, and Firebase Storage protected by Security Rules. Tests run in the official Firebase emulators through GitHub Actions: **4/4 PASS**. The source container could not download dependencies directly, so CI provided the execution environment. Firebase Storage requires a billing-enabled Blaze project for real Cloud Storage in 2026, even if usage falls under free allowances.
 
 Both use **fabricated** `fictional-a`, `fictional-b` and `fictional-room`, fictional conversation texts, and an entirely synthetic 160×100 PNG landscape. No private family photographs, trips, account details or passwords are in this code. The browser seeder generates ephemeral passwords in a temporary file at run time; it refuses non-local emulators.
 
@@ -15,7 +15,7 @@ Both use **fabricated** `fictional-a`, `fictional-b` and `fictional-room`, ficti
 
 `node --test tests/cloudflare.test.mjs` runs five passing tests, including: properly signed test JWT verification with tampering/expiry rejection; two distinct fictional users sharing messages; one person's approval not locking a proposal; denied unauthenticated/outside-member media reads; and a checksum-verified portable JSON export restored **without either provider** into SQLite plus an image file. This uses **actual Node SQLite** and a local D1/R2 **compatibility simulation**, **not** a Wrangler runtime or live R2 service.
 
-The Firebase tests under `tests/firebase.test.mjs` target actual Firestore and Storage emulator Security Rules. Only a successful invocation of that test suite establishes emulator-level access-control evidence. The browser probe in `tests/browser.mjs` is for Chromium at a phone-sized viewport, **not iPhone Safari**.
+The Firebase tests under `tests/firebase.test.mjs` ran against official Firestore and Storage emulator Security Rules (**4/4 PASS**). The browser probe in `tests/browser.mjs` also passed with two separate emulator accounts at a 390px Chromium viewport, preserving sign-in after both reload and a full browser-profile relaunch. This does **not** establish real iPhone Safari persistence.
 
 There is **no live AI provider request** in either candidate. A fabricated AI-style suggestion exercises the proposal/approval mechanism. Both designs would need a server-side AI adapter and usage controls before a real AI could respond.
 
@@ -59,3 +59,7 @@ Do **not** choose a backend from a local mock test alone. Run the official Fireb
 Using about **C$1.43 per US$1** (October 9, 2026 Reuters close), the Cloudflare Workers paid platform fee of US$5 is roughly **C$7.15/month**; Cloudflare's no-charge allowances for D1 (5 GB) and R2 (10 GB) can cover a small PoC, with storage above that billed separately. Firebase Firestore's free allowance is 1 GiB, 50,000 reads and 20,000 writes per day. A new Firebase Cloud Storage bucket needs the Blaze billing plan, though free allowances may still cover very small use. App-wide AI usage costs are additional. Rough *planning* totals for two users after hosting are C$5–30/month for Firebase and C$12–35/month for Workers + managed Auth, with the low end assuming little research or media storage. They are **not actual measured invoices** and exclude taxes, service increases and maintenance. Before provisioning any service, set spend controls and budgets.
 
 Vendor references: https://developers.cloudflare.com/workers/platform/pricing/ ; https://developers.cloudflare.com/d1/platform/pricing/ ; https://developers.cloudflare.com/r2/pricing/ ; https://firebase.google.com/pricing ; https://firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024 ; https://firebase.google.com/docs/auth/web/auth-state-persistence ; https://firebase.google.com/docs/storage/web/download-files
+
+## Verified CI evidence
+
+[Successful GitHub Actions run 38109886272](https://github.com/justinpfisher/justelle/actions/runs/38109886272): 5/5 Cloudflare-compatible local checks, 4/4 official Firebase emulator checks, and passed Chromium browser interaction/persistence checks. Cloudflare was not run under actual workerd, and no actual iPhone, live API model, production user account or hosted storage was qualified.
