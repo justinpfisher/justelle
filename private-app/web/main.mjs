@@ -216,7 +216,7 @@ function renderAdventures() {
     if(i<3){
       const advance=element('button','secondary','Move to '+phaseList[i+1]);
       advance.type='button';advance.onclick=async()=>{
-        clearError();try{await backend.advance(auth.currentUser,a.id);setNotice('We’ve moved this to '+next+'. Everything we saved earlier is still here.');}catch(e){error(e);}
+        clearError();try{await backend.advance(auth.currentUser,a.id);setNotice('We’ve moved this to '+phaseList[i+1]+'. Everything we saved earlier is still here.');}catch(e){error(e);}
       };actions.append(advance);
     }
     const discuss=element('button','text-button','Discuss');
