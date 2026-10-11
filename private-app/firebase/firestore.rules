@@ -103,10 +103,13 @@ service cloud.firestore {
       let old = resource.data;
       let d = request.resource.data;
       return d.diff(old).affectedKeys().hasOnly(['phase','phases','updated_at','last_modified_by']) &&
-        ((old.phase == 'idea' && d.phase == 'plan') ||
-         (old.phase == 'plan' && d.phase == 'experience') ||
-         (old.phase == 'experience' && d.phase == 'memory')) &&
-        d.phases == old.phases + [d.phase] &&
+        ((old.phase == 'idea' && d.phase == 'plan' &&
+           old.phases == ['idea'] && d.phases == ['idea','plan']) ||
+         (old.phase == 'plan' && d.phase == 'experience' &&
+           old.phases == ['idea','plan'] && d.phases == ['idea','plan','experience']) ||
+         (old.phase == 'experience' && d.phase == 'memory' &&
+           old.phases == ['idea','plan','experience'] &&
+           d.phases == ['idea','plan','experience','memory'])) &&
         d.updated_at == request.time &&
         d.last_modified_by == person(roomId);
     }
