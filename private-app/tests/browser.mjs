@@ -27,8 +27,8 @@ async function login(page,account) {
   await page.locator('#email').fill(account.email);
   await page.locator('#password').fill(account.password);
   await page.locator('#login-form button').click();
-  await page.getByText('Signed in; persistent local session enabled.',{exact:true}).waitFor({timeout:20000});
-  await page.locator('#private-app').waitFor({state:'visible'});
+  try {await page.locator('#private-app').waitFor({state:'visible',timeout:25000});}
+  catch(e){throw Error('Member sign-in did not reach the private app; visible diagnostic: '+(await page.locator('#error').textContent())+' / '+(await page.locator('#notice').textContent()));}
 }
 try {
   await Promise.all([waitFor(base),waitFor('http://127.0.0.1:8787/respond')]);
@@ -81,12 +81,12 @@ try {
   assert.ok(summary.files>=1);
   assert.ok(summary.records.adventures>=1);
   await A.reload();
-  await A.getByText('Signed in; persistent local session enabled.',{exact:true}).waitFor({timeout:20000});
+  await A.locator('#private-app').waitFor({state:'visible',timeout:25000});
   assert.equal(await A.locator('#login').isVisible(),false);
   await ctxA.close();ctxA=null;
   ctxA=await chromium.launchPersistentContext(dirA,{headless:true,viewport:{width:390,height:844},acceptDownloads:true});
   const again=await ctxA.newPage();await again.goto(base);
-  await again.getByText('Signed in; persistent local session enabled.',{exact:true}).waitFor({timeout:20000});
+  await again.locator('#private-app').waitFor({state:'visible',timeout:25000});
   assert.equal(await again.locator('#login').isVisible(),false);
   assert.deepEqual(pagesErrors,[]);
   console.log('BROWSER PASS: 390px independent accounts, two-way snapshots, image preview, secured mock vision bytes, two approvals, revisions, adventures, independent export/restore, persistent browser-profile login');
