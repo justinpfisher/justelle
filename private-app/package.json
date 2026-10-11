@@ -11,7 +11,8 @@
     "test:archive": "node --test tests/archive.test.mjs",
     "test:browser": "cd firebase && firebase emulators:exec --project demo-justelle-pilot --only auth,firestore,storage \"bash ../tests/run-browser.sh\"",
     "test": "npm run test:archive && npm run test:rules && npm run test:browser",
-    "pilot": "node tools/preview.mjs"
+    "pilot": "node tools/preview.mjs",
+    "test:preview": "node --test tests/preview.test.mjs"
   },
   "dependencies": {
     "firebase": "^12.0.0",
