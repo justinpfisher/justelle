@@ -10,7 +10,7 @@ service firebase.storage {
     }
     match /rooms/{roomId}/media/{fileId} {
       allow get, list: if member(roomId);
-      allow create: if member(roomId) &&
+      allow create: if resource == null && member(roomId) &&
         request.resource.size > 0 &&
         request.resource.size <= 1024 * 1024 &&
         request.resource.contentType.matches('image/(png|jpeg)') &&
