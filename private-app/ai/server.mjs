@@ -52,18 +52,22 @@ export async function createResponse(token,sourceMessageId) {
     adventure_id:source.adventure_id||null,attachment_ids:[],source_message_id:sourceMessageId,
     created_at:FieldValue.serverTimestamp()
   };
-  try {await answerRef.create(message);} catch(e) {
-    if(e.code===6 || e.code==='already-exists') return {message_id:answerRef.id,replayed:true};
-    throw e;
-  }
+  // Reply and any AI suggestion must commit together or not at all.
+  // Deterministic document IDs prevent duplicate replies when two requests race.
+  const batch=db.batch();
+  batch.create(answerRef,message);
   if(response.proposal) {
     const proposalRef=db.doc('rooms/'+roomId+'/decisions/ai-'+sourceMessageId);
-    await proposalRef.create({
+    batch.create(proposalRef,{
       body:response.proposal.body,why:response.proposal.why,author_uid:null,author_id:'ai-mock',origin:'ai',
       conversation_id:'conversation-shared',adventure_id:source.adventure_id||null,
       source_message_id:sourceMessageId,replaces_id:null,
       status:'proposed',approvals:{},approval_times:{},created_at:FieldValue.serverTimestamp(),locked_at:null
     });
+  }
+  try {await batch.commit();} catch(e) {
+    if(e.code===6 || e.code==='already-exists') return {message_id:answerRef.id,replayed:true};
+    throw e;
   }
   return {message_id:answerRef.id,proposal_created:Boolean(response.proposal)};
 }
