@@ -25,9 +25,17 @@ These are source findings. Live deployment was not independently verified during
 ## Private-area requirements
 Private content must stay outside public repository history, branches, issues, logs and deployment output. Protect records, images and downloads as well as pages. An unlisted link or browser-only password is insufficient.
 
-Authentication, authorization, private storage, editing and backup arrangements are not implemented or selected. Initially assume access is for the couple only; do not invite additional users without direction. Exact login identities and access rules must be established when implementation begins.
+Authentication, authorization, private storage, editing and backup arrangements are not deployed. Firebase Authentication, Firestore and protected Firebase Cloud Storage are now the preferred first-release path, subject to proper configuration, testing and billing approval. Initially assume access is for the couple only; do not invite additional users without direction. Exact login identities and access rules remain to be established.
 
-Keep the existing public site while comparing the smallest practical protected-service option. No hosting migration, new paid service or real private-data ingestion is selected by this brief.
+Keep the existing public site. The fictional Cloudflare/Firebase comparison is in [draft PR #2](https://github.com/justinpfisher/justelle/pull/2); its emulator/browser results are not evidence of a live private deployment. No hosting migration, new paid service or real private-data ingestion is authorized by this brief.
+
+## Confirmed private first-release scope (October 11, 2026)
+
+The owner has confirmed a Firebase-first, mobile Home Screen experience for the couple, persistent sessions without routine reauthentication, one shared AI-assisted conversation, **first-class screenshots/images** (maps, restaurants, menus and similar material), low-friction ideas and plans, explicit two-person agreement before a decision becomes locked, preserved source history, and a provider-neutral export and restore path.
+
+Photo galleries, bulk Apple Photos synchronisation and automatic album imports are deferred. Ordinary image attachments are not deferred. Privacy means genuine member-only pages, records and direct image access; the product is not being designed around repeated Face ID prompts or elaborate unlocked-device scenarios.
+
+See [Private app V1 decisions](PRIVATE-APP-V1.md) for scope, safeguards, pilot criteria and remaining implementation decisions.
 
 ## Delivery sequence
 1. Establish project instructions and repository guidance.
