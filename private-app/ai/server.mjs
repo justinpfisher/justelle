@@ -7,6 +7,7 @@ import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {getStorage} from 'firebase-admin/storage';
+import {decisionView} from '../web/topics.mjs';
 import {chooseProvider} from './adapter.mjs';
 
 const projectId='demo-justelle-pilot';
@@ -58,8 +59,8 @@ export async function createResponse(token,sourceMessageId) {
   })).reverse();
   const agreements=await db.collection('rooms/'+roomId+'/decisions')
     .where('conversation_id','==',source.conversation_id).get();
-  const confirmed=agreements.docs.filter(d=>d.data().status==='locked').slice(-8)
-    .map(d=>({id:d.id,body:d.data().body,replaces_id:d.data().replaces_id||null}));
+  const confirmed=decisionView(agreements.docs.map(d=>({id:d.id,...d.data()})),source.conversation_id)
+    .current.slice(0,8).map(d=>({id:d.id,body:d.body,replaces_id:d.replaces_id||null}));
   const response=await ai.respond({message:source,images,context:{
     room_id:roomId,conversation_id:source.conversation_id,
     adventure_id:source.adventure_id||null,messages:recentMessages,confirmed_decisions:confirmed

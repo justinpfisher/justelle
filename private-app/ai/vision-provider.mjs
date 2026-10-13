@@ -17,7 +17,7 @@ async function limitedJSON(response,limit=128*1024){
 export function createVisionProvider({approved=false,apiKey,model,pricing,budget,fetchImpl=fetch,maxInputTokens=16000,maxOutputTokens=1200,now=()=>new Date()}={}){
   return {name:'openai-responses-prepared',async respond({message,images=[],context={},permission}={}){
     if(!approved||!apiKey||!budget)throw Error('Paid AI is disabled until account and budget approval');
-    if(!pricing||pricing.model!==model||!Number.isSafeInteger(pricing.inputCadMicrosPerMillion)||pricing.inputCadMicrosPerMillion<=0||!Number.isSafeInteger(pricing.outputCadMicrosPerMillion)||pricing.outputCadMicrosPerMillion<=0||new Date(pricing.validUntil)<=now()||Number.isNaN(Date.parse(pricing.validUntil)))throw Error('Current approved model pricing in CAD is required');
+    if(!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(model||'')||!pricing||pricing.model!==model||!Number.isSafeInteger(pricing.inputCadMicrosPerMillion)||pricing.inputCadMicrosPerMillion<=0||!Number.isSafeInteger(pricing.outputCadMicrosPerMillion)||pricing.outputCadMicrosPerMillion<=0||new Date(pricing.validUntil)<=now()||Number.isNaN(Date.parse(pricing.validUntil)))throw Error('Current approved model pricing in CAD is required');
     if(!Number.isSafeInteger(maxInputTokens)||maxInputTokens<=0||maxInputTokens>100000||!Number.isSafeInteger(maxOutputTokens)||maxOutputTokens<=0||maxOutputTokens>4000)throw Error('Invalid AI token limits');
     if(!permission||permission.roomId!==context.room_id||permission.conversationId!==message?.conversation_id||permission.sourceMessageId!==message?.id||!permission.personId)throw Error('Verified permission for this discussion is required');
     if(typeof message.body!=='string'||message.body.length>4000||images.length>3)throw Error('AI input exceeds its limits');
@@ -45,14 +45,16 @@ export function createVisionProvider({approved=false,apiKey,model,pricing,budget
     if(!countResponse.ok)throw Error('AI input qualification failed; no generation was started');
     const count=await limitedJSON(countResponse);
     if(!Number.isSafeInteger(count.input_tokens)||count.input_tokens<1||count.input_tokens>maxInputTokens)throw Error('AI input exceeds its token allowance');
-    const ceilingCadMicros=Math.ceil((count.input_tokens*pricing.inputCadMicrosPerMillion+maxOutputTokens*pricing.outputCadMicrosPerMillion)/1000000);
+    const ceiling=(BigInt(count.input_tokens)*BigInt(pricing.inputCadMicrosPerMillion)+BigInt(maxOutputTokens)*BigInt(pricing.outputCadMicrosPerMillion)+999999n)/1000000n;
+    if(ceiling>BigInt(Number.MAX_SAFE_INTEGER))throw Error('AI cost reservation exceeds safe accounting limits');
+    const ceilingCadMicros=Number(ceiling);
     if(!Number.isSafeInteger(ceilingCadMicros)||ceilingCadMicros<1)throw Error('Invalid AI cost reservation');
     const reservation=await budget.reserve({id,fingerprint,ceilingCadMicros,now:now()});
     if(reservation.replayed)return resultValid(reservation.result);
     const response=await fetchImpl('https://api.openai.com/v1/responses',{method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(45000),body:JSON.stringify(request)});
     if(!response.ok)throw Error('AI did not complete. Its reserved allowance is retained until recovery.');
     const data=await limitedJSON(response);
-    if(data.status!=='completed'||!Number.isSafeInteger(data.usage?.input_tokens)||data.usage.input_tokens>count.input_tokens||!Number.isSafeInteger(data.usage?.output_tokens)||data.usage.output_tokens>maxOutputTokens)throw Error('AI completion or usage could not be verified');
+    if(data.status!=='completed'||!Number.isSafeInteger(data.usage?.input_tokens)||data.usage.input_tokens<0||data.usage.input_tokens>count.input_tokens||!Number.isSafeInteger(data.usage?.output_tokens)||data.usage.output_tokens<0||data.usage.output_tokens>maxOutputTokens)throw Error('AI completion or usage could not be verified');
     const output=(data.output||[]).filter(x=>x.type==='message').flatMap(x=>x.content||[]);
     if(output.some(x=>x.type==='refusal')||output.filter(x=>x.type==='output_text').length!==1)throw Error('AI could not provide a usable reply');
     const result=resultValid(JSON.parse(output.find(x=>x.type==='output_text').text));
