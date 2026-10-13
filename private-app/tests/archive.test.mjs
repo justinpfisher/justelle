@@ -49,3 +49,14 @@ test('Refuses media tampering, record tampering and broken links',async()=>{
   await assert.rejects(restoreArchive(orphan,dest),/Broken message attachment/);
   await assert.rejects(stat(dest),{code:'ENOENT'});
 });
+
+test('A portable restore rejects two confirmed changes to the same original agreement',async()=>{
+  const archive=structuredClone(await example());
+  const original=archive.records.decisions[0];
+  archive.records.decisions.push(
+    {...original,id:'change-one',replaces_id:'decision-1'},
+    {...original,id:'change-two',replaces_id:'decision-1'}
+  );
+  archive.records_sha256=await sha256(new TextEncoder().encode(JSON.stringify(archive.records)));
+  await assert.rejects(verifyArchive(archive),/Conflicting locked revisions/);
+});
