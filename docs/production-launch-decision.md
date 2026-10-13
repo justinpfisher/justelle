@@ -1,0 +1,46 @@
+# Justelle Version 1 — account, cost and release decision
+**Decision prepared 13 October 2026.** This is a proposed operating decision, not permission to open accounts, attach billing, create real member identities, change DNS, or send personal content to an AI provider. All figures are estimates in Canadian dollars unless stated otherwise.
+
+## Recommended account layout
+
+| Purpose | Account/project | Recommended setup |
+|---|---|---|
+| Fictional hosted qualification | A new, isolated Firebase/Google Cloud project | Two disposable fictional members and synthetic records only. Blaze is required for the second-generation HTTPS gateway and production-like Storage behaviour. Never use the production project or real identities for qualification. |
+| Real private application | A separate Firebase/Google Cloud project | Firebase Authentication, Firestore, private Cloud Storage, Firebase Hosting and second-generation Functions. Serve only at `app.justelle.life`; do not alter the existing root-site deployment or `justelle.life` content. |
+| Encrypted recovery | Separate Backblaze B2 account and private bucket | Upload only client-encrypted archive files. Use a restricted application key, versioning/Object Lock where supported, and a recovery key kept separately from both cloud accounts. A B2 outage or account loss must not prevent local restore. |
+| Vision AI | Separate OpenAI API account/project and key | Start with `gpt-5.6-luna` on the Responses API, no web-search or other callable tools. The API key stays in a server-side secret store, never in GitHub source or browser configuration. ChatGPT subscriptions do not pay API charges. |
+
+Use a separate Google Cloud project and budget for qualification and production. A Cloud Billing account/payment method must be linked to each project to use Blaze; linking billing is the change that enables pay-as-you-go charges. Firebase’s free quotas continue on Blaze, but charges can arise beyond them. Google budget alerts are warnings, not a guaranteed hard spending stop. Keep each function at zero minimum instances and a small maximum instance count, set request/body/time limits, and use a shutoff control in the app. Do not treat the calculator or a budget alert as a bill ceiling.
+
+For GitHub deployment, use GitHub Actions with workload identity federation (short-lived credentials), not a long-lived service-account JSON key. Keep the fictional and production deploy identities, project IDs, secrets and environment values separate. After qualification, a merge to protected `main` should automatically deploy the private Hosting target and Functions, run a public-safe health check plus authenticated smoke checks, notify on failure, and redeploy the last known-good version if checks fail. The root site must remain on its current publisher. No credential, key or real project ID belongs in this repository.
+
+## Cost estimate and controls
+
+Google lists free monthly Hosting allowances of 10 GB stored and 360 MB/day transfer; Firestore has daily free allowances; the `*.firebasestorage.app` bucket includes 5 GB-months, 100 GB/month downloads, 5,000 uploads and 50,000 downloads. Cloud Functions lists 2 million invocations, 400,000 GB-seconds, 200,000 CPU-seconds and 5 GB outbound network at no cost, then usage pricing. These allowances make a two-person service likely inexpensive, but the private image gateway and cross-provider backup traffic make the bill usage-dependent; they are not a fixed-price plan. Set a **C$5/month Google Cloud budget alert on each project** and keep resource caps/kill switches. Review the actual first-month bill before raising any limit.
+
+Backblaze B2 currently gives 10 GB storage free; additional stored volume is listed at US$0.005 per GB-month. At the Bank of Canada’s latest rate available when this decision was prepared (1 USD = C$1.4271 on 9 October), a total 50 GB of retained encrypted backup objects would cost about **C$0.29/month**, and 100 GB about **C$0.64/month**, before tax or card FX fees. This assumes all versions/retention copies fit within those totals; full snapshots and Object Lock retention accumulate, so budget on total retained bytes, not just current photos. Egress is free up to 3× average stored volume; excess is US$0.01/GB.
+
+For OpenAI, current standard short-context rates for GPT-5.6 Luna are US$0.20 per million input tokens and US$1.20 per million output tokens; the model accepts image input. At the same exchange rate, that is roughly C$0.29/M input and C$1.71/M output. A 1,024×1,024 image at high detail is about 1,229 billable image tokens before accompanying text, or roughly **C$0.00035 per image** at the current input rate. For context, a request at the code’s maximum 16,000 input and 1,200 output tokens would reserve about **C$0.0067**; 100 such maximum-cost calls would be about C$0.67, excluding FX/tax and any pricing changes.
+
+Recommended initial API allowance: **C$5/month total, C$1/day**, enforced by the existing server-side reservation ledger before each generation; retain a reservation if the result is uncertain, allow no automatic generation retry, and hard-disable the provider when either cap is reached. Also configure provider-side project limits/alerts and reconcile actual usage; the application ledger is the hard gate, not a UI warning. Keep web search, image generation, long-context, fast/priority processing and extra models off for Version 1. Recheck the model rate when enabling the key because usage prices and exchange rates can change.
+
+**Initial estimated recurring baseline:** approximately C$0–5/month for Google Cloud at two-member, low-volume use (not guaranteed); about C$0–1/month for B2 at the suggested early archive scale; and up to C$5/month of API use if the proposed allowance is approved. Thus propose a **C$10/month combined operating alert**, plus applicable tax/FX, with the important caveat that alerts are not a hard Google Cloud billing ceiling. Avoid paid Google support, premium uptime, phone/SMS authentication, or a fixed-instance service for this launch.
+
+## Short qualification and acceptance sequence
+
+1. Create only the isolated fictional Firebase project first; link billing only after approving the account and the C$5 project alert/caps. Deploy the app to a temporary Firebase `web.app` origin before any DNS work.
+2. Run the hosted fictional script and manual HTTP checks: member read/upload; no-token and outsider denial; revoked-ID-token denial; direct Firebase Storage and raw GCS URL denial; immutable upload retry; no download-token metadata; Firestore membership revocation. Verify no cacheable media response.
+3. Configure the independent B2 destination and separate recovery key. Run an automated encrypted backup, remove Firebase access, restore to a clean device/path, and check the original image bytes, author attribution, corrections, agreements, event history and links. Confirm restore fails closed with a wrong key or modified archive.
+4. On both actual iPhones, open `app.justelle.life` in Safari, sign in as the intended member, add it to the Home Screen, reopen after force-quit/restart, and confirm the session remains. Exchange a message and a synthetic image; test JPEG, PNG and a real HEIC screenshot, airplane-mode interruption/recovery, sign-out, revoked session and outsider access. Confirm a direct image URL does not work outside the authenticated app.
+5. Only after successful hosted, backup and both-iPhone results: provision the two real member identities outside GitHub, configure production secrets and B2 key custody, review the production bill/alerts, and approve the production activation. Then merge/publish; thereafter successful tests on authorised changes merged to `main` automatically publish, health-check, report and roll back when needed.
+
+## Status at preparation
+
+PR #5 is still draft. Its current head’s GitHub Actions run #38344529422 succeeded, but this is a code/emulator/preview result—not a hosted deployment or a live iPhone result. Hosting gateway registration/IAM, real Firebase projects, external B2 upload, production credentials, DNS and live vision remain unverified. No paid service was activated and no real data was used. Keep the PR draft and public homepage unchanged until the listed qualification gates pass.
+
+## Official pricing and technical references
+
+- [Firebase plan and billing behaviour](https://firebase.google.com/docs/projects/billing/firebase-pricing-plans) and [Firebase product pricing/quotas](https://firebase.google.com/pricing)
+- [Backblaze B2 transaction and storage pricing](https://www.backblaze.com/cloud-storage/transaction-pricing)
+- [OpenAI API model pricing](https://developers.openai.com/api/docs/pricing), [GPT-5.6 Luna capabilities/pricing](https://developers.openai.com/api/docs/models/gpt-5.6-luna), and [vision input/cost rules](https://developers.openai.com/api/docs/guides/images-vision)
+- [Bank of Canada daily exchange rates](https://www.bankofcanada.ca/rates/exchange/daily-exchange-rates-lookup/)
