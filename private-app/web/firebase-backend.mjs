@@ -10,7 +10,7 @@ const asISO=t=>t?.toDate?.()?.toISOString()||null;
 const time=t=>t?.toMillis?.()||0;
 const ascending=rows=>rows.sort((a,b)=>time(a.created_at)-time(b.created_at)||a.id.localeCompare(b.id));
 
-export function firebaseBackend({db,storage,roomId,membership}) {
+export function firebaseBackend({db,storage,roomId,membership,mediaTransport=null}) {
   const roomDoc=doc(db,'rooms',roomId);
   const collectionAt=kind=>collection(roomDoc,kind);
   const docAt=(kind,id)=>doc(collectionAt(kind),id);
@@ -47,10 +47,21 @@ export function firebaseBackend({db,storage,roomId,membership}) {
     async addMessage(user,{body,attachmentIds=[],adventureId=null,correctsId=null,messageId=null}) {
       if(!body.trim() && !attachmentIds.length) throw Error('Write something or attach an image.');
       const id=messageId||crypto.randomUUID(),scope=context(adventureId);
-      await setDoc(docAt('messages',id),{
-        body:body.trim(),author_uid:user.uid,author_id:person(user),kind:'person',
-        conversation_id:scope.conversationId,adventure_id:scope.adventureId,
-        attachment_ids:attachmentIds,corrects_id:correctsId,created_at:serverTimestamp()
+      const target=docAt('messages',id);
+      await runTransaction(db,async transaction=>{
+        const existing=await transaction.get(target);
+        if(existing.exists()){
+          const saved=existing.data();
+          if(saved.author_uid!==user.uid||saved.body!==body.trim()||saved.conversation_id!==scope.conversationId||
+             (saved.corrects_id||null)!==correctsId||JSON.stringify(saved.attachment_ids)!==JSON.stringify(attachmentIds))
+            throw Error('This message has already been saved differently.');
+          return; // A lost acknowledgement can be retried without a second message.
+        }
+        transaction.set(target,{
+          body:body.trim(),author_uid:user.uid,author_id:person(user),kind:'person',
+          conversation_id:scope.conversationId,adventure_id:scope.adventureId,
+          attachment_ids:attachmentIds,corrects_id:correctsId,created_at:serverTimestamp()
+        });
       });
       return id;
     },
@@ -60,12 +71,12 @@ export function firebaseBackend({db,storage,roomId,membership}) {
       const originalBytes=new Uint8Array(await prepared.file.arrayBuffer());
       const checksum=await sha256(originalBytes);
       // Private SDK bytes; no reusable getDownloadURL token.
-      await uploadBytes(ref(storage,originalPath),originalBytes,{
+      await (mediaTransport?mediaTransport.upload(originalPath,originalBytes,{
         contentType:prepared.mime,customMetadata:{author_uid:user.uid,attachment_id:id,role:'original'}
-      });
-      if(prepared.previewBlob) await uploadBytes(ref(storage,previewPath),prepared.previewBlob,{
+      }):uploadBytes(ref(storage,originalPath),originalBytes,{contentType:prepared.mime,customMetadata:{author_uid:user.uid,attachment_id:id,role:'original'}}));
+      if(prepared.previewBlob) await (mediaTransport?mediaTransport.upload(previewPath,prepared.previewBlob,{
         contentType:'image/jpeg',customMetadata:{author_uid:user.uid,attachment_id:id,role:'preview'}
-      });
+      }):uploadBytes(ref(storage,previewPath),prepared.previewBlob,{contentType:'image/jpeg',customMetadata:{author_uid:user.uid,attachment_id:id,role:'preview'}}));
       await setDoc(docAt('attachments',id),{
         id,author_uid:user.uid,author_id:person(user),name:prepared.file.name.slice(0,180),
         mime:prepared.mime,size:originalBytes.length,sha256:checksum,original_path:originalPath,
@@ -73,7 +84,7 @@ export function firebaseBackend({db,storage,roomId,membership}) {
       });
       return id;
     },
-    async imageBytes(path) {return new Uint8Array(await getBytes(ref(storage,path),MAX_IMAGE_BYTES));},
+    async imageBytes(path) {return mediaTransport?mediaTransport.read(path,MAX_IMAGE_BYTES):new Uint8Array(await getBytes(ref(storage,path),MAX_IMAGE_BYTES));},
     async propose(user,{body,why='',replacesId=null,sourceMessageId=null,adventureId=null}) {
       if(!body.trim()) throw Error('Write a suggestion first.');
       if(replacesId && (await getDoc(docAt('decision_replacements',replacesId))).exists())

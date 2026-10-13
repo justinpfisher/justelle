@@ -2,26 +2,28 @@ import {initializeApp} from 'firebase/app';
 import {getAuth,connectAuthEmulator,setPersistence,browserLocalPersistence,signInWithEmailAndPassword,signOut,onAuthStateChanged,getIdTokenResult} from 'firebase/auth';
 import {getFirestore,connectFirestoreEmulator,doc,getDoc} from 'firebase/firestore';
 import {getStorage,connectStorageEmulator} from 'firebase/storage';
+import {resolveRuntime} from './runtime-config.mjs';
+import {protectedMediaTransport} from './protected-media.mjs';
 import {firebaseBackend} from './firebase-backend.mjs';
 import {prepareImage,revokePrepared} from './media.mjs';
 import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
 
-// No live services or real accounts are configured. Fail closed outside localhost.
-if(!['localhost','127.0.0.1'].includes(location.hostname))
-  throw Error('This fictional-data pilot is local-only.');
-const projectId='demo-justelle-pilot',roomId='fictional-room';
-const app=initializeApp({apiKey:'emulator-only',projectId,authDomain:projectId+'.firebaseapp.com',
-  storageBucket:projectId+'.firebasestorage.app'});
+const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
+const {projectId,roomId}=runtime;
+const app=initializeApp(runtime.firebase);
 const auth=getAuth(app),db=getFirestore(app),storage=getStorage(app);
-connectAuthEmulator(auth,'http://'+location.hostname+':9099',{disableWarnings:true});
-connectFirestoreEmulator(db,location.hostname,8081);
-connectStorageEmulator(storage,location.hostname,9199);
+if(runtime.mode==='local'){
+  connectAuthEmulator(auth,'http://'+location.hostname+':9099',{disableWarnings:true});
+  connectFirestoreEmulator(db,location.hostname,8081);
+  connectStorageEmulator(storage,location.hostname,9199);
+}
 await setPersistence(auth,browserLocalPersistence);
 
 const $=id=>document.getElementById(id);
+if(runtime.mode==='hosted-fictional')document.querySelector('.pilot').textContent='Fictional qualification · Personal content is not enabled';
 const GENERAL_TITLE='Our chat';
 let correctionId=null;
-const drafts=new Map();
+const drafts=new Map(),sendAttempts=new Map();
 let backend=null,unsubscribers=[],stopTopic=()=>{},pending=[],sending=false;
 let records={adventures:[],decisions:[],messages:[]};
 let selectedAdventure=null,currentConversation=GENERAL_CONVERSATION,latest=[],older=[],before=null,hasOlder=false;
@@ -77,6 +79,8 @@ function scrollToLatest(){
   el.scrollTop=el.scrollHeight;
   $('jump-latest').hidden=true;
 }
+$('close-image').onclick=()=>{$('image-viewer').close();$('full-image').removeAttribute('src');};
+$('image-viewer').addEventListener('click',event=>{if(event.target===$('image-viewer'))$('close-image').click();});
 $('jump-latest').onclick=scrollToLatest;
 $('timeline-scroll').addEventListener('scroll',()=>{
   $('jump-latest').hidden=isNearLatest();
@@ -127,10 +131,10 @@ function selectTopic(adventureId=null,{preserveTab=false}={}){
     // The deterministic conversation identifier is still safe to subscribe to.
     if(typeof adventureId!=='string')return;
   }
-  drafts.set(currentConversation,{body:$('message-input').value,correctionId});
+  drafts.set(currentConversation,{body:$('message-input').value,correctionId,pending});
   const scope=contextFor(adventureId);
   const draft=drafts.get(scope.conversationId);
-  $('message-input').value=draft?.body||'';correctionId=draft?.correctionId||null;
+  $('message-input').value=draft?.body||'';correctionId=draft?.correctionId||null;pending=draft?.pending||[];refreshPending();
   $('correction-note').hidden=!correctionId;
   selectedAdventure=scope.adventureId;currentConversation=scope.conversationId;
   try{localStorage.setItem('justelle-last-topic:'+auth.currentUser.uid,adventureId||'');}catch{}
@@ -169,7 +173,9 @@ function previewImage(slot,metadata){
       mediaUrls.set(path,url);img.src=url;
     }catch(e){if(slot.isConnected)img.replaceWith(element('p','media-note','Image preview unavailable. '+e.message));}
   })();
-  slot.append(img);
+  const expand=element('button','image-preview-button');expand.type='button';expand.setAttribute('aria-label','Enlarge '+metadata.name);expand.append(img);
+  expand.onclick=()=>{if(!img.src)return;$('full-image').src=img.src;$('full-image').alt=img.alt;$('image-caption').textContent=metadata.name;$('image-viewer').showModal();};
+  slot.append(expand);
   const download=element('button','text-button','Open original');
   download.type='button';download.onclick=async()=>{
     try{
@@ -469,7 +475,11 @@ async function sendMessage(askAI=false){
       item.savedId ||= await backend.uploadImage(auth.currentUser,item);
       ids.push(item.savedId);
     }
-    const id=await backend.addMessage(auth.currentUser,{body,attachmentIds:ids,adventureId:scope,correctsId});
+    const signature=JSON.stringify([body,ids,correctsId]);
+    let attempt=sendAttempts.get(thread);
+    if(attempt?.signature!==signature){attempt={signature,id:crypto.randomUUID()};sendAttempts.set(thread,attempt);}
+    const id=await backend.addMessage(auth.currentUser,{body,attachmentIds:ids,adventureId:scope,correctsId,messageId:attempt.id});
+    sendAttempts.delete(thread);
     if(thread===currentConversation && $('message-input').value===body){$('message-input').value='';correctionId=null;$('correction-note').hidden=true;}
     drafts.delete(thread);
     for(const item of queued)revokePrepared(item);
@@ -500,7 +510,7 @@ async function requestAI(messageId){
   clearError();setNotice('Justelle’s demo assistant is preparing a reply…');
   try{
     const token=await auth.currentUser.getIdToken();
-    const res=await fetch('http://127.0.0.1:8787/respond',{
+    const res=await fetch(runtime.aiUrl,{
       method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
       body:JSON.stringify({source_message_id:messageId})
     });
@@ -538,7 +548,9 @@ onAuthStateChanged(auth,async user=>{
   stopTopic();stopTopic=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();
-  drafts.clear();correctionId=null;$('message-input').value='';$('correction-note').hidden=true;
+  for(const draft of drafts.values())for(const item of draft.pending||[])revokePrepared(item);
+  drafts.clear();sendAttempts.clear();correctionId=null;$('message-input').value='';$('correction-note').hidden=true;
+  $('image-viewer').close();$('full-image').removeAttribute('src');
   backend=null;records={adventures:[],decisions:[],messages:[]};
   selectedAdventure=null;currentConversation=GENERAL_CONVERSATION;
   latest=[];older=[];before=null;hasOlder=false;startedTopic=false;
@@ -553,7 +565,7 @@ onAuthStateChanged(auth,async user=>{
     const membership=await getDoc(doc(db,'rooms',roomId));
     if(!membership.exists()||!membership.data().uids.includes(user.uid))
       throw Error('Member access denied.');
-    backend=firebaseBackend({db,storage,roomId,membership:membership.data()});
+    backend=firebaseBackend({db,storage,roomId,membership:membership.data(),mediaTransport:runtime.mode==='local'?null:protectedMediaTransport({baseUrl:runtime.mediaUrl,getToken:()=>auth.currentUser.getIdToken()})});
     $('private-app').hidden=false;tab('conversation');
     setNotice('Signed in; your local session stays available when reopening.');
     let wanted=null;
