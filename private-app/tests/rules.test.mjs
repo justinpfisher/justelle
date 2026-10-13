@@ -241,3 +241,14 @@ test('Image writes reject reusable download tokens and mismatched original/previ
     await assertFails(uploadBytes(media(A,imageId+'-preview'),png,{...metadata,customMetadata:{...metadata.customMetadata,role:'preview'}}));
   }finally{await env.cleanup();}
 });
+
+test('A send retried after a lost acknowledgement keeps exactly one original message',async()=>{
+  const {env,A}=await context();
+  try{
+    const backend=firebaseBackend({db:A.firestore(),storage:null,roomId:room,membership});
+    const input={body:'Fictional retry-safe note',messageId:'retry-message'};
+    await backend.addMessage({uid:a},input);await backend.addMessage({uid:a},input);
+    assert.equal((await getDocs(collection(A.firestore(),'rooms',room,'messages'))).size,1);
+    await assert.rejects(backend.addMessage({uid:a},{...input,body:'Changed retry'}),/saved differently/);
+  }finally{await env.cleanup();}
+});

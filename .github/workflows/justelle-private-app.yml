@@ -25,7 +25,9 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
+      - run: npm run build
         working-directory: private-app
       - run: npm run test:archive
         working-directory: private-app
@@ -53,7 +55,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - run: npm.cmd install --no-audit --no-fund
+      - run: npm.cmd ci --no-audit --no-fund
         working-directory: private-app
       - run: npm.cmd run test:preview
         working-directory: private-app
