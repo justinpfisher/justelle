@@ -25,3 +25,15 @@ test('An agreed revision supersedes but never deletes a previous agreement',()=>
   assert.equal(conflict.hasConflict,true);
   assert.deepEqual(conflict.history.find(d=>d.id==='a').superseded_by,['b','e']);
 });
+
+test('An unconfirmed alternative to a superseded agreement stays in history without approval controls',()=>{
+  const items=[
+    {id:'old',conversation_id:GENERAL_CONVERSATION,status:'locked'},
+    {id:'chosen',conversation_id:GENERAL_CONVERSATION,status:'locked',replaces_id:'old'},
+    {id:'alternative',conversation_id:GENERAL_CONVERSATION,status:'proposed',replaces_id:'old'},
+  ];
+  const view=decisionView(items,GENERAL_CONVERSATION);
+  assert.deepEqual(view.current.map(d=>d.id),['chosen']);
+  assert.equal(view.unresolved.length,0);
+  assert.equal(view.history.find(d=>d.id==='alternative')?.stale,true);
+});
