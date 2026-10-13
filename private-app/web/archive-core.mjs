@@ -58,7 +58,13 @@ export async function verifyArchive(bundle) {
     for(const aid of m.attachment_ids||[]) requireLink(aid,attachments,'message attachment');
     requireLink(m.source_message_id,messages,'AI source');
   }
+  const confirmedReplacements=new Set();
   for(const d of r.decisions) {
+    if(d.status==='locked' && d.replaces_id) {
+      if(confirmedReplacements.has(d.replaces_id))
+        throw Error('Conflicting locked revisions of the same plan');
+      confirmedReplacements.add(d.replaces_id);
+    }
     requireLink(d.conversation_id,conversations,'decision conversation');
     if(d.author_id!=='ai-mock') requireLink(d.author_id,persons,'decision author');
     requireLink(d.adventure_id,adventures,'decision adventure');

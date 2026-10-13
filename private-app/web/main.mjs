@@ -259,6 +259,7 @@ $('earlier-button').addEventListener('click',async()=>{
 function decisionWording(d,extra={}){
   const me=auth.currentUser.uid,other=backend.membership.uids.find(uid=>uid!==me);
   const otherName=labels()[other]||'the other person';
+  if(d.stale)return {tag:'Earlier suggestion',message:'We have since agreed to a different change. Use our current plan to suggest something new.'};
   if(d.status==='declined')return {tag:'Not for us',message:(d.declined_by===backend.person(auth.currentUser)?'You':authorName(d.declined_by))+' passed on this suggestion. We can always try another idea.'};
   if(d.status==='locked'&&extra.superseded_by?.length)return {
     tag:'An earlier plan',message:'We agreed to change this. The original stays in our history.'
@@ -289,7 +290,7 @@ function renderDecisionCard(d){
       '. Our previous agreement stays until we both say yes to a change.'));
   }
   const actions=element('div','actions');
-  if(d.status==='proposed'){
+  if(d.status==='proposed'&&!d.stale){
     const voted=Boolean(d.approvals?.[auth.currentUser.uid]);
     const agree=element('button',voted?'secondary':'primary',voted?'You said yes':'Yes, I agree');
     agree.type='button';agree.disabled=voted;

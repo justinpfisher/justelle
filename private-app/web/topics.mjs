@@ -22,9 +22,11 @@ export function decisionView(decisions,conversationId) {
   const current=[],history=[],unresolved=[];
   for(const d of scoped) {
     const replacedBy=replacements.get(d.id)||[];
-    const entry={...d,superseded_by:replacedBy.map(x=>x.id),conflict:replacedBy.length>1};
+    const stale=d.status==='proposed' && Boolean(d.replaces_id) &&
+      (replacements.get(d.replaces_id)?.length||0)>0;
+    const entry={...d,superseded_by:replacedBy.map(x=>x.id),conflict:replacedBy.length>1,stale};
     if(d.status==='locked' && replacedBy.length)history.push(entry);
-    else if(d.status==='declined')history.push(entry);
+    else if(d.status==='declined'||stale)history.push(entry);
     else if(d.status==='locked')current.push(entry);
     else unresolved.push(entry);
   }

@@ -76,6 +76,8 @@ export function firebaseBackend({db,storage,roomId,membership}) {
     async imageBytes(path) {return new Uint8Array(await getBytes(ref(storage,path),MAX_IMAGE_BYTES));},
     async propose(user,{body,why='',replacesId=null,sourceMessageId=null,adventureId=null}) {
       if(!body.trim()) throw Error('Write a suggestion first.');
+      if(replacesId && (await getDoc(docAt('decision_replacements',replacesId))).exists())
+        throw Error('That plan has already changed. Please suggest a change to the current version.');
       const id=crypto.randomUUID(),scope=context(adventureId);
       await setDoc(docAt('decisions',id),{
         body:body.trim(),why:why.trim(),author_uid:user.uid,author_id:person(user),origin:'human',
@@ -93,6 +95,9 @@ export function firebaseBackend({db,storage,roomId,membership}) {
         if(!snap.exists()) throw Error('Suggestion no longer exists.');
         const current=snap.data();
         if(current.status!=='proposed'||current.approvals?.[user.uid])return false;
+        const claim=current.replaces_id?docAt('decision_replacements',current.replaces_id):null;
+        if(claim && (await t.get(claim)).exists())
+          throw Error('That plan has already changed. Please review our current agreement.');
         const next={...current.approvals,[user.uid]:true};
         const locked=membership.uids.length===2&&membership.uids.every(uid=>next[uid]===true);
         t.update(target,
@@ -101,6 +106,9 @@ export function firebaseBackend({db,storage,roomId,membership}) {
           'status',locked?'locked':'proposed',
           'locked_at',locked?serverTimestamp():null
         );
+        // Read the claim before writing: concurrent confirmations race on one
+        // document and cannot produce two current replacements.
+        if(locked && claim) t.set(claim,{replacement_id:id,locked_at:serverTimestamp()});
         return true;
       });
     },

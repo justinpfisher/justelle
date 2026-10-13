@@ -21,6 +21,12 @@ service cloud.firestore {
     function nowCreated() {
       return request.resource.data.created_at == request.time;
     }
+    function decisionPath(roomId, decisionId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/decisions/$(decisionId);
+    }
+    function replacementPath(roomId, previousId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/decision_replacements/$(previousId);
+    }
     function adventurePath(roomId, adventureId) {
       return /databases/$(database)/documents/rooms/$(roomId)/adventures/$(adventureId);
     }
@@ -73,9 +79,10 @@ service cloud.firestore {
           d.replaces_id != decisionId &&
           exists(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)) &&
           get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.status == 'locked' &&
-          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.conversation_id == d.conversation_id));
+          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.conversation_id == d.conversation_id &&
+          !exists(replacementPath(roomId, d.replaces_id))));
     }
-    function validApproval(roomId) {
+    function validApproval(roomId, decisionId) {
       let old = resource.data;
       let next = request.resource.data;
       let changed = next.approvals.diff(old.approvals);
@@ -96,7 +103,30 @@ service cloud.firestore {
         next.approvals[request.auth.uid] == true &&
         next.approval_times[request.auth.uid] == request.time &&
         next.status == (both ? 'locked' : 'proposed') &&
-        (both ? next.locked_at == request.time : next.locked_at == null);
+        (both ? next.locked_at == request.time : next.locked_at == null) &&
+        // The final vote on a revision must also claim its original plan
+        // in the same atomic transaction. One original can have only one claim.
+        (old.replaces_id == null || !both || (
+          !exists(replacementPath(roomId, old.replaces_id)) &&
+          existsAfter(replacementPath(roomId, old.replaces_id)) &&
+          getAfter(replacementPath(roomId, old.replaces_id)).data.replacement_id == decisionId &&
+          getAfter(replacementPath(roomId, old.replaces_id)).data.locked_at == request.time));
+    }
+    function validReplacementClaim(roomId, previousId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['replacement_id', 'locked_at']) &&
+        d.keys().hasOnly(['replacement_id', 'locked_at']) &&
+        d.replacement_id is string && d.replacement_id != previousId &&
+        d.locked_at == request.time &&
+        exists(decisionPath(roomId, previousId)) &&
+        get(decisionPath(roomId, previousId)).data.status == 'locked' &&
+        exists(decisionPath(roomId, d.replacement_id)) &&
+        get(decisionPath(roomId, d.replacement_id)).data.status == 'proposed' &&
+        get(decisionPath(roomId, d.replacement_id)).data.replaces_id == previousId &&
+        get(decisionPath(roomId, d.replacement_id)).data.conversation_id ==
+          get(decisionPath(roomId, previousId)).data.conversation_id &&
+        getAfter(decisionPath(roomId, d.replacement_id)).data.status == 'locked' &&
+        getAfter(decisionPath(roomId, d.replacement_id)).data.locked_at == request.time;
     }
     function validDecline(roomId) {
       let old = resource.data;
@@ -150,8 +180,14 @@ service cloud.firestore {
         allow get, list: if member(roomId);
         allow create: if member(roomId) && validProposal(roomId, decisionId);
         allow update: if member(roomId) &&
-          (validApproval(roomId) || validDecline(roomId));
+          (validApproval(roomId, decisionId) || validDecline(roomId));
         allow delete: if false;
+      }
+      match /decision_replacements/{previousId} {
+        allow get: if member(roomId);
+        allow list: if false;
+        allow create: if member(roomId) && validReplacementClaim(roomId, previousId);
+        allow update, delete: if false;
       }
       match /adventures/{adventureId} {
         allow get, list: if member(roomId);
