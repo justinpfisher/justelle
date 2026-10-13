@@ -2,17 +2,59 @@
   "hosting": {
     "target": "justelle-private-qualification",
     "public": "../dist",
-    "ignore": ["**/.*", "**/node_modules/**"],
+    "ignore": [
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "headers": [
-      {"source": "**", "headers": [
-        {"key":"Cache-Control","value":"no-store"},
-        {"key":"X-Content-Type-Options","value":"nosniff"},
-        {"key":"Referrer-Policy","value":"no-referrer"},
-        {"key":"X-Frame-Options","value":"DENY"},
-        {"key":"Content-Security-Policy","value":"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"}
-      ]}
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-store"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "no-referrer"
+          },
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          },
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "function": {
+          "functionId": "privateApi",
+          "region": "northamerica-northeast1"
+        }
+      }
     ]
   },
-  "firestore": {"rules":"../firebase/firestore.rules","indexes":"../firebase/firestore.indexes.json"},
-  "storage": {"rules":"storage.rules"}
+  "firestore": {
+    "rules": "../firebase/firestore.rules",
+    "indexes": "../firebase/firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "gateway",
+      "runtime": "nodejs22"
+    }
+  ]
 }
