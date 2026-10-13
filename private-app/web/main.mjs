@@ -20,6 +20,8 @@ await setPersistence(auth,browserLocalPersistence);
 
 const $=id=>document.getElementById(id);
 const GENERAL_TITLE='Our chat';
+let correctionId=null;
+const drafts=new Map();
 let backend=null,unsubscribers=[],stopTopic=()=>{},pending=[],sending=false;
 let records={adventures:[],decisions:[],messages:[]};
 let selectedAdventure=null,currentConversation=GENERAL_CONVERSATION,latest=[],older=[],before=null,hasOlder=false;
@@ -125,7 +127,11 @@ function selectTopic(adventureId=null,{preserveTab=false}={}){
     // The deterministic conversation identifier is still safe to subscribe to.
     if(typeof adventureId!=='string')return;
   }
+  drafts.set(currentConversation,{body:$('message-input').value,correctionId});
   const scope=contextFor(adventureId);
+  const draft=drafts.get(scope.conversationId);
+  $('message-input').value=draft?.body||'';correctionId=draft?.correctionId||null;
+  $('correction-note').hidden=!correctionId;
   selectedAdventure=scope.adventureId;currentConversation=scope.conversationId;
   try{localStorage.setItem('justelle-last-topic:'+auth.currentUser.uid,adventureId||'');}catch{}
   stopTopic();stopTopic=()=>{};topicVersion++;
@@ -203,6 +209,7 @@ function renderMessages(){
     const who=element('div','who');
     who.append(element('span',null,authorName(message.author_id)),element('time',null,stamp(message.created_at)));
     bubble.append(who);
+    if(message.corrects_id)bubble.append(element('p','meta','A correction to an earlier message. The original is kept.'));
     if(message.body)bubble.append(element('p',null,message.body));
     for(const id of message.attachment_ids||[]){
       const slot=element('div','attachment-slot','Opening attached image…');
@@ -232,7 +239,13 @@ function renderMessages(){
         $('cancel-revision').hidden=false;openPlans();
         $('proposal-input').focus();
       };
-      actions.append(ask,save,propose);bubble.append(actions);
+      actions.append(ask,save,propose);
+      if(message.author_id===backend.person(auth.currentUser)){
+        const correct=element('button',null,'Add a correction');correct.type='button';
+        correct.onclick=()=>{correctionId=message.id;$('correction-note').hidden=false;$('message-input').focus();};
+        actions.append(correct);
+      }
+      bubble.append(actions);
     }
     root.append(bubble);
   }
@@ -405,14 +418,22 @@ function renderAdventures(){
       };
       actions.append(advance);
     }
-    card.append(actions);root.append(card);
+    const choices=element('details','history-list'),heading=element('summary',null,'Change how we’re keeping this');
+    choices.append(heading);
+    for(const [phase,label] of Object.entries(phaseLabels)){
+      if(phase===a.phase)continue;
+      const change=element('button','text-button',label);change.type='button';
+      change.onclick=async()=>{change.disabled=true;try{await backend.advance(auth.currentUser,a.id,phase);}catch(e){error(e);}finally{change.disabled=false;}};
+      choices.append(change);
+    }
+    card.append(actions,choices);root.append(card);
   }
   renderTopics();renderTopicHeading();
 }
 $('idea-form').addEventListener('submit',async e=>{
   e.preventDefault();clearError();
   try{
-    const id=await backend.addIdea(auth.currentUser,{title:$('idea-input').value});
+    const id=await backend.addIdea(auth.currentUser,{title:$('idea-input').value,phase:$('idea-kind').value});
     $('idea-input').value='';setNotice('Our new adventure has its own discussion.');selectTopic(id);
   }catch(e){error(e);}
 });
@@ -438,24 +459,27 @@ $('image-input').addEventListener('change',async e=>{
 });
 async function sendMessage(askAI=false){
   if(sending||!backend||!auth.currentUser)return;
-  clearError();const body=$('message-input').value,scope=selectedAdventure;
+  clearError();const body=$('message-input').value,scope=selectedAdventure,thread=currentConversation,correctsId=correctionId,queued=[...pending];
   if(!body.trim()&&!pending.length){error(Error('Write something or add an image.'));return;}
   sending=true;const send=$('send-button'),ai=$('ask-ai-button');send.disabled=true;ai.disabled=true;
   try{
     const ids=[];
-    for(const item of pending){
+    for(const item of queued){
       setNotice('Saving '+item.file.name+' securely…');
-      ids.push(await backend.uploadImage(auth.currentUser,item));
+      item.savedId ||= await backend.uploadImage(auth.currentUser,item);
+      ids.push(item.savedId);
     }
-    const id=await backend.addMessage(auth.currentUser,{body,attachmentIds:ids,adventureId:scope});
-    $('message-input').value='';
-    for(const item of pending)revokePrepared(item);
-    pending=[];refreshPending();setNotice('Sent to both of you.');
+    const id=await backend.addMessage(auth.currentUser,{body,attachmentIds:ids,adventureId:scope,correctsId});
+    if(thread===currentConversation && $('message-input').value===body){$('message-input').value='';correctionId=null;$('correction-note').hidden=true;}
+    drafts.delete(thread);
+    for(const item of queued)revokePrepared(item);
+    pending=pending.filter(item=>!queued.includes(item));refreshPending();setNotice('Sent to both of you.');
     if(askAI)await requestAI(id);
     if(scope===selectedAdventure)requestAnimationFrame(scrollToLatest);
   }catch(e){error(e);}
   finally{sending=false;send.disabled=false;ai.disabled=false;}
 }
+$('cancel-correction').onclick=()=>{correctionId=null;$('correction-note').hidden=true;};
 $('message-form').addEventListener('submit',e=>{e.preventDefault();void sendMessage();});
 $('message-input').addEventListener('keydown',event=>{
   if(event.key!=='Enter'||event.isComposing||event.keyCode===229)return;
@@ -514,6 +538,7 @@ onAuthStateChanged(auth,async user=>{
   stopTopic();stopTopic=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();
+  drafts.clear();correctionId=null;$('message-input').value='';$('correction-note').hidden=true;
   backend=null;records={adventures:[],decisions:[],messages:[]};
   selectedAdventure=null;currentConversation=GENERAL_CONVERSATION;
   latest=[];older=[];before=null;hasOlder=false;startedTopic=false;

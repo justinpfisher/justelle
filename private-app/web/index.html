@@ -84,6 +84,7 @@
       <button id="jump-latest" type="button" class="text-button jump-latest" hidden>Jump to newest messages ↓</button>
 
       <form id="message-form" class="composer">
+        <p id="correction-note" class="source-note" hidden>This adds a correction and keeps your original message. <button id="cancel-correction" class="text-button" type="button">Cancel correction</button></p>
         <label for="message-input" class="sr-only">Write a message</label>
         <textarea id="message-input" rows="2" maxlength="4000" aria-describedby="typing-help" placeholder="What are we thinking about?"></textarea>
         <p class="typing-hint" id="typing-help">Enter sends · Alt+Enter starts a new line</p>
@@ -104,8 +105,10 @@
       </div>
       <p class="intro">A place for restaurant ideas, outings and big trips. Each adventure has its own discussion, images and plans.</p>
       <form id="idea-form" class="soft-card">
-        <label for="idea-input">Something we could do</label>
+        <label for="idea-input">An idea or a moment to remember</label>
         <input type="text" id="idea-input" maxlength="160" required placeholder="A place, moment or possibility">
+        <label for="idea-kind">Keep this as</label>
+        <select id="idea-kind"><option value="idea">An idea to explore</option><option value="plan">Something we’re planning</option><option value="experience">Something that happened</option><option value="memory">A memory</option></select>
         <button type="submit" class="primary">Save and discuss</button>
       </form>
       <div id="adventures" class="adventure-list"></div>

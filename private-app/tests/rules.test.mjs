@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,collection,getDoc,getDocs,setDoc,updateDoc,serverTimestamp} from 'firebase/firestore';
+import {doc,collection,getDoc,getDocs,setDoc,updateDoc,writeBatch,serverTimestamp} from 'firebase/firestore';
 import {ref,uploadBytes,getBytes} from 'firebase/storage';
 import {firebaseBackend} from '../web/firebase-backend.mjs';
 import {sha256} from '../web/media.mjs';
@@ -40,6 +40,14 @@ function ideaData(uid=a) {
   return {id:'idea-1',title:'Fictional garden',phase:'idea',phases:['idea'],author_uid:uid,
     author_id:uid===a?'person-a':'person-b',last_modified_by:'person-a',conversation_id:'conversation-idea-1',
     source_message_id:null,created_at:serverTimestamp(),updated_at:serverTimestamp()};
+}
+async function createIdea(ctx,phase='idea') {
+  const batch=writeBatch(ctx.firestore());
+  batch.set(adventure(ctx,'idea-1'),{...ideaData(),phase,phases:[phase],last_event_id:'event-initial'});
+  batch.set(doc(ctx.firestore(),'rooms',room,'adventure_events','event-initial'),{
+    adventure_id:'idea-1',phase,previous_id:null,author_uid:a,author_id:'person-a',created_at:serverTimestamp()
+  });
+  await assertSucceeds(batch.commit());
 }
 test('Two authorised members share immutable messages; outsiders, unauthenticated clients and forged authors fail',async()=>{
   const {env,A,B,X,U,noClaim}=await context();
@@ -142,18 +150,22 @@ test('Competing confirmed changes cannot overwrite one another, even when two ap
     assert.equal((await getDoc(claim(winner))).data().replacement_id,'next-change');
   }finally{await env.cleanup();}
 });
-test('Idea stages only progress in order with attributable append-only phase history',async()=>{
+test('Memories can start directly and change direction while retaining attributable immutable history',async()=>{
   const {env,A,B,X}=await context();
   try {
-    await assertSucceeds(setDoc(adventure(A,'idea-1'),ideaData()));
+    await createIdea(A,'memory');
     await assertFails(updateDoc(adventure(B,'idea-1'),{phase:'memory',phases:['idea','memory'],updated_at:serverTimestamp(),last_modified_by:'person-b'}));
     const two=firebaseBackend({db:B.firestore(),storage:null,roomId:room,membership});
-    for(const next of ['plan','experience','memory']) {
-      await two.advance({uid:b},'idea-1');
+    for(const next of ['idea','experience','plan','memory']) {
+      await two.advance({uid:b},'idea-1',next);
       assert.equal((await getDoc(adventure(A,'idea-1'))).data().phase,next);
     }
-    assert.deepEqual((await getDoc(adventure(B,'idea-1'))).data().phases,['idea','plan','experience','memory']);
+    assert.deepEqual((await getDoc(adventure(B,'idea-1'))).data().phases,['memory','idea','experience','plan','memory']);
     await assertFails(updateDoc(adventure(A,'idea-1'),{phase:'idea'}));
+    await assertFails(updateDoc(doc(A.firestore(),'rooms',room,'adventure_events','event-initial'),{phase:'plan'}));
+    const events=await getDocs(collection(B.firestore(),'rooms',room,'adventure_events'));
+    assert.equal(events.size,5);
+    assert.equal(events.docs.filter(e=>e.data().author_id==='person-b').length,4);
     await assertFails(getDoc(adventure(X,'idea-1')));
   }finally{await env.cleanup();}
 });
@@ -162,7 +174,7 @@ test('Idea stages only progress in order with attributable append-only phase his
 test('Adventure discussions stay scoped, old shared chat stays separate and spoofing a topic fails',async()=>{
   const {env,A,B,X,U}=await context();
   try{
-    await assertSucceeds(setDoc(adventure(A,'idea-1'),ideaData()));
+    await createIdea(A);
     await assertSucceeds(setDoc(message(A,'topic-message'),{
       ...messageData(),conversation_id:'conversation-idea-1',adventure_id:'idea-1'
     }));
@@ -207,5 +219,25 @@ test('A member can pass on a suggestion without erasing it or altering a confirm
     await assertFails(updateDoc(decision(B,'optional-plan'),{status:'locked'}));
     await assertFails(updateDoc(decision(A,'optional-plan'),{body:'Erase rejection'}));
     await assertFails(updateDoc(decision(X,'optional-plan'),{status:'proposed'}));
+  }finally{await env.cleanup();}
+});
+
+test('Corrections preserve original authorship and reject missing attachments or another person’s message',async()=>{
+  const {env,A,B}=await context();
+  try{
+    await setDoc(message(A,'original-note'),messageData());
+    await assertSucceeds(setDoc(message(A,'corrected-note'),{...messageData(),body:'Fictional correction',corrects_id:'original-note'}));
+    await assertFails(setDoc(message(B,'forged-correction'),{...messageData(b),corrects_id:'original-note'}));
+    await assertFails(setDoc(message(A,'broken-image'),messageData(a,['missing-image'])));
+    assert.equal((await getDoc(message(A,'original-note'))).data().body,'Fictional coastal idea');
+  }finally{await env.cleanup();}
+});
+test('Image writes reject reusable download tokens and mismatched original/preview identities',async()=>{
+  const {env,A}=await context();
+  try{
+    const metadata={contentType:'image/png',customMetadata:{author_uid:a,attachment_id:imageId,role:'original'}};
+    await assertFails(uploadBytes(media(A),png,{...metadata,customMetadata:{...metadata.customMetadata,firebaseStorageDownloadTokens:'public-token'}}));
+    await assertFails(uploadBytes(media(A),png,{...metadata,customMetadata:{...metadata.customMetadata,attachment_id:'00000000-0000-4000-8000-000000000002'}}));
+    await assertFails(uploadBytes(media(A,imageId+'-preview'),png,{...metadata,customMetadata:{...metadata.customMetadata,role:'preview'}}));
   }finally{await env.cleanup();}
 });

@@ -38,15 +38,31 @@ service cloud.firestore {
           exists(adventurePath(roomId, d.adventure_id)) &&
           get(adventurePath(roomId, d.adventure_id)).data.conversation_id == d.conversation_id);
     }
+    function messagePath(roomId, messageId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/messages/$(messageId);
+    }
+    function eventPath(roomId, eventId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/adventure_events/$(eventId);
+    }
+    function attached(roomId, id) {
+      return id is string && exists(/databases/$(database)/documents/rooms/$(roomId)/attachments/$(id));
+    }
     function validMessage(roomId) {
       let d = request.resource.data;
       return d.keys().hasAll(['body','author_uid','author_id','kind','conversation_id','adventure_id','attachment_ids','created_at']) &&
-        d.keys().hasOnly(['body','author_uid','author_id','kind','conversation_id','adventure_id','attachment_ids','created_at']) &&
+        d.keys().hasOnly(['body','author_uid','author_id','kind','conversation_id','adventure_id','attachment_ids','created_at','corrects_id']) &&
         authored(roomId) && nowCreated() && conversation(roomId) &&
         d.kind == 'person' && d.body is string && d.body.size() <= 4000 &&
         d.attachment_ids is list && d.attachment_ids.size() <= 3 &&
+        (d.attachment_ids.size() < 1 || attached(roomId, d.attachment_ids[0])) &&
+        (d.attachment_ids.size() < 2 || attached(roomId, d.attachment_ids[1])) &&
+        (d.attachment_ids.size() < 3 || attached(roomId, d.attachment_ids[2])) &&
         (d.body.size() > 0 || d.attachment_ids.size() > 0) &&
-        (d.adventure_id == null || d.adventure_id is string);
+        (d.adventure_id == null || d.adventure_id is string) &&
+        (d.get('corrects_id', null) == null || (
+          d.corrects_id is string && exists(messagePath(roomId, d.corrects_id)) &&
+          get(messagePath(roomId, d.corrects_id)).data.author_uid == request.auth.uid &&
+          get(messagePath(roomId, d.corrects_id)).data.conversation_id == d.conversation_id));
     }
     function validAttachment(roomId, attachmentId) {
       let d = request.resource.data;
@@ -139,29 +155,42 @@ service cloud.firestore {
     }
     function validIdea(roomId, adventureId) {
       let d = request.resource.data;
-      return d.keys().hasAll(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at']) &&
-        d.keys().hasOnly(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at']) &&
+      return d.keys().hasAll(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at','last_event_id']) &&
+        d.keys().hasOnly(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at','last_event_id']) &&
         authored(roomId) && nowCreated() &&
         d.conversation_id == 'conversation-' + adventureId &&
         d.id == adventureId && d.title is string && d.title.size() > 0 && d.title.size() <= 160 &&
-        d.phase == 'idea' && d.phases == ['idea'] &&
+        d.phase in ['idea','plan','experience','memory'] && d.phases == [d.phase] &&
         d.last_modified_by == person(roomId) &&
-        (d.source_message_id == null || d.source_message_id is string) &&
-        d.updated_at == request.time;
+        (d.source_message_id == null || (d.source_message_id is string && exists(messagePath(roomId, d.source_message_id)))) &&
+        d.updated_at == request.time &&
+        existsAfter(eventPath(roomId, d.last_event_id)) &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.adventure_id == adventureId &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.previous_id == null;
     }
-    function validNextPhase(roomId) {
+    function validNextPhase(roomId, adventureId) {
       let old = resource.data;
       let d = request.resource.data;
-      return d.diff(old).affectedKeys().hasOnly(['phase','phases','updated_at','last_modified_by']) &&
-        ((old.phase == 'idea' && d.phase == 'plan' &&
-           old.phases == ['idea'] && d.phases == ['idea','plan']) ||
-         (old.phase == 'plan' && d.phase == 'experience' &&
-           old.phases == ['idea','plan'] && d.phases == ['idea','plan','experience']) ||
-         (old.phase == 'experience' && d.phase == 'memory' &&
-           old.phases == ['idea','plan','experience'] &&
-           d.phases == ['idea','plan','experience','memory'])) &&
-        d.updated_at == request.time &&
-        d.last_modified_by == person(roomId);
+      return d.diff(old).affectedKeys().hasOnly(['phase','phases','updated_at','last_modified_by','last_event_id']) &&
+        d.phase in ['idea','plan','experience','memory'] && d.phase != old.phase &&
+        old.phases.size() < 10000 && d.phases == old.phases.concat([d.phase]) &&
+        d.updated_at == request.time && d.last_modified_by == person(roomId) &&
+        d.last_event_id != old.get('last_event_id', null) &&
+        !exists(eventPath(roomId, d.last_event_id)) &&
+        existsAfter(eventPath(roomId, d.last_event_id)) &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.adventure_id == adventureId &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.previous_id == old.get('last_event_id', null);
+    }
+    function validEvent(roomId, eventId) {
+      let d = request.resource.data;
+      let a = getAfter(adventurePath(roomId, d.adventure_id)).data;
+      return d.keys().hasAll(['adventure_id','phase','previous_id','author_uid','author_id','created_at']) &&
+        d.keys().hasOnly(['adventure_id','phase','previous_id','author_uid','author_id','created_at']) &&
+        authored(roomId) && nowCreated() &&
+        a.last_event_id == eventId && a.phase == d.phase && a.updated_at == request.time &&
+        (exists(adventurePath(roomId, d.adventure_id)) ?
+          d.previous_id == get(adventurePath(roomId, d.adventure_id)).data.get('last_event_id', null) :
+          d.previous_id == null);
     }
     match /rooms/{roomId} {
       allow get: if member(roomId);
@@ -189,10 +218,15 @@ service cloud.firestore {
         allow create: if member(roomId) && validReplacementClaim(roomId, previousId);
         allow update, delete: if false;
       }
+      match /adventure_events/{eventId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validEvent(roomId, eventId);
+        allow update, delete: if false;
+      }
       match /adventures/{adventureId} {
         allow get, list: if member(roomId);
         allow create: if member(roomId) && validIdea(roomId, adventureId);
-        allow update: if member(roomId) && validNextPhase(roomId);
+        allow update: if member(roomId) && validNextPhase(roomId, adventureId);
         allow delete: if false;
       }
     }
