@@ -27,6 +27,10 @@ jobs:
           java-version: 21
       - run: npm ci --no-audit --no-fund
         working-directory: private-app
+      - run: npm install --prefix hosting/functions --no-audit --no-fund
+        working-directory: private-app
+      - run: node --check hosting/functions/index.mjs && node -e "JSON.parse(require('node:fs').readFileSync('hosting/firebase.json')); JSON.parse(require('node:fs').readFileSync('hosting/firebase.production.json'))"
+        working-directory: private-app
       - run: npm run build
         working-directory: private-app
       - run: npm run test:archive
