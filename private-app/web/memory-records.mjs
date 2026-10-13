@@ -29,7 +29,7 @@ export function canonicalRecords({membership,messages,decisions,adventures,attac
           last_event_id:a.last_event_id||null,last_modified_by:a.last_modified_by,source_message_id:a.source_message_id,
           conversation_id:a.conversation_id,created_at:asISO(a.created_at),updated_at:asISO(a.updated_at)
         })),
-        adventure_events:events.map(e=>({id:e.id,adventure_id:e.adventure_id,phase:e.phase,previous_id:e.previous_id,author_id:e.author_id,created_at:asISO(e.created_at)})),
+        adventure_events:events.map(e=>({id:e.id,adventure_id:e.adventure_id,phase:e.phase,previous_id:e.previous_id,prior_phases:e.prior_phases||[],author_id:e.author_id,created_at:asISO(e.created_at)})),
         attachments:attachments.map(a=>({
           id:a.id,name:a.name,mime:a.mime,size:a.size,sha256:a.sha256,author_id:a.author_id,
           created_at:asISO(a.created_at),preview_path:a.preview_path?'media/'+a.id+'-preview':null

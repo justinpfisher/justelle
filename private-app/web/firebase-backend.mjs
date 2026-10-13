@@ -143,7 +143,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
         conversation_id:topicConversation(id),source_message_id:sourceMessageId||null,
         created_at:serverTimestamp(),updated_at:serverTimestamp()
       });
-      batch.set(docAt('adventure_events',eventId),{adventure_id:id,phase,previous_id:null,
+      batch.set(docAt('adventure_events',eventId),{adventure_id:id,phase,previous_id:null,prior_phases:[],
         author_uid:user.uid,author_id:person(user),created_at:serverTimestamp()});
       await batch.commit();
       return id;
@@ -156,7 +156,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
         const next=phase||phases[index+1];
         if(!phases.includes(next)||next===current.phase)return false;
         const eventId=crypto.randomUUID();
-        t.set(docAt('adventure_events',eventId),{adventure_id:id,phase:next,previous_id:current.last_event_id||null,
+        t.set(docAt('adventure_events',eventId),{adventure_id:id,phase:next,previous_id:current.last_event_id||null,prior_phases:current.last_event_id?[]:current.phases,
           author_uid:user.uid,author_id:person(user),created_at:serverTimestamp()});
         t.update(target,{phase:next,last_event_id:eventId,phases:[...current.phases,next],
           updated_at:serverTimestamp(),last_modified_by:person(user)});

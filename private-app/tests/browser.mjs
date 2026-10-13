@@ -245,6 +245,8 @@ try{
   await again.locator('#message-input').fill('Fictional corrected detail');await again.locator('#send-button').click();
   await again.getByText('Fictional corrected detail',{exact:true}).waitFor();
   assert.equal(await again.getByText('Fictional correction source',{exact:true}).count(),1);
+  await sourceBubble.locator('.image-tile').waitFor({state:'visible'});
+  await poll(async()=>sourceBubble.locator('.image-tile').evaluate(img=>img.naturalWidth>0));
   await sourceBubble.locator('.image-preview-button').click();await again.locator('#image-viewer').waitFor({state:'visible'});
   await poll(async()=>again.locator('#full-image').evaluate(img=>img.naturalWidth>0));await again.locator('#close-image').click();
   await again.locator('[data-tab="adventures"]').click();

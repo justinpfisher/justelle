@@ -138,7 +138,11 @@ export function verifyRecords(r) {
     while(id){
       const e=events.get(id);
       if(!e||e.adventure_id!==a.id||seen.has(id)||!persons.has(e.author_id)||!e.created_at)throw Error('Broken adventure event history');
-      seen.add(id);visited.add(id);chain.unshift(e.phase);id=e.previous_id;
+      seen.add(id);visited.add(id);chain.unshift(e.phase);
+      const prior=e.prior_phases||[];
+      if(!Array.isArray(prior)||(e.previous_id&&prior.length))throw Error('Invalid legacy adventure history');
+      if(!e.previous_id)chain.unshift(...prior);
+      id=e.previous_id;
     }
     if(JSON.stringify(chain)!==JSON.stringify(a.phases))throw Error('Adventure event history mismatch');
   }

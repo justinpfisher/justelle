@@ -56,7 +56,7 @@ async function createIdea(ctx,phase='idea') {
   const batch=writeBatch(ctx.firestore());
   batch.set(adventure(ctx,'idea-1'),{...ideaData(),phase,phases:[phase],last_event_id:'event-initial'});
   batch.set(doc(ctx.firestore(),'rooms',room,'adventure_events','event-initial'),{
-    adventure_id:'idea-1',phase,previous_id:null,author_uid:a,author_id:'person-a',created_at:serverTimestamp()
+    adventure_id:'idea-1',phase,previous_id:null,prior_phases:[],author_uid:a,author_id:'person-a',created_at:serverTimestamp()
   });
   await assertSucceeds(batch.commit());
 }
@@ -327,5 +327,18 @@ test('Hosted Storage Rules deny SDK uploads and direct reads even for members an
     await assertFails(uploadBytes(media(A),png,metadata));
     await env.withSecurityRulesDisabled(async c=>uploadBytes(media(c),png,{contentType:'image/png'}));
     await assertFails(getBytes(media(A)));await assertFails(getBytes(media(U)));
+  }finally{await env.cleanup();}
+});
+
+test('Older fictional pilot adventure histories are preserved when adding the first immutable event',async()=>{
+  const {env,A,B}=await context();
+  try{
+    await env.withSecurityRulesDisabled(c=>setDoc(adventure(c,'idea-1'),{...ideaData(),phase:'plan',phases:['idea','plan']}));
+    const backend=firebaseBackend({db:B.firestore(),storage:null,roomId:room,membership});
+    await backend.advance({uid:b},'idea-1','memory');
+    const state=(await getDoc(adventure(A,'idea-1'))).data();
+    assert.deepEqual(state.phases,['idea','plan','memory']);
+    const event=(await getDoc(doc(A.firestore(),'rooms',room,'adventure_events',state.last_event_id))).data();
+    assert.deepEqual(event.prior_phases,['idea','plan']);assert.equal(event.author_id,'person-b');
   }finally{await env.cleanup();}
 });
