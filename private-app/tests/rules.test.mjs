@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {doc,collection,getDoc,getDocs,setDoc,updateDoc,writeBatch,serverTimestamp} from 'firebase/firestore';
-import {ref,uploadBytes,getBytes} from 'firebase/storage';
+import {ref,uploadBytes,getBytes,listAll,deleteObject} from 'firebase/storage';
 import {firebaseBackend} from '../web/firebase-backend.mjs';
 import {sha256} from '../web/media.mjs';
 
@@ -11,13 +11,24 @@ const projectId='demo-justelle-pilot',room='fictional-room',a='fictional-a',b='f
 const imageId='00000000-0000-4000-8000-000000000001';
 const png=new Uint8Array(await readFile(new URL('./fictional-landscape.png',import.meta.url)));
 const membership={uids:[a,b],people:{[a]:'person-a',[b]:'person-b'},labels:{[a]:'Fictional A',[b]:'Fictional B'}};
-async function context() {
+async function context(storageRules='../firebase/storage.rules') {
   const env=await initializeTestEnvironment({
     projectId,
     firestore:{host:'127.0.0.1',port:8081,rules:await readFile(new URL('../firebase/firestore.rules',import.meta.url),'utf8')},
-    storage:{host:'127.0.0.1',port:9199,rules:await readFile(new URL('../firebase/storage.rules',import.meta.url),'utf8')}
+    storage:{host:'127.0.0.1',port:9199,rules:await readFile(new URL(storageRules,import.meta.url),'utf8')}
   });
-  await env.clearFirestore();await env.clearStorage();
+  await env.clearFirestore();
+  // Rules SDK clearStorage() lists only default-bucket root items. Our images
+  // live under nested paths in the explicit modern bucket; clear it recursively.
+  await env.withSecurityRulesDisabled(async c=>{
+    const storage=c.storage('gs://'+projectId+'.firebasestorage.app');
+    async function clear(path=''){
+      const listing=await listAll(ref(storage,path));
+      await Promise.all(listing.items.map(item=>deleteObject(item)));
+      for(const prefix of listing.prefixes)await clear(prefix.fullPath);
+    }
+    await clear();
+  });
   await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'rooms',room),membership));
   const user=uid=>env.authenticatedContext(uid,{justelle_room:room,justelle_member:true});
   return {env,A:user(a),B:user(b),X:user('outsider'),U:env.unauthenticatedContext(),noClaim:env.authenticatedContext(a)};
@@ -232,11 +243,11 @@ test('Corrections preserve original authorship and reject missing attachments or
     assert.equal((await getDoc(message(A,'original-note'))).data().body,'Fictional coastal idea');
   }finally{await env.cleanup();}
 });
-test('Image writes reject reusable download tokens and mismatched original/preview identities',async()=>{
+test('Local image writes reject extra application metadata and mismatched original/preview identities',async()=>{
   const {env,A}=await context();
   try{
     const metadata={contentType:'image/png',customMetadata:{author_uid:a,attachment_id:imageId,role:'original'}};
-    await assertFails(uploadBytes(media(A),png,{...metadata,customMetadata:{...metadata.customMetadata,firebaseStorageDownloadTokens:'public-token'}}));
+    await assertFails(uploadBytes(media(A),png,{...metadata,customMetadata:{...metadata.customMetadata,public_link:'forbidden-extra-field'}}));
     await assertFails(uploadBytes(media(A),png,{...metadata,customMetadata:{...metadata.customMetadata,attachment_id:'00000000-0000-4000-8000-000000000002'}}));
     await assertFails(uploadBytes(media(A,imageId+'-preview'),png,{...metadata,customMetadata:{...metadata.customMetadata,role:'preview'}}));
   }finally{await env.cleanup();}
@@ -278,4 +289,43 @@ test('Persistent AI cost reservations serialize races, survive adapter recreatio
     await assertFails(setDoc(doc(A.firestore(),'rooms',room,'ai_budgets','month-2026-10'),{reserved_cad_micros:0}));
     assert.deepEqual(ledger.periods(new Date('2026-11-01T03:59:59Z')),{month:'2026-10',day:'2026-10-31'});
   }finally{await db.terminate();await deleteApp(admin);await env.cleanup();}
+});
+
+test('Consistent paginated Firebase snapshots feed encrypted backups and recover originals without Firebase',async()=>{
+  const {env,A,B}=await context();
+  const {initializeApp,deleteApp}=await import('firebase-admin/app');
+  const {getFirestore}=await import('firebase-admin/firestore');
+  const {getStorage}=await import('firebase-admin/storage');
+  const {backupFictionalFirebase}=await import('../memory/firebase-backup-source.mjs');
+  const {generateRecoveryKey,restoreEncryptedBackup}=await import('../memory/encrypted-backup.mjs');
+  const {mkdtemp,readFile:read}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  const admin=initializeApp({projectId,storageBucket:projectId+'.firebasestorage.app'},'fictional-backup-test-'+Date.now()),db=getFirestore(admin);
+  try{
+    const originalPath='rooms/'+room+'/media/'+imageId,digest=await sha256(png);
+    await uploadBytes(media(A),png,{contentType:'image/png',customMetadata:{author_uid:a,attachment_id:imageId,role:'original'}});
+    await setDoc(att(A,imageId),{id:imageId,author_uid:a,author_id:'person-a',name:'fictional.png',mime:'image/png',size:png.length,sha256:digest,original_path:originalPath,preview_path:null,created_at:serverTimestamp()});
+    await setDoc(message(A,'message-1'),messageData(a,[imageId]));
+    await setDoc(message(B,'message-2'),messageData(b));
+    const backend=firebaseBackend({db:A.firestore(),storage:null,roomId:room,membership});
+    await backend.addIdea({uid:a},{title:'Fictional recovered memory',phase:'memory',sourceMessageId:'message-1'});
+    const directory=await mkdtemp(join(tmpdir(),'justelle-firebase-backup-')),destination=join(directory,'memory.jmb'),key=generateRecoveryKey();
+    const written=await backupFictionalFirebase({db,bucket:getStorage(admin).bucket(),key,pageSize:1},destination);
+    assert.equal(written.records.messages,2);assert.equal(written.records.adventure_events,1);
+    const output=join(directory,'independent-recovery');await restoreEncryptedBackup(destination,key,output);
+    assert.deepEqual(new Uint8Array(await read(join(output,'media',imageId))),png);
+    const recovered=JSON.parse(await read(join(output,'records.json'),'utf8'));
+    assert.equal(recovered.adventures[0].phase,'memory');assert.equal(recovered.messages.find(m=>m.id==='message-2').author_id,'person-b');
+    assert.equal(JSON.stringify(recovered).includes('fictional-a'),false,'Canonical records do not rely on Auth UIDs');
+    await assert.rejects(backupFictionalFirebase({db,bucket:getStorage(admin).bucket(),key,roomId:'real-room'},join(directory,'forbidden.jmb')),/not approved/);
+  }finally{await db.terminate();await deleteApp(admin);await env.cleanup();}
+});
+
+test('Hosted Storage Rules deny SDK uploads and direct reads even for members and reserved download-token metadata',async()=>{
+  const {env,A,U}=await context('../hosting/storage.rules');
+  try{
+    const metadata={contentType:'image/png',customMetadata:{author_uid:a,attachment_id:imageId,role:'original',firebaseStorageDownloadTokens:'fictional-token'}};
+    await assertFails(uploadBytes(media(A),png,metadata));
+    await env.withSecurityRulesDisabled(async c=>uploadBytes(media(c),png,{contentType:'image/png'}));
+    await assertFails(getBytes(media(A)));await assertFails(getBytes(media(U)));
+  }finally{await env.cleanup();}
 });

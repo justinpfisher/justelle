@@ -1,6 +1,6 @@
 import {chromium} from 'playwright';
 import {spawn} from 'node:child_process';
-import {readFile,mkdtemp,unlink} from 'node:fs/promises';
+import {readFile,mkdtemp,unlink,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -229,6 +229,40 @@ try{
   await again.locator('#private-app').waitFor({state:'visible',timeout:25000});
   await again.getByRole('heading',{name:'Fictional coastal walk',exact:true}).waitFor();
   assert.equal(await again.locator('#login').isVisible(),false);
+  // New mobile flows: per-topic drafts/images, enlarged previews and preserved corrections.
+  await again.locator('[data-topic-id="conversation-shared"]').click();
+  await again.locator('#message-input').fill('Fictional unsent draft');await mockPhoto(again);
+  await again.locator('[data-topic-id="'+topic2+'"]').click();
+  assert.equal(await again.locator('#message-input').inputValue(),'');
+  assert.equal(await again.locator('#staged-images .queued').count(),0);
+  await again.locator('[data-topic-id="conversation-shared"]').click();
+  assert.equal(await again.locator('#message-input').inputValue(),'Fictional unsent draft');
+  assert.equal(await again.locator('#staged-images .queued').count(),1);
+  await again.locator('#message-input').fill('Fictional correction source');await again.locator('#send-button').click();
+  const sourceBubble=again.locator('#messages .bubble').filter({hasText:'Fictional correction source'});
+  await sourceBubble.getByRole('button',{name:'Add a correction'}).click();
+  await again.locator('#correction-note').waitFor({state:'visible'});
+  await again.locator('#message-input').fill('Fictional corrected detail');await again.locator('#send-button').click();
+  await again.getByText('Fictional corrected detail',{exact:true}).waitFor();
+  assert.equal(await again.getByText('Fictional correction source',{exact:true}).count(),1);
+  await sourceBubble.locator('.image-preview-button').click();await again.locator('#image-viewer').waitFor({state:'visible'});
+  await poll(async()=>again.locator('#full-image').evaluate(img=>img.naturalWidth>0));await again.locator('#close-image').click();
+  await again.locator('[data-tab="adventures"]').click();
+  await again.locator('#idea-input').fill('Fictional spontaneous memory');await again.locator('#idea-kind').selectOption('memory');
+  await again.locator('#idea-form button[type="submit"]').click();
+  await again.getByRole('heading',{name:'Fictional spontaneous memory',exact:true}).waitFor();
+  await again.locator('[data-tab="adventures"]').click();
+  const memoryCard=again.locator('#adventures .record-card').filter({hasText:'Fictional spontaneous memory'});
+  await memoryCard.getByText('Remembering',{exact:true}).waitFor();
+  await memoryCard.getByText('Change how we’re keeping this',{exact:true}).click();
+  await memoryCard.getByRole('button',{name:'Exploring',exact:true}).click();
+  await memoryCard.locator('.tag').getByText('Exploring',{exact:true}).waitFor();
+  const screenshots=fileURLToPath(new URL('../screenshots/',import.meta.url));await mkdir(screenshots,{recursive:true});
+  assert.ok(await again.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Phone layout should fit its viewport');
+  await again.screenshot({path:join(screenshots,'fictional-phone.png'),fullPage:true});
+  await again.setViewportSize({width:1280,height:900});
+  assert.ok(await again.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Desktop layout should fit its viewport');
+  await again.screenshot({path:join(screenshots,'fictional-desktop.png'),fullPage:true});
   assert.deepEqual(pageErrors,[]);
   console.log('BROWSER PASS: scoped chats, 40-message pages, jump to latest, source-linked adventures, two-member plans, decline/revision history, transparent AI, image preview, independent restore and session persistence');
 }finally{

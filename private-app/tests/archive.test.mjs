@@ -77,3 +77,14 @@ test('Nonlinear memory events and corrections survive offline restore; forged ev
   r.adventure_events[0].previous_id='event-2';
   await assert.rejects(createArchive(r,[{id,mime:'image/png',bytes:fixture}]),/event history/);
 });
+
+test('Recovery refuses absent authors and cyclic agreement or correction histories',async()=>{
+  const base=await example();
+  async function altered(change){const r=structuredClone(base.records);change(r);return createArchive(r,[{id,mime:'image/png',bytes:fixture}]);}
+  await assert.rejects(altered(r=>delete r.messages[0].author_id),/Missing author/);
+  await assert.rejects(altered(r=>r.decisions[0].replaces_id=r.decisions[0].id),/Cyclic agreement/);
+  await assert.rejects(altered(r=>{
+    r.messages.push({...r.messages[0],id:'message-2',corrects_id:'message-1'});
+    r.messages[0].corrects_id='message-2';
+  }),/Cyclic correction/);
+});

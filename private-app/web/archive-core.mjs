@@ -21,7 +21,8 @@ function namesAreUnique(rows,label) {
   const ids=rows.map(x=>x?.id);
   if(ids.some(id=>typeof id!=='string'||!id||id.length>160)||new Set(ids).size!==ids.length) throw Error('Invalid or duplicate IDs in '+label);
 }
-function requireLink(id,ids,label) {
+function requireLink(id,ids,label,required=false) {
+  if(required&&(id===null||id===undefined))throw Error('Missing '+label+' relationship');
   if(id!==null && id!==undefined && !ids.has(id)) throw Error('Broken '+label+' relationship: '+id);
 }
 export async function createArchive(records,files) {
@@ -73,8 +74,8 @@ export function verifyRecords(r) {
     }
   }
   for(const m of r.messages) {
-    requireLink(m.conversation_id,conversations,'conversation');
-    if(m.author_id!=='ai-mock') requireLink(m.author_id,persons,'author');
+    requireLink(m.conversation_id,conversations,'conversation',true);
+    if(m.author_id!=='ai-mock') requireLink(m.author_id,persons,'author',true);
     requireLink(m.adventure_id,adventures,'adventure');
     for(const aid of m.attachment_ids||[]) requireLink(aid,attachments,'message attachment');
     requireLink(m.source_message_id,messages,'AI source');
@@ -91,8 +92,8 @@ export function verifyRecords(r) {
         throw Error('Conflicting locked revisions of the same plan');
       confirmedReplacements.add(d.replaces_id);
     }
-    requireLink(d.conversation_id,conversations,'decision conversation');
-    if(d.author_id!=='ai-mock') requireLink(d.author_id,persons,'decision author');
+    requireLink(d.conversation_id,conversations,'decision conversation',true);
+    if(d.author_id!=='ai-mock') requireLink(d.author_id,persons,'decision author',true);
     requireLink(d.adventure_id,adventures,'decision adventure');
     requireLink(d.source_message_id,messages,'proposal source');
     requireLink(d.replaces_id,decisions,'replaced decision');
@@ -106,13 +107,29 @@ export function verifyRecords(r) {
     if(!Array.isArray(votes) || new Set(votes.map(v=>v.person_id)).size!==votes.length || votes.some(v=>!persons.has(v.person_id))) throw Error('Invalid approvals');
     if(d.status==='locked' && (votes.length!==2 || !d.locked_at)) throw Error('Locked decision needs both approvals');
   }
+  for(const d of r.decisions){
+    const visited=new Set([d.id]);let current=d;
+    while(current.replaces_id){
+      if(visited.has(current.replaces_id))throw Error('Cyclic agreement revision history');
+      visited.add(current.replaces_id);const previous=r.decisions.find(x=>x.id===current.replaces_id);
+      if(previous.conversation_id!==current.conversation_id)throw Error('Agreement revision crosses discussions');
+      current=previous;
+    }
+  }
+  for(const m of r.messages){
+    const visited=new Set([m.id]);let current=m;
+    while(current.corrects_id){
+      if(visited.has(current.corrects_id))throw Error('Cyclic correction history');
+      visited.add(current.corrects_id);current=r.messages.find(x=>x.id===current.corrects_id);
+    }
+  }
   for(const a of r.adventures) {
-    requireLink(a.conversation_id,conversations,'adventure conversation');
-    requireLink(a.author_id,persons,'adventure author');
+    requireLink(a.conversation_id,conversations,'adventure conversation',true);
+    requireLink(a.author_id,persons,'adventure author',true);
     requireLink(a.source_message_id,messages,'adventure source');
     if(!['idea','plan','experience','memory'].includes(a.phase)||!Array.isArray(a.phases)||a.phases.some(p=>!['idea','plan','experience','memory'].includes(p))||a.phases.at(-1)!==a.phase) throw Error('Invalid adventure history');
   }
-  for(const a of r.attachments)requireLink(a.author_id,persons,'attachment author');
+  for(const a of r.attachments)requireLink(a.author_id,persons,'attachment author',true);
   const events=new Map((r.adventure_events||[]).map(e=>[e.id,e]));
   const visited=new Set();
   for(const a of r.adventures){
