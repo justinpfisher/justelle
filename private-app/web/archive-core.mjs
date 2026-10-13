@@ -3,6 +3,7 @@
 import {sha256} from './media.mjs';
 export const archiveFormat='justelle-memory-v1';
 export const recordKinds=['persons','conversations','messages','decisions','adventures','attachments'];
+export const optionalRecordKinds=['adventure_events'];
 
 function binaryToBase64(data) {
   if (typeof Buffer!=='undefined') return Buffer.from(data).toString('base64');
@@ -38,11 +39,31 @@ export async function createArchive(records,files) {
 export async function verifyArchive(bundle) {
   if(bundle?.format!==archiveFormat || !bundle.records || !Array.isArray(bundle.media)) throw Error('Unrecognised Justelle archive');
   const r=bundle.records;
-  for(const kind of recordKinds) {
+  if(await sha256(new TextEncoder().encode(JSON.stringify(r)))!==bundle.records_sha256) throw Error('Record checksum mismatch');
+  verifyRecords(r);
+  const files=new Map();
+  for(const f of bundle.media) {
+    if(!/^[a-f0-9-]{36}(?:-preview)?$/.test(f.id)|| !['image/png','image/jpeg','image/heic','image/heif'].includes(f.mime) || files.has(f.id)) throw Error('Invalid media entry');
+    const bytes=base64ToBinary(f.bytes);
+    if(bytes.length>12*1024*1024||bytes.length===0||await sha256(bytes)!==f.sha256) throw Error('Media checksum mismatch');
+    files.set(f.id,{...f,bytes});
+  }
+  for(const a of r.attachments) {
+    const original=files.get(a.id);
+    if(!original || original.sha256!==a.sha256 || original.mime!==a.mime || original.bytes.length!==a.size) throw Error('Missing or mismatched original attachment');
+    if(a.preview_path && !files.has(a.id+'-preview')) throw Error('Missing HEIC preview');
+  }
+  const expected=new Set(r.attachments.flatMap(a=>a.preview_path?[a.id,a.id+'-preview']:[a.id]));
+  if([...files.keys()].some(id=>!expected.has(id)))throw Error('Unreferenced media in archive');
+  return {records:Object.fromEntries([...recordKinds,...optionalRecordKinds.filter(k=>r[k])].map(k=>[k,r[k].length])),files:files.size,bytes:[...files.values()].reduce((sum,f)=>sum+f.bytes.length,0)};
+}
+
+// Shared provider-neutral relationship checks; encrypted backups keep binary media separate.
+export function verifyRecords(r) {
+  for(const kind of [...recordKinds,...optionalRecordKinds.filter(k=>r[k])]) {
     if(!Array.isArray(r[kind])) throw Error('Missing records: '+kind);
     namesAreUnique(r[kind],kind);
   }
-  if(await sha256(new TextEncoder().encode(JSON.stringify(r)))!==bundle.records_sha256) throw Error('Record checksum mismatch');
   const idset=kind=>new Set(r[kind].map(x=>x.id));
   const persons=idset('persons'),conversations=idset('conversations'),messages=idset('messages'),decisions=idset('decisions'),adventures=idset('adventures'),attachments=idset('attachments');
   for(const c of r.conversations) {
@@ -57,6 +78,11 @@ export async function verifyArchive(bundle) {
     requireLink(m.adventure_id,adventures,'adventure');
     for(const aid of m.attachment_ids||[]) requireLink(aid,attachments,'message attachment');
     requireLink(m.source_message_id,messages,'AI source');
+    requireLink(m.corrects_id,messages,'corrected message');
+    if(m.corrects_id){
+      const original=r.messages.find(x=>x.id===m.corrects_id);
+      if(original.id===m.id||original.author_id!==m.author_id||original.conversation_id!==m.conversation_id)throw Error('Invalid correction relationship');
+    }
   }
   const confirmedReplacements=new Set();
   for(const d of r.decisions) {
@@ -84,21 +110,21 @@ export async function verifyArchive(bundle) {
     requireLink(a.conversation_id,conversations,'adventure conversation');
     requireLink(a.author_id,persons,'adventure author');
     requireLink(a.source_message_id,messages,'adventure source');
-    if(!['idea','plan','experience','memory'].includes(a.phase)||!Array.isArray(a.phases)||a.phases.at(-1)!==a.phase) throw Error('Invalid adventure history');
+    if(!['idea','plan','experience','memory'].includes(a.phase)||!Array.isArray(a.phases)||a.phases.some(p=>!['idea','plan','experience','memory'].includes(p))||a.phases.at(-1)!==a.phase) throw Error('Invalid adventure history');
   }
-  const files=new Map();
-  for(const f of bundle.media) {
-    if(!/^[a-f0-9-]{36}(?:-preview)?$/.test(f.id)|| !['image/png','image/jpeg','image/heic','image/heif'].includes(f.mime) || files.has(f.id)) throw Error('Invalid media entry');
-    const bytes=base64ToBinary(f.bytes);
-    if(bytes.length>12*1024*1024||bytes.length===0||await sha256(bytes)!==f.sha256) throw Error('Media checksum mismatch');
-    files.set(f.id,{...f,bytes});
+  for(const a of r.attachments)requireLink(a.author_id,persons,'attachment author');
+  const events=new Map((r.adventure_events||[]).map(e=>[e.id,e]));
+  const visited=new Set();
+  for(const a of r.adventures){
+    if(!a.last_event_id)continue; // Legacy pilot history remains readable.
+    let id=a.last_event_id;const chain=[],seen=new Set();
+    while(id){
+      const e=events.get(id);
+      if(!e||e.adventure_id!==a.id||seen.has(id)||!persons.has(e.author_id)||!e.created_at)throw Error('Broken adventure event history');
+      seen.add(id);visited.add(id);chain.unshift(e.phase);id=e.previous_id;
+    }
+    if(JSON.stringify(chain)!==JSON.stringify(a.phases))throw Error('Adventure event history mismatch');
   }
-  for(const a of r.attachments) {
-    requireLink(a.author_id,persons,'attachment author');
-    const original=files.get(a.id);
-    if(!original || original.sha256!==a.sha256 || original.mime!==a.mime) throw Error('Missing or mismatched original attachment');
-    if(a.preview_path && !files.has(a.id+'-preview')) throw Error('Missing HEIC preview');
-  }
-  if(files.size>r.attachments.length*2) throw Error('Unreferenced media in archive');
-  return {records:Object.fromEntries(recordKinds.map(k=>[k,r[k].length])),files:files.size,bytes:[...files.values()].reduce((sum,f)=>sum+f.bytes.length,0)};
+  if(visited.size!==events.size)throw Error('Unreferenced adventure event');
+  return Object.fromEntries([...recordKinds,...optionalRecordKinds.filter(k=>r[k])].map(k=>[k,r[k].length]));
 }

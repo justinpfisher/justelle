@@ -3,7 +3,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import {readFile,mkdir,mkdtemp,writeFile,rm,rename,stat} from 'node:fs/promises';
 import {join,dirname,basename} from 'node:path';
-import {verifyArchive,recordKinds} from '../web/archive-core.mjs';
+import {verifyArchive,recordKinds,optionalRecordKinds} from '../web/archive-core.mjs';
 
 export async function restoreArchive(bundle,destination) {
   const summary=await verifyArchive(bundle);
@@ -19,7 +19,7 @@ export async function restoreArchive(bundle,destination) {
     db.exec('BEGIN TRANSACTION');
     const insertRecord=db.prepare('INSERT INTO records(kind,id,author_id,created_at,data_json) VALUES(?,?,?,?,?)');
     const insertApproval=db.prepare('INSERT INTO approvals(decision_id,person_id,at) VALUES(?,?,?)');
-    for(const kind of recordKinds) {
+    for(const kind of [...recordKinds,...optionalRecordKinds.filter(k=>bundle.records[k])]) {
       for(const row of bundle.records[kind]) {
         insertRecord.run(kind,row.id,row.author_id||null,row.created_at||null,JSON.stringify(row));
         if(kind==='decisions') for(const vote of row.approvals||[]) insertApproval.run(row.id,vote.person_id,vote.at||null);

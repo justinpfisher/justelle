@@ -6,7 +6,8 @@ service firebase.storage {
         request.auth.token.justelle_member == true &&
         request.auth.token.justelle_room == roomId &&
         firestore.exists(/databases/(default)/documents/rooms/$(roomId)) &&
-        request.auth.uid in firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.uids;
+        request.auth.uid in firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.uids &&
+        request.auth.uid in firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.people.keys();
     }
     match /rooms/{roomId}/media/{fileId} {
       allow get: if member(roomId);
@@ -18,7 +19,9 @@ service firebase.storage {
         request.resource.metadata.author_uid == request.auth.uid &&
         request.resource.metadata.attachment_id is string &&
         request.resource.metadata.attachment_id.matches('[a-f0-9-]{36}') &&
-        request.resource.metadata.role in ['original','preview'];
+        request.resource.metadata.keys().hasOnly(['author_uid','attachment_id','role']) &&
+        ((request.resource.metadata.role == 'original' && fileId == request.resource.metadata.attachment_id) ||
+         (request.resource.metadata.role == 'preview' && fileId == request.resource.metadata.attachment_id + '-preview' && request.resource.contentType == 'image/jpeg'));
       allow update, delete: if false;
     }
     match /{other=**} {allow read, write: if false;}

@@ -60,3 +60,20 @@ test('A portable restore rejects two confirmed changes to the same original agre
   archive.records_sha256=await sha256(new TextEncoder().encode(JSON.stringify(archive.records)));
   await assert.rejects(verifyArchive(archive),/Conflicting locked revisions/);
 });
+
+test('Nonlinear memory events and corrections survive offline restore; forged event chains fail',async()=>{
+  const bundle=await example(),r=structuredClone(bundle.records);
+  r.messages.push({...r.messages[0],id:'correction-1',body:'Fictional corrected note',attachment_ids:[],corrects_id:'message-1'});
+  r.adventures[0]={...r.adventures[0],phase:'idea',phases:['memory','idea'],last_event_id:'event-2'};
+  r.adventure_events=[
+    {id:'event-1',adventure_id:'idea-1',phase:'memory',previous_id:null,author_id:'person-a',created_at:'2026-10-11T00:00:00Z'},
+    {id:'event-2',adventure_id:'idea-1',phase:'idea',previous_id:'event-1',author_id:'person-b',created_at:'2026-10-11T00:00:01Z'}
+  ];
+  const archive=await createArchive(r,[{id,mime:'image/png',bytes:fixture}]);
+  const output=join(await mkdtemp(join(tmpdir(),'justelle-events-')),'restored');
+  await restoreArchive(archive,output);
+  const db=new DatabaseSync(join(output,'memory.sqlite'));
+  assert.equal(db.prepare("SELECT count(*) n FROM records WHERE kind='adventure_events'").get().n,2);db.close();
+  r.adventure_events[0].previous_id='event-2';
+  await assert.rejects(createArchive(r,[{id,mime:'image/png',bytes:fixture}]),/event history/);
+});
