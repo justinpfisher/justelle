@@ -252,3 +252,30 @@ test('A send retried after a lost acknowledgement keeps exactly one original mes
     await assert.rejects(backend.addMessage({uid:a},{...input,body:'Changed retry'}),/saved differently/);
   }finally{await env.cleanup();}
 });
+
+test('Persistent AI cost reservations serialize races, survive adapter recreation and cannot be written by members',async()=>{
+  const {env,A}=await context();
+  const {initializeApp,deleteApp}=await import('firebase-admin/app');
+  const {getFirestore}=await import('firebase-admin/firestore');
+  const {FirestoreBudgetLedger}=await import('../ai/budget-ledger.mjs');
+  const admin=initializeApp({projectId},'fictional-budget-test-'+Date.now());
+  const db=getFirestore(admin);
+  try{
+    const ledger=new FirestoreBudgetLedger({db,roomId:room,monthlyCadMicros:100,dailyCadMicros:100});
+    const now=new Date('2026-10-13T03:00:00Z'),fingerprint='f'.repeat(64);
+    const results=await Promise.allSettled([
+      ledger.reserve({id:'a'.repeat(64),fingerprint,ceilingCadMicros:60,now}),
+      ledger.reserve({id:'b'.repeat(64),fingerprint,ceilingCadMicros:60,now})
+    ]);
+    assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+    assert.equal(results.filter(x=>x.status==='rejected').length,1);
+    const winner=results[0].status==='fulfilled'?'a'.repeat(64):'b'.repeat(64);
+    const recreated=new FirestoreBudgetLedger({db,roomId:room,monthlyCadMicros:100,dailyCadMicros:100});
+    await assert.rejects(recreated.reserve({id:'c'.repeat(64),fingerprint,ceilingCadMicros:60,now}),/allowance/);
+    await assert.rejects(recreated.reserve({id:winner,fingerprint,ceilingCadMicros:60,now}),/already running/);
+    await recreated.complete({id:winner,result:{reply:'Fictional reserved answer',proposal:null}});
+    const replay=await recreated.reserve({id:winner,fingerprint,ceilingCadMicros:60,now});assert.equal(replay.replayed,true);
+    await assertFails(setDoc(doc(A.firestore(),'rooms',room,'ai_budgets','month-2026-10'),{reserved_cad_micros:0}));
+    assert.deepEqual(ledger.periods(new Date('2026-11-01T03:59:59Z')),{month:'2026-10',day:'2026-10-31'});
+  }finally{await db.terminate();await deleteApp(admin);await env.cleanup();}
+});
