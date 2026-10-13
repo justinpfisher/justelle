@@ -1,12 +1,12 @@
 import {collection,doc,getDoc,getDocs,onSnapshot,runTransaction,serverTimestamp,setDoc,writeBatch,FieldPath,query,where,orderBy,limit,startAfter} from 'firebase/firestore';
 import {ref,uploadBytes,getBytes} from 'firebase/storage';
 import {MAX_IMAGE_BYTES,sha256} from './media.mjs';
+import {canonicalRecords} from './memory-records.mjs';
 import {createArchive} from './archive-core.mjs';
 import {GENERAL_CONVERSATION,topicConversation,contextFor} from './topics.mjs';
 
 const phases=['idea','plan','experience','memory'];
 export const MESSAGE_PAGE_SIZE=40;
-const asISO=t=>t?.toDate?.()?.toISOString()||null;
 const time=t=>t?.toMillis?.()||0;
 const ascending=rows=>rows.sort((a,b)=>time(a.created_at)-time(b.created_at)||a.id.localeCompare(b.id));
 
@@ -143,7 +143,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
         conversation_id:topicConversation(id),source_message_id:sourceMessageId||null,
         created_at:serverTimestamp(),updated_at:serverTimestamp()
       });
-      batch.set(docAt('adventure_events',eventId),{adventure_id:id,phase,previous_id:null,
+      batch.set(docAt('adventure_events',eventId),{adventure_id:id,phase,previous_id:null,prior_phases:[],
         author_uid:user.uid,author_id:person(user),created_at:serverTimestamp()});
       await batch.commit();
       return id;
@@ -156,7 +156,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
         const next=phase||phases[index+1];
         if(!phases.includes(next)||next===current.phase)return false;
         const eventId=crypto.randomUUID();
-        t.set(docAt('adventure_events',eventId),{adventure_id:id,phase:next,previous_id:current.last_event_id||null,
+        t.set(docAt('adventure_events',eventId),{adventure_id:id,phase:next,previous_id:current.last_event_id||null,prior_phases:current.last_event_id?[]:current.phases,
           author_uid:user.uid,author_id:person(user),created_at:serverTimestamp()});
         t.update(target,{phase:next,last_event_id:eventId,phases:[...current.phases,next],
           updated_at:serverTimestamp(),last_modified_by:person(user)});
@@ -168,39 +168,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
       const get=async kind=>(await getDocs(collectionAt(kind))).docs.map(d=>({id:d.id,...d.data()}));
       const [messages,decisions,adventures,attachments,events]=await Promise.all(
         ['messages','decisions','adventures','attachments','adventure_events'].map(get));
-      const uidPerson=uid=>membership.people[uid];
-      const topics=[{id:GENERAL_CONVERSATION,kind:'shared',adventure_id:null},
-        ...adventures.filter(a=>a.conversation_id!==GENERAL_CONVERSATION).map(a=>({
-          id:a.conversation_id,kind:'adventure',adventure_id:a.id,title:a.title
-        }))];
-      const records={
-        persons:membership.uids.map(uid=>({id:uidPerson(uid),label:membership.labels?.[uid]||'Fictional member'})),
-        conversations:topics,
-        messages:messages.map(m=>({
-          id:m.id,body:m.body,author_id:m.author_id,kind:m.kind,
-          conversation_id:m.conversation_id,adventure_id:m.adventure_id??null,
-          source_message_id:m.source_message_id??null,corrects_id:m.corrects_id??null,
-          attachment_ids:m.attachment_ids||[],created_at:asISO(m.created_at)
-        })),
-        decisions:decisions.map(d=>({
-          id:d.id,body:d.body,why:d.why||'',author_id:d.author_id,origin:d.origin,
-          conversation_id:d.conversation_id,adventure_id:d.adventure_id??null,
-          source_message_id:d.source_message_id??null,replaces_id:d.replaces_id??null,
-          status:d.status,created_at:asISO(d.created_at),locked_at:asISO(d.locked_at),
-          declined_by:d.declined_by||null,declined_at:asISO(d.declined_at),
-          approvals:Object.keys(d.approvals||{}).map(uid=>({person_id:uidPerson(uid),at:asISO(d.approval_times?.[uid])}))
-        })),
-        adventures:adventures.map(a=>({
-          id:a.id,title:a.title,phase:a.phase,phases:a.phases,author_id:a.author_id,
-          last_event_id:a.last_event_id||null,last_modified_by:a.last_modified_by,source_message_id:a.source_message_id,
-          conversation_id:a.conversation_id,created_at:asISO(a.created_at),updated_at:asISO(a.updated_at)
-        })),
-        adventure_events:events.map(e=>({id:e.id,adventure_id:e.adventure_id,phase:e.phase,previous_id:e.previous_id,author_id:e.author_id,created_at:asISO(e.created_at)})),
-        attachments:attachments.map(a=>({
-          id:a.id,name:a.name,mime:a.mime,size:a.size,sha256:a.sha256,author_id:a.author_id,
-          created_at:asISO(a.created_at),preview_path:a.preview_path?'media/'+a.id+'-preview':null
-        }))
-      };
+      const records=canonicalRecords({membership,messages,decisions,adventures,attachments,events});
       const files=[];
       for(const a of attachments) {
         files.push({id:a.id,mime:a.mime,bytes:await this.imageBytes(a.original_path)});

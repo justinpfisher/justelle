@@ -184,10 +184,14 @@ service cloud.firestore {
     function validEvent(roomId, eventId) {
       let d = request.resource.data;
       let a = getAfter(adventurePath(roomId, d.adventure_id)).data;
-      return d.keys().hasAll(['adventure_id','phase','previous_id','author_uid','author_id','created_at']) &&
-        d.keys().hasOnly(['adventure_id','phase','previous_id','author_uid','author_id','created_at']) &&
+      return d.keys().hasAll(['adventure_id','phase','previous_id','prior_phases','author_uid','author_id','created_at']) &&
+        d.keys().hasOnly(['adventure_id','phase','previous_id','prior_phases','author_uid','author_id','created_at']) &&
         authored(roomId) && nowCreated() &&
         a.last_event_id == eventId && a.phase == d.phase && a.updated_at == request.time &&
+        d.prior_phases is list &&
+        d.prior_phases == (exists(adventurePath(roomId, d.adventure_id)) &&
+          get(adventurePath(roomId, d.adventure_id)).data.get('last_event_id', null) == null ?
+          get(adventurePath(roomId, d.adventure_id)).data.phases : []) &&
         (exists(adventurePath(roomId, d.adventure_id)) ?
           d.previous_id == get(adventurePath(roomId, d.adventure_id)).data.get('last_event_id', null) :
           d.previous_id == null);
