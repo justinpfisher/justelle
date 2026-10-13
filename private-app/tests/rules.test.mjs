@@ -100,6 +100,48 @@ test('Simultaneous human approvals lock once, never let a single member lock or 
     assert.equal((await getDoc(decision(A,'decision-revision'))).data().status,'proposed');
   }finally{await env.cleanup();}
 });
+test('Competing confirmed changes cannot overwrite one another, even when two approvals race',async()=>{
+  const {env,A,B,X}=await context();
+  try{
+    const one=firebaseBackend({db:A.firestore(),storage:null,roomId:room,membership});
+    const two=firebaseBackend({db:B.firestore(),storage:null,roomId:room,membership});
+    const claim=id=>doc(A.firestore(),'rooms',room,'decision_replacements',id);
+    await assertSucceeds(setDoc(decision(A,'original'),proposalData()));
+    await one.approve({uid:a},'original');
+    await two.approve({uid:b},'original');
+    await assertFails(setDoc(claim('original'),{
+      replacement_id:'forged-replacement',locked_at:serverTimestamp()
+    }));
+    await assertSucceeds(setDoc(decision(A,'change-a'),proposalData(a,'original')));
+    await assertSucceeds(setDoc(decision(B,'change-b'),proposalData(b,'original')));
+    await one.approve({uid:a},'change-a');
+    await one.approve({uid:a},'change-b');
+    const outcomes=await Promise.allSettled([
+      two.approve({uid:b},'change-a'),
+      two.approve({uid:b},'change-b')
+    ]);
+    assert.equal(outcomes.filter(x=>x.status==='fulfilled').length,1);
+    assert.equal(outcomes.filter(x=>x.status==='rejected').length,1);
+    const aState=(await getDoc(decision(A,'change-a'))).data().status;
+    const bState=(await getDoc(decision(A,'change-b'))).data().status;
+    assert.deepEqual([aState,bState].sort(),['locked','proposed']);
+    const winner=aState==='locked'?'change-a':'change-b';
+    const loser=winner==='change-a'?'change-b':'change-a';
+    assert.equal((await getDoc(claim('original'))).data().replacement_id,winner);
+    assert.equal((await getDoc(decision(A,'original'))).data().status,'locked');
+    await assertFails(getDoc(doc(X.firestore(),'rooms',room,'decision_replacements','original')));
+    await assertFails(setDoc(claim('original'),{
+      replacement_id:loser,locked_at:serverTimestamp()
+    }));
+    await assertFails(setDoc(decision(A,'late-change'),proposalData(a,'original')));
+    await assert.rejects(two.approve({uid:b},loser),/already changed/);
+    await assertSucceeds(setDoc(decision(A,'next-change'),proposalData(a,winner)));
+    await one.approve({uid:a},'next-change');
+    await two.approve({uid:b},'next-change');
+    assert.equal((await getDoc(decision(A,'next-change'))).data().status,'locked');
+    assert.equal((await getDoc(claim(winner))).data().replacement_id,'next-change');
+  }finally{await env.cleanup();}
+});
 test('Idea stages only progress in order with attributable append-only phase history',async()=>{
   const {env,A,B,X}=await context();
   try {
