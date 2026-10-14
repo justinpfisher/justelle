@@ -342,3 +342,16 @@ test('Older fictional pilot adventure histories are preserved when adding the fi
     assert.deepEqual(event.prior_phases,['idea','plan']);assert.equal(event.author_id,'person-b');
   }finally{await env.cleanup();}
 });
+
+test('A revoked authentication-time fence denies old sessions while preserving membership and fresh sign-in',async()=>{
+  const {env}=await context();
+  try{
+    await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'rooms',room),{revoked_auth_before:{[a]:100}}));
+    const old=env.authenticatedContext(a,{justelle_room:room,justelle_member:true,auth_time:100});
+    const fresh=env.authenticatedContext(a,{justelle_room:room,justelle_member:true,auth_time:101});
+    await assertFails(getDoc(doc(old.firestore(),'rooms',room)));
+    await assertFails(setDoc(message(old,'revoked-write'),messageData()));
+    await assertSucceeds(getDoc(doc(fresh.firestore(),'rooms',room)));
+    await assertSucceeds(setDoc(message(fresh,'fresh-write'),messageData()));
+  }finally{await env.cleanup();}
+});

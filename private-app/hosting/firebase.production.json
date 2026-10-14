@@ -38,7 +38,8 @@
         "source": "/api/**",
         "function": {
           "functionId": "privateApi",
-          "region": "northamerica-northeast1"
+          "region": "northamerica-northeast1",
+          "pinTag": true
         }
       }
     ]
@@ -54,7 +55,10 @@
     {
       "source": "functions",
       "codebase": "gateway",
-      "runtime": "nodejs22"
+      "runtime": "nodejs22",
+      "predeploy": [
+        "node \"$PROJECT_DIR/../tools/package-functions.mjs\""
+      ]
     }
   ]
 }

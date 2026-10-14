@@ -44,3 +44,8 @@ PR #5 remains draft. Its latest source registers the protected media core as a s
 - [Backblaze B2 transaction and storage pricing](https://www.backblaze.com/cloud-storage/transaction-pricing)
 - [OpenAI API model pricing](https://developers.openai.com/api/docs/pricing), [GPT-5.6 Luna capabilities/pricing](https://developers.openai.com/api/docs/models/gpt-5.6-luna), and [vision input/cost rules](https://developers.openai.com/api/docs/guides/images-vision)
 - [Bank of Canada daily exchange rates](https://www.bankofcanada.ca/rates/exchange/daily-exchange-rates-lookup/)
+
+## October 14 source-gap resolution (not a hosted pass)
+The development branch now wires `/api/respond` to verified membership/revocation, scoped image-aware AI and the approved daily/monthly ledger. It adds isolated production client mode, HEIC-to-JPEG vision handling without replacing originals, Firebase raw-body uploads, and a self-contained bundled Functions `main` with locked dependencies. The isolated package is loaded outside the repository and exercises actual HTTP routing. Both live AI authorship and recovery retain stable Justelle identifiers.
+
+A separately identified scheduled encrypted B2 backup implementation and hosted fictional acceptance runner are present. Automatic release source now qualifies the fictional environment, deploys only the private target, smoke-checks both members and restores the prior source on failure. The initial hosted, scheduled-backup, cloud-rollback and two-iPhone evidence flag remains unset; source-level failure simulations are not live-provider qualification. See `private-app/hosting/OPERATIONS.md` for private configuration and permissions. The authorised limits and provider decisions above remain unchanged.

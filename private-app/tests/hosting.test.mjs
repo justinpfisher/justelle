@@ -2,18 +2,18 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveRuntime} from '../web/runtime-config.mjs';
 import {protectedMediaTransport} from '../web/protected-media.mjs';
-const env={VITE_JUSTELLE_MODE:'hosted-fictional',VITE_JUSTELLE_ORIGIN:'https://app.justelle.life',VITE_FIREBASE_PROJECT_ID:'fictional-qualification',VITE_FIREBASE_API_KEY:'fictional-public-config',VITE_FIREBASE_AUTH_DOMAIN:'fictional-qualification.firebaseapp.com',VITE_FIREBASE_STORAGE_BUCKET:'fictional-qualification.firebasestorage.app',VITE_JUSTELLE_ROOM:'fictional-room'};
+const env={VITE_JUSTELLE_MODE:'hosted-fictional',VITE_JUSTELLE_ORIGIN:'https://fictional-qualification.web.app',VITE_FIREBASE_PROJECT_ID:'fictional-qualification',VITE_FIREBASE_API_KEY:'fictional-public-config',VITE_FIREBASE_AUTH_DOMAIN:'fictional-qualification.firebaseapp.com',VITE_FIREBASE_STORAGE_BUCKET:'fictional-qualification.firebasestorage.app',VITE_JUSTELLE_ROOM:'fictional-room'};
 test('Hosted bootstrap requires an explicit isolated fictional project and HTTPS origin',()=>{
-  assert.throws(()=>resolveRuntime({hostname:'app.justelle.life',origin:env.VITE_JUSTELLE_ORIGIN}),/locally/);
+  assert.throws(()=>resolveRuntime({hostname:'fictional-qualification.web.app',origin:env.VITE_JUSTELLE_ORIGIN}),/locally/);
   assert.throws(()=>resolveRuntime({hostname:'justelle.life',origin:'https://justelle.life',env}),/origin/);
   assert.throws(()=>resolveRuntime({origin:env.VITE_JUSTELLE_ORIGIN,env:{...env,VITE_JUSTELLE_ROOM:'real-room'}}),/fictional/);
-  const result=resolveRuntime({hostname:'app.justelle.life',origin:env.VITE_JUSTELLE_ORIGIN,env});
-  assert.equal(result.mediaUrl,'https://app.justelle.life/api/media');
+  const result=resolveRuntime({hostname:'fictional-qualification.web.app',origin:env.VITE_JUSTELLE_ORIGIN,env});
+  assert.equal(result.mediaUrl,env.VITE_JUSTELLE_ORIGIN+'/api/media');
   assert.equal(result.mode,'hosted-fictional');
 });
 test('Hosted image transport authenticates every read, refuses redirects and bounds returned bytes',async()=>{
   const calls=[];let bytes=Uint8Array.from([1,2,3]);
-  const transport=protectedMediaTransport({baseUrl:'https://app.justelle.life/api/media',getToken:async()=>'fictional-token',fetchImpl:async(url,options)=>{calls.push({url,options});return new Response(bytes);}});
+  const transport=protectedMediaTransport({baseUrl:env.VITE_JUSTELLE_ORIGIN+'/api/media',getToken:async()=>'fictional-token',fetchImpl:async(url,options)=>{calls.push({url,options});return new Response(bytes);}});
   const id='00000000-0000-4000-8000-000000000001';
   assert.deepEqual(await transport.read('rooms/fictional-room/media/'+id,3),bytes);
   assert.equal(calls[0].options.headers.Authorization,'Bearer fictional-token');assert.equal(calls[0].options.redirect,'error');assert.equal(calls[0].options.cache,'no-store');
@@ -43,4 +43,17 @@ test('Hosted upload uses immutable token-free GCS writes and refuses token-beari
   const read={url:req.url,method:'GET',headers:{authorization:'Bearer fictional-token'}};
   const good=response();await handler(read,good);assert.equal(good.status,200);assert.equal(good.headers['Cache-Control'],'private, no-store');assert.equal(good.body,'png');
   token=true;const bad=response();await handler(read,bad);assert.equal(bad.status,503);
+});
+
+test('Production uses its own project, protected routes and only the approved app hostname',()=>{
+  const production={...env,VITE_JUSTELLE_MODE:'production',VITE_JUSTELLE_ORIGIN:'https://app.justelle.life',
+    VITE_FIREBASE_PROJECT_ID:'fictional-production',VITE_FIREBASE_AUTH_DOMAIN:'fictional-production.firebaseapp.com',
+    VITE_FIREBASE_STORAGE_BUCKET:'fictional-production.firebasestorage.app',VITE_JUSTELLE_ROOM:'shared-life',
+    VITE_JUSTELLE_QUALIFICATION_PROJECT_ID:'fictional-qualification'};
+  const load=e=>resolveRuntime({origin:e.VITE_JUSTELLE_ORIGIN,env:e});
+  assert.equal(load(production).aiUrl,'https://app.justelle.life/api/respond');
+  for(const wrong of [{...production,VITE_JUSTELLE_ROOM:'fictional-room'},
+    {...production,VITE_JUSTELLE_QUALIFICATION_PROJECT_ID:'fictional-production'},
+    {...production,VITE_JUSTELLE_ORIGIN:'https://justelle.life'},
+    {...production,VITE_JUSTELLE_ORIGIN:'https://fictional-production.web.app'}])assert.throws(()=>load(wrong));
 });

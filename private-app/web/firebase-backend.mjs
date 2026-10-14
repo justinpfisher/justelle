@@ -15,7 +15,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
   const collectionAt=kind=>collection(roomDoc,kind);
   const docAt=(kind,id)=>doc(collectionAt(kind),id);
   const person=user=>membership.people[user.uid];
-  const displayPerson=(id,user)=>id===person(user)?'You':id==='ai-mock'?'Justelle AI':id;
+  const displayPerson=(id,user)=>id===person(user)?'You':['ai-mock','ai-justelle'].includes(id)?'Justelle AI':id;
   const topicQuery=(conversationId,count=MESSAGE_PAGE_SIZE)=>query(
     collectionAt('messages'),where('conversation_id','==',conversationId),
     orderBy('created_at','desc'),limit(count)

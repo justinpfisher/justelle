@@ -1,42 +1,72 @@
 import {initializeApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
-import {getFirestore} from 'firebase-admin/firestore';
+import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {getStorage} from 'firebase-admin/storage';
 import {onRequest} from 'firebase-functions/v2/https';
+import {onSchedule} from 'firebase-functions/v2/scheduler';
+import {defineString,defineSecret} from 'firebase-functions/params';
 import {createMediaHandler} from '../media-handler.mjs';
+import {createApiHandler} from '../api-handler.mjs';
+import {createResponseService} from '../../ai/response-service.mjs';
+import {deterministicProvider} from '../../ai/adapter.mjs';
+import {createVisionProvider} from '../../ai/vision-provider.mjs';
+import {FirestoreBudgetLedger} from '../../ai/budget-ledger.mjs';
+import {runScheduledBackup} from '../scheduled-backup.mjs';
 
 initializeApp();
-
-const roomId=process.env.JUSTELLE_ROOM_ID;
-const serviceAccount=process.env.JUSTELLE_GATEWAY_SERVICE_ACCOUNT;
-if(!roomId||!serviceAccount)throw new Error('Gateway runtime configuration is incomplete');
-
-const db=getFirestore();
-const bucket=getStorage().bucket();
-const media=createMediaHandler({
-  roomId,
-  bucket,
-  verifyIdentity:(token,options)=>getAuth().verifyIdToken(token,options.checkRevoked),
-  readMembership:async(id)=>{
-    const snapshot=await db.doc('rooms/'+id).get();
-    return snapshot.exists?snapshot.data():null;
-  }
+const room=defineString('JUSTELLE_ROOM_ID');
+const origin=defineString('JUSTELLE_ORIGIN');
+const mode=defineString('JUSTELLE_MODE');
+const serviceAccount=defineString('JUSTELLE_GATEWAY_SERVICE_ACCOUNT');
+const backupAccount=defineString('JUSTELLE_BACKUP_SERVICE_ACCOUNT');
+const apiKey=defineSecret('JUSTELLE_AI_KEY');
+const backupConfig=defineSecret('JUSTELLE_BACKUP_CONFIG');
+// Deployment discovery must succeed without runtime values or secret access.
+const version=typeof __JUSTELLE_VERSION__==='string'?__JUSTELLE_VERSION__:'unversioned';
+function runtime(){
+  const roomId=room.value(),siteOrigin=origin.value(),environment=mode.value();
+  const url=new URL(siteOrigin);
+  if(url.protocol!=='https:'||url.origin!==siteOrigin||!['hosted-fictional','production'].includes(environment)||
+    !/^[a-zA-Z0-9-]{1,100}$/.test(roomId)||
+    (environment==='production'?(roomId==='fictional-room'||url.hostname!=='app.justelle.life'):
+      (roomId!=='fictional-room'||!/^[a-z0-9-]+\.web\.app$/.test(url.hostname))))throw Error('Invalid private runtime');
+  return {roomId,siteOrigin,environment};
+}
+export const privateApi=onRequest({region:'northamerica-northeast1',memory:'512MiB',timeoutSeconds:120,
+  minInstances:0,maxInstances:2,concurrency:10,invoker:'public',serviceAccount,secrets:[apiKey]},async(req,res)=>{
+  const {roomId,siteOrigin,environment}=runtime(),db=getFirestore(),bucket=getStorage().bucket();
+  const verifyIdentity=(token,options)=>getAuth().verifyIdToken(token,options.checkRevoked);
+  const media=createMediaHandler({roomId,bucket,verifyIdentity,readMembership:async id=>(await db.doc('rooms/'+id).get()).data()});
+  const respond=createResponseService({db,bucket,roomId,verifyIdentity,serverTimestamp:()=>FieldValue.serverTimestamp(),
+    rateLimit:async uid=>{
+      const ref=db.doc('rooms/'+roomId+'/ai_rate_limits/'+uid);
+      await db.runTransaction(async t=>{
+        const snap=await t.get(ref),now=Date.now(),r=snap.data();
+        const count=r&&now-r.start<60000?r.count:0;
+        if(count>=12)throw Object.assign(Error('Rate limit'),{status:429});
+        t.set(ref,{start:count?r.start:now,count:count+1});
+      });
+    },provider:async()=>{
+      const settings=(await db.doc('rooms/'+roomId+'/operations/runtime').get()).data();
+      if(environment==='hosted-fictional'&&settings?.ai_provider==='deterministic-local')return deterministicProvider;
+      if(settings?.ai_enabled!==true||settings.ai_model!=='gpt-5.6-luna')throw Error('AI is disabled');
+      return createVisionProvider({approved:true,apiKey:apiKey.value(),model:settings.ai_model,pricing:settings.ai_pricing,
+        budget:new FirestoreBudgetLedger({db,roomId,monthlyCadMicros:5000000,dailyCadMicros:1000000})});
+    }});
+  await createApiHandler({media,respond,origin:siteOrigin,version})(req,res);
 });
-
-export const privateApi=onRequest({
-  region:'northamerica-northeast1',
-  memory:'512MiB',
-  timeoutSeconds:30,
-  minInstances:0,
-  maxInstances:3,
-  concurrency:20,
-  invoker:'public',
-  serviceAccount
-},async(req,res)=>{
-  if(req.path==='/healthz'){
-    if(req.method!=='GET'){res.set('Allow','GET').status(405).end();return;}
-    res.set('Cache-Control','no-store').status(204).end();
-    return;
+// Separate identity and secrets: the image/AI gateway cannot access recovery keys.
+export const encryptedBackup=onSchedule({schedule:'15 3 * * *',timeZone:'America/Toronto',region:'northamerica-northeast1',
+  memory:'1GiB',timeoutSeconds:540,minInstances:0,maxInstances:1,concurrency:1,retryCount:0,
+  serviceAccount:backupAccount,secrets:[backupConfig]},async()=>{
+  const {roomId,environment}=runtime();
+  try{
+    await runScheduledBackup({db:getFirestore(),bucket:getStorage().bucket(),roomId,
+      productionApproved:environment==='production',config:JSON.parse(backupConfig.value())});
+    console.info(JSON.stringify({event:'encrypted_backup_verified',version}));
+  }catch{
+    // Never log source records, provider diagnostics or secret-bearing SDK errors.
+    console.error(JSON.stringify({event:'encrypted_backup_failed',version}));
+    throw Error('Encrypted backup failed; review private provider monitoring');
   }
-  await media(req,res);
 });

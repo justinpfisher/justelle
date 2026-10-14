@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 export async function qualify(c,fetchImpl=fetch){
   const url=new URL(c.origin);
-  if(url.protocol!=='https:'||url.origin!==c.origin||!(url.hostname==='app.justelle.life'||/^[a-z0-9-]+\.web\.app$/.test(url.hostname))||c.room_id!=='fictional-room')throw Error('Only an explicitly configured fictional qualification host is permitted');
+  if(url.protocol!=='https:'||url.origin!==c.origin||!/^[a-z0-9-]+\.web\.app$/.test(url.hostname)||c.room_id!=='fictional-room')throw Error('Only an explicitly configured fictional qualification host is permitted');
   if(!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(c.project_id||'')||!/^[a-f0-9-]{36}$/.test(c.image_id||'')||!/^[a-zA-Z0-9-]{1,160}$/.test(c.record_id||''))throw Error('Invalid qualification references');
   if(c.bucket!==c.project_id+'.firebasestorage.app'||!c.member_token||!c.outsider_token||!c.revoked_token)throw Error('Member, outsider and revoked fictional tokens are required');
   const record='https://firestore.googleapis.com/v1/projects/'+c.project_id+'/databases/(default)/documents/rooms/'+c.room_id+'/messages/'+c.record_id;

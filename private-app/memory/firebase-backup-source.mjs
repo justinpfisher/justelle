@@ -3,8 +3,8 @@
 import {canonicalRecords} from '../web/memory-records.mjs';
 import {verifyRecords} from '../web/archive-core.mjs';
 import {writeEncryptedBackup} from './encrypted-backup.mjs';
-export async function firebaseBackupSource({db,bucket,roomId='fictional-room',pageSize=200}){
-  if(roomId!=='fictional-room')throw Error('Real-content backup activation is not approved');
+export async function firebaseBackupSource({db,bucket,roomId='fictional-room',pageSize=200,productionApproved=false}){
+  if(!/^[a-zA-Z0-9-]{1,100}$/.test(roomId)||roomId!=='fictional-room'&&!productionApproved)throw Error('Real-content backup activation is not approved');
   if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500)throw Error('Invalid backup page size');
   const root='rooms/'+roomId;
   // Every query executes inside ONE read-only transaction, so two-person votes,

@@ -21,6 +21,15 @@ await setPersistence(auth,browserLocalPersistence);
 
 const $=id=>document.getElementById(id);
 if(runtime.mode==='hosted-fictional')document.querySelector('.pilot').textContent='Fictional qualification · Personal content is not enabled';
+if(runtime.mode==='production'){
+  document.querySelector('.pilot').hidden=true;
+  document.querySelector('#login > p').textContent='Sign in once on your own device. Justelle usually remembers you when you reopen it.';
+  document.querySelector('label[for=email]').textContent='Email';
+  document.querySelector('label[for=password]').textContent='Password';
+  document.querySelector('.export-area p').textContent='Download our conversations, original images and agreements. This download is unencrypted; keep it somewhere private.';
+  $('export-button').textContent='Download our history';
+  document.querySelector('footer').textContent='Our private shared space';
+}
 const GENERAL_TITLE='Our chat';
 let correctionId=null;
 const drafts=new Map(),sendAttempts=new Map();
@@ -31,7 +40,7 @@ let topicVersion=0,loadingOlder=false,startedTopic=false,selectedSourceMessage=n
 let attachments=new Map(),loadingAttachments=new Set(),mediaUrls=new Map();
 const setNotice=text=>$('notice').textContent=text||'';
 const clearError=()=>{$('error').textContent='';};
-function error(e){$('error').textContent=e?.message||String(e)||'Something went wrong';setNotice('');}
+function error(e){$('error').textContent=e?.message||String(e)||'Something went wrong';setNotice('');if(e?.code==='permission-denied'||e?.code==='storage/unauthorized')void signOut(auth);}
 function element(tag,cls,text){
   const node=document.createElement(tag);
   if(cls)node.className=cls;
@@ -47,6 +56,7 @@ function stamp(time){
 function labels(){return backend?.membership?.labels||{};}
 function authorName(id){
   if(id==='ai-mock')return 'Justelle (demo)';
+  if(id==='ai-justelle')return 'Justelle AI';
   const uid=backend?.membership?.uids?.find(u=>backend.person({uid:u})===id);
   return uid===auth.currentUser?.uid?'You':(labels()[uid]||'The other person');
 }
@@ -209,7 +219,7 @@ function renderMessages(){
   root.replaceChildren();
   $('conversation-empty').hidden=messages.length>0;
   for(const message of messages){
-    const bubble=element('li','bubble'+(message.author_id==='ai-mock'?' ai':
+    const bubble=element('li','bubble'+(message.kind==='ai'?' ai':
       message.author_id===backend.person(auth.currentUser)?' self':''));
     bubble.dataset.messageId=message.id;
     const who=element('div','who');
@@ -507,17 +517,18 @@ $('message-input').addEventListener('keydown',event=>{
 $('ask-ai-button').onclick=()=>sendMessage(true);
 async function requestAI(messageId){
   if(!auth.currentUser)return;
-  clearError();setNotice('Justelle’s demo assistant is preparing a reply…');
+  clearError();setNotice('Justelle is preparing a reply…');
   try{
     const token=await auth.currentUser.getIdToken();
     const res=await fetch(runtime.aiUrl,{
       method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-      body:JSON.stringify({source_message_id:messageId})
+      redirect:'error',cache:'no-store',body:JSON.stringify({source_message_id:messageId})
     });
     const answer=await res.json();
-    if(!res.ok)throw Error(answer.error||'The demonstration assistant is unavailable.');
+    if([401,403].includes(res.status))await signOut(auth);
+    if(!res.ok)throw Error(answer.error||'Justelle AI is unavailable. Your message is saved.');
     setNotice(answer.replayed?'Justelle already replied to that message.':
-      answer.proposal_created?'Justelle shared a test suggestion for you both to consider.':'Justelle replied in this discussion.');
+      answer.proposal_created?'Justelle shared a suggestion for you both to consider.':'Justelle replied in this discussion.');
   }catch(e){error(e);}
 }
 $('export-button').addEventListener('click',async()=>{
@@ -527,9 +538,9 @@ $('export-button').addEventListener('click',async()=>{
     const bundle=await backend.exportFictional();
     const blob=new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob),a=document.createElement('a');
-    a.href=url;a.download='justelle-fictional-memory.json';a.click();
+    a.href=url;a.download=runtime.mode==='production'?'justelle-memory.json':'justelle-fictional-memory.json';a.click();
     setTimeout(()=>URL.revokeObjectURL(url),5000);
-    setNotice('Full fictional archive prepared. This test archive is unencrypted.');
+    setNotice('Our full history is ready. This download is unencrypted; keep it private.');
   }catch(e){error(e);}
   finally{$('export-button').disabled=false;}
 });
@@ -561,7 +572,7 @@ onAuthStateChanged(auth,async user=>{
   try{
     const claims=(await getIdTokenResult(user)).claims;
     if(claims.justelle_member!==true||claims.justelle_room!==roomId)
-      throw Error('This account does not have access to the fictional room.');
+      throw Error('This account does not have access to this shared space.');
     const membership=await getDoc(doc(db,'rooms',roomId));
     if(!membership.exists()||!membership.data().uids.includes(user.uid))
       throw Error('Member access denied.');

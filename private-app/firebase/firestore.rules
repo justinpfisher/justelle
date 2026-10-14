@@ -10,7 +10,8 @@ service cloud.firestore {
         request.auth.token.justelle_room == roomId &&
         exists(roomPath(roomId)) &&
         request.auth.uid in get(roomPath(roomId)).data.uids &&
-        request.auth.uid in get(roomPath(roomId)).data.people.keys();
+        request.auth.uid in get(roomPath(roomId)).data.people.keys() &&
+        request.auth.token.get('auth_time', 0) > get(roomPath(roomId)).data.get('revoked_auth_before', {}).get(request.auth.uid, -1);
     }
     function room(roomId) { return get(roomPath(roomId)).data; }
     function person(roomId) { return room(roomId).people[request.auth.uid]; }

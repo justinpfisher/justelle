@@ -10,6 +10,7 @@ export async function approvedMember(token,{verifyIdentity,readMembership,roomId
   if(identity.justelle_member!==true||identity.justelle_room!==roomId)throw deny(403,'Member access required');
   const room=await readMembership(roomId);
   if(!room?.uids?.includes(identity.uid)||!room.people?.[identity.uid]||room.uids.length!==2)throw deny(403,'Member access required');
+  if((identity.auth_time||0)<=(room.revoked_auth_before?.[identity.uid]??-1))throw deny(401,'Sign-in required');
   return {uid:identity.uid,personId:room.people[identity.uid],roomId};
 }
 export function createMediaHandler(dependencies){
@@ -27,7 +28,8 @@ export function createMediaHandler(dependencies){
         const mime=req.headers['content-type'];
         if(!ALLOWED.has(mime)||(variant==='preview'&&mime!=='image/jpeg'))throw deny(400,'Unsupported image');
         const chunks=[];let size=0;
-        for await(const input of req){size+=input.length;if(size>MAX)throw deny(413,'Image too large');chunks.push(input);}
+        const body=req.rawBody?[req.rawBody]:req;
+        for await(const input of body){size+=input.length;if(size>MAX)throw deny(413,'Image too large');chunks.push(input);}
         if(size===0)throw deny(400,'Choose an image');const bytes=Buffer.concat(chunks);
         // GCS API, not Firebase upload endpoints. No signed URL or download token.
         await file.save(bytes,{resumable:false,preconditionOpts:{ifGenerationMatch:0},metadata:{

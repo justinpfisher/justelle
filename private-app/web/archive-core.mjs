@@ -75,7 +75,7 @@ export function verifyRecords(r) {
   }
   for(const m of r.messages) {
     requireLink(m.conversation_id,conversations,'conversation',true);
-    if(m.author_id!=='ai-mock') requireLink(m.author_id,persons,'author',true);
+    if(!['ai-mock','ai-justelle'].includes(m.author_id)) requireLink(m.author_id,persons,'author',true);
     requireLink(m.adventure_id,adventures,'adventure');
     for(const aid of m.attachment_ids||[]) requireLink(aid,attachments,'message attachment');
     requireLink(m.source_message_id,messages,'AI source');
@@ -93,7 +93,7 @@ export function verifyRecords(r) {
       confirmedReplacements.add(d.replaces_id);
     }
     requireLink(d.conversation_id,conversations,'decision conversation',true);
-    if(d.author_id!=='ai-mock') requireLink(d.author_id,persons,'decision author',true);
+    if(!['ai-mock','ai-justelle'].includes(d.author_id)) requireLink(d.author_id,persons,'decision author',true);
     requireLink(d.adventure_id,adventures,'decision adventure');
     requireLink(d.source_message_id,messages,'proposal source');
     requireLink(d.replaces_id,decisions,'replaced decision');

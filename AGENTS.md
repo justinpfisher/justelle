@@ -38,3 +38,6 @@ Keep private originals, credentials and sensitive diagnostics out of test fixtur
 Inspect relevant existing changes; avoid overwriting unrelated work. Report what changed, why, what was checked and material limitations. Distinguish committed source, merged source and verified live publication.
 
 Do not add compulsory execution-mode selection, model-verification gates, launch restrictions or any version of the discontinued Universal Autonomous Advancement Protocol.
+
+## Private application continuous release
+The October 13 production-launch approval and latest task authorise Justelle's private-app service setup and release within the recorded limits. Future authorised private-app changes include implementation, checks, merge, production deployment and live verification as one task; no separate go-live prompt is needed. Preserve the root homepage completely. Use separate fictional qualification and production projects, private runtime configuration, short-lived deployment credentials and encrypted independent recovery. Distinguish source, emulators, hosted checks and physical iPhone evidence. Complete the initial hosted/recovery/device/cloud-rollback requirements before enabling production automation. Routine successful releases should not introduce renewed account or spending approvals. Report genuine external account or device handoffs precisely.
