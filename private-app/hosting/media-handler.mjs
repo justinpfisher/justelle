@@ -32,12 +32,23 @@ export function createMediaHandler(dependencies){
         for await(const input of body){size+=input.length;if(size>MAX)throw deny(413,'Image too large');chunks.push(input);}
         if(size===0)throw deny(400,'Choose an image');const bytes=Buffer.concat(chunks);
         // GCS API, not Firebase upload endpoints. No signed URL or download token.
-        await file.save(bytes,{resumable:false,preconditionOpts:{ifGenerationMatch:0},metadata:{
-          contentType:mime,cacheControl:'private, no-store',metadata:{author_uid:member.uid,attachment_id:id,role:variant}
-        }});
+        const sha256=createHash('sha256').update(bytes).digest('hex');
+        let replayed=false;
+        try{
+          await file.save(bytes,{resumable:false,preconditionOpts:{ifGenerationMatch:0},metadata:{
+            contentType:mime,cacheControl:'private, no-store',metadata:{author_uid:member.uid,attachment_id:id,role:variant,sha256}
+          }});
+        }catch(e){
+          if(e.code!==412)throw e;
+          const [existing]=await file.getMetadata();
+          if(existing.metadata?.firebaseStorageDownloadTokens||existing.contentType!==mime||Number(existing.size)!==size||
+            existing.metadata?.author_uid!==member.uid||existing.metadata?.attachment_id!==id||
+            existing.metadata?.role!==variant||existing.metadata?.sha256!==sha256)throw deny(409,'This image is already saved differently');
+          replayed=true;
+        }
         const [metadata]=await file.getMetadata();
         if(metadata.metadata?.firebaseStorageDownloadTokens)throw deny(503,'Image storage requires qualification');
-        response(201,{id,variant,size,sha256:createHash('sha256').update(bytes).digest('hex')});return;
+        response(replayed?200:201,{id,variant,size,sha256,replayed});return;
       }
       const [metadata]=await file.getMetadata();
       if(metadata.metadata?.firebaseStorageDownloadTokens||!ALLOWED.has(metadata.contentType)||

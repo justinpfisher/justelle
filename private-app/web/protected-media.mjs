@@ -3,7 +3,7 @@ export function protectedMediaTransport({baseUrl,getToken,fetchImpl=fetch}){
   async function request(path,options={}){
     const res=await fetchImpl(baseUrl+path,{...options,cache:'no-store',redirect:'error',
       headers:{...options.headers,Authorization:'Bearer '+await getToken()}});
-    if(!res.ok)throw Error('The image could not be saved or opened. Please try again.');
+    if(!res.ok){const error=Error('The image could not be saved or opened. Please try again.');if([401,403].includes(res.status))error.code='storage/unauthorized';throw error;}
     return res;
   }
   return {

@@ -33,7 +33,7 @@ async function login(page,account){
   await page.locator('#password').fill(account.password);
   await page.locator('#login-form button').click();
   try{await page.locator('#private-app').waitFor({state:'visible',timeout:25000});}
-  catch{throw Error('Could not sign in; '+await page.locator('#error').textContent());}
+  catch{throw Error('Could not sign in; '+await page.locator('#error').textContent()+'; '+pageErrors.join('; '));}
 }
 async function openDiscussion(page,id){
   await page.locator('#topic-list [data-topic-id="'+id+'"]').click();

@@ -597,3 +597,6 @@ onAuthStateChanged(auth,async user=>{
     },error));
   }catch(e){error(e);$('private-app').hidden=true;}
 });
+// HTML stays inert until session persistence and every form handler are ready.
+// An early tap/Enter must never submit credentials through a native GET form.
+for(const id of ['email','password','sign-in-button'])$(id).disabled=false;

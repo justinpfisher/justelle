@@ -62,7 +62,9 @@ try{
   const bytes=await readFile(new URL('../tests/fictional-landscape.png',import.meta.url));
   const checksum=createHash('sha256').update(bytes).digest('hex'),imageId=randomUUID(),path='rooms/fictional-room/media/'+imageId;
   await http('/api/media/'+imageId+'/original',{method:'PUT',token:A.token,body:bytes,contentType:'image/png'},[201]);
-  await http('/api/media/'+imageId+'/original',{method:'PUT',token:A.token,body:bytes,contentType:'image/png'},[409]);
+  const imageReplay=await http('/api/media/'+imageId+'/original',{method:'PUT',token:A.token,body:bytes,contentType:'image/png'},[200]);
+  assert((await imageReplay.json()).replayed===true);
+  await http('/api/media/'+imageId+'/original',{method:'PUT',token:B.token,body:bytes,contentType:'image/png'},[409]);
   const full=await http('/api/media/'+imageId+'/original',{token:B.token});assert(Buffer.from(await full.arrayBuffer()).equals(bytes));
   const [stored]=await bucket.file(path).getMetadata();assert(!stored.metadata?.firebaseStorageDownloadTokens);
   const {setDoc,serverTimestamp}=await import('firebase/firestore');

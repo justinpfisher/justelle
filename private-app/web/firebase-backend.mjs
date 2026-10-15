@@ -66,7 +66,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
       return id;
     },
     async uploadImage(user,prepared) {
-      const id=crypto.randomUUID(),originalPath='rooms/'+roomId+'/media/'+id;
+      const id=prepared.uploadId||=(crypto.randomUUID()),originalPath='rooms/'+roomId+'/media/'+id;
       const previewPath=prepared.previewBlob?originalPath+'-preview':null;
       const originalBytes=new Uint8Array(await prepared.file.arrayBuffer());
       const checksum=await sha256(originalBytes);
@@ -77,10 +77,18 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
       if(prepared.previewBlob) await (mediaTransport?mediaTransport.upload(previewPath,prepared.previewBlob,{
         contentType:'image/jpeg',customMetadata:{author_uid:user.uid,attachment_id:id,role:'preview'}
       }):uploadBytes(ref(storage,previewPath),prepared.previewBlob,{contentType:'image/jpeg',customMetadata:{author_uid:user.uid,attachment_id:id,role:'preview'}}));
-      await setDoc(docAt('attachments',id),{
+      const metadata={
         id,author_uid:user.uid,author_id:person(user),name:prepared.file.name.slice(0,180),
         mime:prepared.mime,size:originalBytes.length,sha256:checksum,original_path:originalPath,
-        preview_path:previewPath,created_at:serverTimestamp()
+        preview_path:previewPath
+      };
+      await runTransaction(db,async transaction=>{
+        const target=docAt('attachments',id),existing=await transaction.get(target);
+        if(existing.exists()){
+          if(Object.entries(metadata).some(([key,value])=>existing.data()[key]!==value))throw Error('This image is already saved differently.');
+          return;
+        }
+        transaction.set(target,{...metadata,created_at:serverTimestamp()});
       });
       return id;
     },

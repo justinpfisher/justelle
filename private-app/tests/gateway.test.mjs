@@ -58,3 +58,15 @@ test('Outsiders, revoked identities, room revocation and token-bearing originals
     const s=service(options);await assert.rejects(s.response('token',id),e=>e.status===status);assert.equal(s.calls.length,0);assert.equal(s.writes.length,0);
   }
 });
+
+test('A lost upload acknowledgement replays only identical bytes from the original author without overwriting',async()=>{
+  const bytes=Buffer.from('synthetic-image'),sha256=createHash('sha256').update(bytes).digest('hex');
+  let identity=member,metadata={contentType:'image/png',size:bytes.length,metadata:{author_uid:member.uid,attachment_id:id,role:'original',sha256}};
+  const handler=createMediaHandler({roomId:'fictional-room',verifyIdentity:async()=>identity,readMembership:async()=>room,
+    bucket:{file:()=>({save:async()=>{throw Object.assign(Error('Already exists'),{code:412});},getMetadata:async()=>[metadata]})}});
+  const request=()=>({url:'/api/media/'+id+'/original',method:'PUT',rawBody:bytes,headers:{authorization:'Bearer token','content-type':'image/png'}});
+  const replay=res();await handler(request(),replay);assert.equal(replay.status,200);assert.equal(JSON.parse(replay.body).replayed,true);
+  identity={...member,uid:'fictional-b'};const other=res();await handler(request(),other);assert.equal(other.status,409);
+  identity=member;metadata={...metadata,metadata:{...metadata.metadata,sha256:'0'.repeat(64)}};
+  const changed=res();await handler(request(),changed);assert.equal(changed.status,409);
+});
