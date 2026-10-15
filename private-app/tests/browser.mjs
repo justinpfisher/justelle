@@ -252,7 +252,9 @@ try{
   await again.locator('[data-tab="adventures"]').click();
   await again.locator('#idea-input').fill('Fictional spontaneous memory');await again.locator('#idea-kind').selectOption('memory');
   await again.locator('#idea-form button[type="submit"]').click();
-  await again.getByRole('heading',{name:'Fictional spontaneous memory',exact:true}).waitFor();
+  // The same title appears in the optimistic adventure card before the save
+  // completes. Wait for the promised conversation transition before changing tabs.
+  await again.locator('#topic-title').filter({hasText:'Fictional spontaneous memory'}).waitFor({state:'visible'});
   await again.locator('[data-tab="adventures"]').click();
   const memoryCard=again.locator('#adventures .record-card').filter({hasText:'Fictional spontaneous memory'});
   await memoryCard.getByText('Remembering',{exact:true}).waitFor();
