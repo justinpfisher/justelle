@@ -158,7 +158,7 @@ test('Protected source PDF and complete plan/event/history restore work without 
     const recovered=JSON.parse(await readFile(join(output,'records.json'),'utf8'));
     assert.equal(recovered.adventure_plans[0].state.bookings[0].summary,
       'Clearly identified correction');
-    assert.equal(recovered.plan_events[2].after_state.bookings[0].summary,'Synthetic hotel booking');
+    assert.equal(recovered.plan_events.find(e=>e.revision===2).after_state.bookings[0].summary,'Synthetic hotel booking');
     assert.equal(recovered.plan_sources[0].reference,'');
     assert.equal(recovered.plan_documents[0].storage_path,'documents/'+documentId);
     assert.deepEqual(await readFile(join(output,'media','doc-'+documentId)),pdf);
