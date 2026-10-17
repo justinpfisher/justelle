@@ -189,6 +189,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       announce('Trip details saved for both of you. Undo is available.');
     }catch(error){onError(error);}finally{button.disabled=false;}
   };
+  const refreshTrip=()=>{$('planner-trip-form').dataset.dirty='false';render();};
   const archive=()=>{
     const p=plans.find(x=>x.id===selected);if(!p)return;
     void edit(p,{type:'set_status',status:p.status==='archived'?'planning':'archived'});
@@ -199,6 +200,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   $('planner-trip-form').addEventListener('input',tripDirty);
   $('planner-trip-form').addEventListener('submit',saveTrip);
   $('planner-archive').addEventListener('click',archive);
+  $('planner-trip-refresh').addEventListener('click',refreshTrip);
   $('planner-add-stay').addEventListener('submit',added);
   $('planner-undo').addEventListener('click',undo);
   $('planner-feedback').addEventListener('click',feedback);
@@ -221,6 +223,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-trip-form').removeEventListener('input',tripDirty);
     $('planner-trip-form').removeEventListener('submit',saveTrip);
     $('planner-archive').removeEventListener('click',archive);
+    $('planner-trip-refresh').removeEventListener('click',refreshTrip);
     $('planner-add-stay').removeEventListener('submit',added);
     $('planner-undo').removeEventListener('click',undo);
     $('planner-feedback').removeEventListener('click',feedback);
