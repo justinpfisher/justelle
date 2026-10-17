@@ -12,7 +12,7 @@ const time=t=>t?.toMillis?.()||0;
 const ascending=rows=>rows.sort((a,b)=>time(a.created_at)-time(b.created_at)||a.id.localeCompare(b.id));
 
 export function firebaseBackend({db,storage,roomId,membership,mediaTransport=null}) {
-  const planner=plannerBackend({db,roomId,membership,mediaTransport});
+  const planner=plannerBackend({db,storage,roomId,membership,mediaTransport});
   const roomDoc=doc(db,'rooms',roomId);
   const collectionAt=kind=>collection(roomDoc,kind);
   const docAt=(kind,id)=>doc(collectionAt(kind),id);
