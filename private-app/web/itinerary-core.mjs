@@ -50,11 +50,11 @@ function booking(value, plan) {
     id: checkId(value.id), kind: value.kind,
     stop_id: value.stop_id == null ? null : checkId(value.stop_id),
     from_day: value.from_day, through_day: value.through_day,
-    status: value.status || 'confirmed',
+    status: value.status,
     source_id: value.source_id == null ? null : checkId(value.source_id),
     summary: clean(value.summary, 500)
   };
-  if (!kinds.includes(b.kind) || !['confirmed', 'cancelled', 'voided'].includes(b.status))
+  if (!kinds.includes(b.kind) || !['unverified', 'confirmed', 'cancelled', 'voided'].includes(b.status))
     throw Error('Invalid booking kind or status');
   span(b, plan);
   return b;
