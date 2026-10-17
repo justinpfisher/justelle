@@ -3,7 +3,7 @@
 **Approved:** 17 October 2026 (America/Toronto)  
 **Status:** Authoritative product/engineering policy for the private adventure planner. This directs future selections; it is not an installation, API activation, purchase, or claim that candidates are already integrated.
 
-Read with [Adventure Planner V1](ADVENTURE-PLANNER-V1.md), [AGENTS.md](../AGENTS.md), and the existing security/release rules. Latest explicit owner decisions control. The public homepage remains untouched.
+Read with [Mature Product Vision](PRODUCT-VISION.md), [Adventure Planner V1](ADVENTURE-PLANNER-V1.md), [AGENTS.md](../AGENTS.md), and the existing security/release rules. Latest explicit owner decisions control. The public homepage remains untouched.
 
 ## Operating objective
 
@@ -22,7 +22,7 @@ Keep choices proportional to **two private members**, an iPhone Home Screen web 
 
 ## What Justelle owns and builds
 
-- **Adventure experience:** Upcoming-first home; adaptable trip overview; a configurable blank-day canvas (21 days is an example); week/day timeline; movable city stays and destination anchors; possible vs planned stops; readable booking/detail panels; linked map/day/place interaction.
+- **Adventure experience:** Upcoming-first home; **journey-first** overview with destination nights, significant transfers and unscheduled possibilities; configurable week/day detail (21 days is an example, not a default grid); movable stays with a non-drag editing path; clear planned versus possible versus externally confirmed booking indicators; linked map/day/place/booking interaction and a practical Today mode.
 - **Canonical planning model:** Adventure IDs, stable place relationships, itinerary blocks, travel segments, personal/adventure preferences, sources, recommendations, booking anchors and optional archived lessons. It is not a generic knowledge graph.
 - **Booking truth:** A planned stop is not a purchased reservation. External booking dates, status and original protected confirmations are independent from movable blocks. Flag discrepancies; never claim editing Justelle rebooks external services.
 - **Equal collaboration:** Both members can immediately edit the plan. Record server-attributable before/after audit events, time, original source and prior versions atomically with revisions. Prevent silent concurrent clobbering; undo is another event. No co-approval or locked-decision workflow.
@@ -103,4 +103,4 @@ Record a one-paragraph decision in the PR rather than commissioning a separate a
 
 A fictional two-member trip can be assembled by placing and moving city blocks; itinerary/map/bookings reflect the same canonical plan; an external booking doesn't shift when the plan moves; every edit is attributable/reversible; source originals survive independent restore; AI research cites sources and suggestions remain distinguishable; and swapping a map/search/AI provider does not require remodelling the adventure history.
 
-**Practical north star:** The least complex maintainable solution that gives Justelle full control of its information and a seamless iPhone experience.
+**Practical north star:** The least complex maintainable solution that gives Justelle full control of its information and a seamless, journey-first iPhone experience as defined in [Mature Product Vision](PRODUCT-VISION.md).
