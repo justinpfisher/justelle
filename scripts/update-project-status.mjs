@@ -69,9 +69,12 @@ export function renderDetails(data){
     'Next unchecked acceptance criterion:\n\n> '+(data.next.next||'Attach evidence and close the milestone issue.')+
     '\n\nOnly check this when verified. See [implementation Issue #4]('+gh+'/issues/4).':
     '## Immediate next evidence\n\nAll tracked milestones are accepted. Reassess the product vision before expanding scope.';
+  const m1Complete=data.rows.find(m=>m.id==='M1')?.complete===true;
   const live=data.ready?
     'V1 milestone criteria accepted; verify actual production state in M4 before saying the service is live.':
-    'NOT VERIFIED LIVE. The earlier private chat pilot and itinerary data model have development tests, not a qualified public-facing private planner.';
+    m1Complete?
+      'NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; hosted qualification and real-member production remain unverified.':
+      'NOT VERIFIED LIVE. The earlier private chat pilot and itinerary data model have development tests, not a qualified public-facing private planner.';
   return ['# Justelle — Where we are','',
     '**Private application:** '+live,'',
     '**Accepted milestones:** '+data.completed+'/'+data.rows.length+'. **V1 release milestones:** '+
@@ -83,8 +86,11 @@ export function renderDetails(data){
     '## Verified evidence versus outstanding work','',
     '- **M0:** Fictional two-member browser/emulator checks, encrypted independent recovery, prepared hosting/AI source, '+
       'and a pure itinerary model were exercised. This is a **development** milestone, not a hosted pass.',
-    '- **M1–M3:** New journey-first app, authenticated plan/booking history, independently restorable new record types, '+
-      'and bounded AI still need new acceptance evidence.',
+    m1Complete?
+      '- **M1 (development):** Two-member shared records, immutable booking/history, original media and encrypted independent recovery passed fictional emulator/browser tests. '+ 
+        '[Merged PR #29]('+gh+'/pull/29) · [Passing CI]('+gh+'/actions/runs/39061319556). This is not hosted or production evidence.':
+      '- **M1:** New authenticated plan/booking history and independently restorable record types still need qualification.',
+    '- **M2–M3:** The complete journey-first visual experience and bounded AI assistance remain future acceptance work; the M1 planner is a small functional slice.',
     '- **M4:** Real Firebase environments, protected original media, cloud B2 restoration, physical iPhone Home Screen, '+
       'production access and tested rollback must pass before the app is called live.',
     '- **M5–M7:** Today/offline/research, Windows/OneDrive permanent archives and mature usability follow the first launch. '+
