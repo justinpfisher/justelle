@@ -32,6 +32,14 @@ An adventure begins as a blank, configurable day canvas (21 days is an example, 
 - Allow personal and per-adventure preferences, traveller group and interests, relevant food requirements, and reusable lessons. Preferences are editable evidence, not automatically assumed demographic traits. Do not mix information from other projects into Justelle.
 - Use deterministic application logic for span and booking conflicts, with AI interpreting those results. For research output, save source URLs, retrieval date and confidence/limitations; material unsupported claims must not masquerade as findings.
 
+## Technology ownership and adoption policy
+
+**Standing architectural decision:** Follow [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) before implementing or selecting a new capability. Prefer reusing existing suitable code, then trustworthy maintained open-source components, then managed specialist services when those reduce maintenance or improve trustworthy data; custom-build only Justelle-specific UX, domain logic, permissioned AI action handling, booking/source relationships and portable audit records.
+
+Keep a **small, nimble canonical core** and simple replaceable adapters at real external boundaries (AI, research, mapping/place/route data and document imports). Never implement a speculative universal plugin manager, download unknown modules to run dynamically, or make a provider's data format the owner of the adventure. Evaluate dependencies and vendor APIs for licence, privacy, maintenance, cost in CAD, device performance, portability and recovery before adoption.
+
+Candidates to **evaluate, not blindly install**, include Svelte for the evolving planner UI, interact.js for optional touch rearrangement, MapLibre for map rendering, a managed map/place provider, PDF.js for documents, and minimal date/offline libraries where needed. Reuse the Firebase, protected media, replaceable AI and encrypted recovery work already done. Current AI web search is **not activated or included automatically** in the old model-only spend approval.
+
 ## Implementation boundaries
 
 Retain the Firebase-first model (Auth, Firestore, member-protected Storage, bounded server-side replaceable AI), independent encrypted backup/restore, and automatic qualified private deployment strategy. Avoid building a generic knowledge graph, autonomous agent platform or bespoke navigation engine. Place/research/map vendors must be replaceable; Justelle owns the canonical plan and history.
