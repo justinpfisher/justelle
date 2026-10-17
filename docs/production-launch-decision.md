@@ -1,4 +1,8 @@
 # Justelle Version 1 — account, cost and release decision
+
+> **Product and architecture clarification — 17 October 2026:** This 13 October document preserves previously granted account/spending and infrastructure authorizations but describes the earlier chat-first pilot and historical pricing assumptions. [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) now defines the target private experience, and [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) governs new libraries and managed providers. The AI model allowance below **does not automatically fund or enable the newly requested research/web-search feature**. Verify any new provider's current costs, terms, privacy and applicable approvals before activation; source/emulator green checks are not live release proof.
+
+
 **Owner-approved 13 October 2026.** The owner authorized the proposed Firebase, Backblaze and vision API setup, the C$5 Google Cloud budget alerts per project, the C$5/month API limit with a C$1/day limit, and the C$10 combined operating alert. This authorizes the release path; it does not replace provider account terms, billing-console handoff, security qualification or device acceptance. All figures are estimates in Canadian dollars unless stated otherwise.
 
 ## Recommended account layout
