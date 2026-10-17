@@ -3,6 +3,7 @@
 import {createHash} from 'node:crypto';
 const MAX=12*1024*1024;
 const ALLOWED=new Set(['image/png','image/jpeg','image/heic','image/heif']);
+const DOCUMENTS=new Set([...ALLOWED,'application/pdf']);
 const deny=(status,message)=>Object.assign(Error(message),{status});
 export async function approvedMember(token,{verifyIdentity,readMembership,roomId}){
   if(!token)throw deny(401,'Sign-in required');
@@ -20,17 +21,20 @@ export function createMediaHandler(dependencies){
     try{
       const bearer=/^Bearer (.+)$/.exec(req.headers.authorization||'');
       const member=await approvedMember(bearer?.[1],dependencies);
+      const docMatch=/^\/api\/media\/documents\/([a-f0-9-]{36})$/.exec(req.url||'');
       const match=/^\/api\/media\/([a-f0-9-]{36})\/(original|preview)$/.exec(req.url||'');
-      if(!match||!['GET','PUT'].includes(req.method))throw deny(404,'Image not found');
-      const [,id,variant]=match,path='rooms/'+member.roomId+'/media/'+id+(variant==='preview'?'-preview':'');
+      if((!match&&!docMatch)||!['GET','PUT'].includes(req.method))throw deny(404,'File not found');
+      const id=docMatch?docMatch[1]:match[1],variant=docMatch?'document':match[2];
+      const path=variant==='document'?'rooms/'+member.roomId+'/documents/'+id:
+        'rooms/'+member.roomId+'/media/'+id+(variant==='preview'?'-preview':'');
       const file=dependencies.bucket.file(path);
       if(req.method==='PUT'){
         const mime=req.headers['content-type'];
-        if(!ALLOWED.has(mime)||(variant==='preview'&&mime!=='image/jpeg'))throw deny(400,'Unsupported image');
+        if(!(variant==='document'?DOCUMENTS:ALLOWED).has(mime)||(variant==='preview'&&mime!=='image/jpeg'))throw deny(400,'Unsupported file');
         const chunks=[];let size=0;
         const body=req.rawBody?[req.rawBody]:req;
         for await(const input of body){size+=input.length;if(size>MAX)throw deny(413,'Image too large');chunks.push(input);}
-        if(size===0)throw deny(400,'Choose an image');const bytes=Buffer.concat(chunks);
+        if(size===0)throw deny(400,'Choose a file');const bytes=Buffer.concat(chunks);
         // GCS API, not Firebase upload endpoints. No signed URL or download token.
         const sha256=createHash('sha256').update(bytes).digest('hex');
         let replayed=false;
@@ -43,23 +47,23 @@ export function createMediaHandler(dependencies){
           const [existing]=await file.getMetadata();
           if(existing.metadata?.firebaseStorageDownloadTokens||existing.contentType!==mime||Number(existing.size)!==size||
             existing.metadata?.author_uid!==member.uid||existing.metadata?.attachment_id!==id||
-            existing.metadata?.role!==variant||existing.metadata?.sha256!==sha256)throw deny(409,'This image is already saved differently');
+            existing.metadata?.role!==variant||existing.metadata?.sha256!==sha256)throw deny(409,'This file is already saved differently');
           replayed=true;
         }
         const [metadata]=await file.getMetadata();
-        if(metadata.metadata?.firebaseStorageDownloadTokens)throw deny(503,'Image storage requires qualification');
+        if(metadata.metadata?.firebaseStorageDownloadTokens)throw deny(503,'Private file storage requires qualification');
         response(replayed?200:201,{id,variant,size,sha256,replayed});return;
       }
       const [metadata]=await file.getMetadata();
-      if(metadata.metadata?.firebaseStorageDownloadTokens||!ALLOWED.has(metadata.contentType)||
+      if(metadata.metadata?.firebaseStorageDownloadTokens||!(variant==='document'?DOCUMENTS:ALLOWED).has(metadata.contentType)||
         Number(metadata.size)>MAX||metadata.metadata?.attachment_id!==id||metadata.metadata?.role!==variant)
-        throw deny(503,'Image storage requires qualification');
+        throw deny(503,'Private file storage requires qualification');
       res.writeHead(200,{...headers,'Content-Type':metadata.contentType,'Content-Length':metadata.size});
       for await(const chunk of file.createReadStream())if(!res.write(chunk))await new Promise(resolve=>res.once('drain',resolve));res.end();
     }catch(e){
       if(res.headersSent){res.destroy();return;}
       const status=e.status||(e.code===412?409:e.code===404?404:503);
-      response(status,{error:status===409?'This image is already saved':status===503?'Image service unavailable':e.message});
+      response(status,{error:status===409?'This file is already saved':status===503?'Private file service unavailable':e.message});
     }
   };
 }
