@@ -124,9 +124,14 @@ try{
   await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
     .getByRole('button',{name:'Show original details'}).click();
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
-  const downloadPromise=B.waitForEvent('download');
+  const downloadPromise=B.waitForEvent('download',{timeout:12000});
   await B.getByRole('button',{name:'Open protected original'}).click();
-  const bookingDownload=await downloadPromise;
+  let bookingDownload;
+  try{bookingDownload=await downloadPromise;}
+  catch(e){throw Error('Protected original did not open: '+e.message+
+    ' | B UI: '+await B.locator('#error').textContent()+
+    ' | source: '+await B.locator('#planner-booking-source').textContent()+
+    ' | browser: '+pageErrors.join('; '));}
   assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
   // One member changing a trip must not silently overwrite another member's
