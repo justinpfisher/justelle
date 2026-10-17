@@ -1,0 +1,240 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function roomPath(roomId) {
+      return /databases/$(database)/documents/rooms/$(roomId);
+    }
+    function member(roomId) {
+      return request.auth != null &&
+        request.auth.token.justelle_member == true &&
+        request.auth.token.justelle_room == roomId &&
+        exists(roomPath(roomId)) &&
+        request.auth.uid in get(roomPath(roomId)).data.uids &&
+        request.auth.uid in get(roomPath(roomId)).data.people.keys() &&
+        request.auth.token.get('auth_time', 0) > get(roomPath(roomId)).data.get('revoked_auth_before', {}).get(request.auth.uid, -1);
+    }
+    function room(roomId) { return get(roomPath(roomId)).data; }
+    function person(roomId) { return room(roomId).people[request.auth.uid]; }
+    function authored(roomId) {
+      return request.resource.data.author_uid == request.auth.uid &&
+        request.resource.data.author_id == person(roomId);
+    }
+    function nowCreated() {
+      return request.resource.data.created_at == request.time;
+    }
+    function decisionPath(roomId, decisionId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/decisions/$(decisionId);
+    }
+    function replacementPath(roomId, previousId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/decision_replacements/$(previousId);
+    }
+    function adventurePath(roomId, adventureId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/adventures/$(adventureId);
+    }
+    function conversation(roomId) {
+      let d = request.resource.data;
+      return (d.adventure_id == null && d.conversation_id == 'conversation-shared') ||
+        (d.adventure_id is string &&
+          d.conversation_id == 'conversation-' + d.adventure_id &&
+          exists(adventurePath(roomId, d.adventure_id)) &&
+          get(adventurePath(roomId, d.adventure_id)).data.conversation_id == d.conversation_id);
+    }
+    function messagePath(roomId, messageId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/messages/$(messageId);
+    }
+    function eventPath(roomId, eventId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/adventure_events/$(eventId);
+    }
+    function attached(roomId, id) {
+      return id is string && exists(/databases/$(database)/documents/rooms/$(roomId)/attachments/$(id));
+    }
+    function validMessage(roomId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['body','author_uid','author_id','kind','conversation_id','adventure_id','attachment_ids','created_at']) &&
+        d.keys().hasOnly(['body','author_uid','author_id','kind','conversation_id','adventure_id','attachment_ids','created_at','corrects_id']) &&
+        authored(roomId) && nowCreated() && conversation(roomId) &&
+        d.kind == 'person' && d.body is string && d.body.size() <= 4000 &&
+        d.attachment_ids is list && d.attachment_ids.size() <= 3 &&
+        (d.attachment_ids.size() < 1 || attached(roomId, d.attachment_ids[0])) &&
+        (d.attachment_ids.size() < 2 || attached(roomId, d.attachment_ids[1])) &&
+        (d.attachment_ids.size() < 3 || attached(roomId, d.attachment_ids[2])) &&
+        (d.body.size() > 0 || d.attachment_ids.size() > 0) &&
+        (d.adventure_id == null || d.adventure_id is string) &&
+        (d.get('corrects_id', null) == null || (
+          d.corrects_id is string && exists(messagePath(roomId, d.corrects_id)) &&
+          get(messagePath(roomId, d.corrects_id)).data.author_uid == request.auth.uid &&
+          get(messagePath(roomId, d.corrects_id)).data.conversation_id == d.conversation_id));
+    }
+    function validAttachment(roomId, attachmentId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['id','author_uid','author_id','name','mime','size','sha256','original_path','preview_path','created_at']) &&
+        d.keys().hasOnly(['id','author_uid','author_id','name','mime','size','sha256','original_path','preview_path','created_at']) &&
+        authored(roomId) && nowCreated() &&
+        d.id == attachmentId && d.name is string && d.name.size() <= 180 &&
+        d.mime in ['image/png','image/jpeg','image/heic','image/heif'] &&
+        d.size is int && d.size > 0 && d.size <= 12582912 &&
+        d.sha256 is string && d.sha256.matches('[a-f0-9]{64}') &&
+        d.original_path == 'rooms/' + roomId + '/media/' + attachmentId &&
+        (d.preview_path == null || (
+          d.mime in ['image/heic','image/heif'] &&
+          d.preview_path == 'rooms/' + roomId + '/media/' + attachmentId + '-preview'));
+    }
+    function validProposal(roomId, decisionId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at','declined_by','declined_at']) &&
+        d.keys().hasOnly(['body','why','author_uid','author_id','origin','conversation_id','adventure_id','source_message_id','replaces_id','status','approvals','approval_times','created_at','locked_at','declined_by','declined_at']) &&
+        authored(roomId) && nowCreated() && conversation(roomId) &&
+        d.origin == 'human' &&
+        d.body is string && d.body.size() > 0 && d.body.size() <= 4000 &&
+        d.why is string && d.why.size() <= 2000 &&
+        (d.adventure_id == null || d.adventure_id is string) &&
+        (d.source_message_id == null || d.source_message_id is string) &&
+        d.status == 'proposed' && d.approvals == {} && d.approval_times == {} &&
+        d.locked_at == null && d.declined_by == null && d.declined_at == null &&
+        (d.replaces_id == null || (
+          d.replaces_id is string &&
+          d.replaces_id != decisionId &&
+          exists(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)) &&
+          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.status == 'locked' &&
+          get(/databases/$(database)/documents/rooms/$(roomId)/decisions/$(d.replaces_id)).data.conversation_id == d.conversation_id &&
+          !exists(replacementPath(roomId, d.replaces_id))));
+    }
+    function validApproval(roomId, decisionId) {
+      let old = resource.data;
+      let next = request.resource.data;
+      let changed = next.approvals.diff(old.approvals);
+      let times = next.approval_times.diff(old.approval_times);
+      let both = next.approvals.keys().hasAll(room(roomId).uids);
+      return old.status == 'proposed' &&
+        room(roomId).uids.size() == 2 &&
+        next.diff(old).affectedKeys().hasOnly(['approvals','approval_times','status','locked_at']) &&
+        changed.addedKeys().size() == 1 &&
+        changed.addedKeys().hasOnly([request.auth.uid]) &&
+        changed.changedKeys().size() == 0 && changed.removedKeys().size() == 0 &&
+        times.addedKeys().size() == 1 && times.addedKeys().hasOnly([request.auth.uid]) &&
+        times.changedKeys().size() == 0 && times.removedKeys().size() == 0 &&
+        next.approvals.keys().hasOnly(room(roomId).uids) &&
+        next.approval_times.keys().hasOnly(room(roomId).uids) &&
+        next.approvals.keys().hasAll(next.approval_times.keys()) &&
+        next.approval_times.keys().hasAll(next.approvals.keys()) &&
+        next.approvals[request.auth.uid] == true &&
+        next.approval_times[request.auth.uid] == request.time &&
+        next.status == (both ? 'locked' : 'proposed') &&
+        (both ? next.locked_at == request.time : next.locked_at == null) &&
+        // The final vote on a revision must also claim its original plan
+        // in the same atomic transaction. One original can have only one claim.
+        (old.replaces_id == null || !both || (
+          !exists(replacementPath(roomId, old.replaces_id)) &&
+          existsAfter(replacementPath(roomId, old.replaces_id)) &&
+          getAfter(replacementPath(roomId, old.replaces_id)).data.replacement_id == decisionId &&
+          getAfter(replacementPath(roomId, old.replaces_id)).data.locked_at == request.time));
+    }
+    function validReplacementClaim(roomId, previousId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['replacement_id', 'locked_at']) &&
+        d.keys().hasOnly(['replacement_id', 'locked_at']) &&
+        d.replacement_id is string && d.replacement_id != previousId &&
+        d.locked_at == request.time &&
+        exists(decisionPath(roomId, previousId)) &&
+        get(decisionPath(roomId, previousId)).data.status == 'locked' &&
+        exists(decisionPath(roomId, d.replacement_id)) &&
+        get(decisionPath(roomId, d.replacement_id)).data.status == 'proposed' &&
+        get(decisionPath(roomId, d.replacement_id)).data.replaces_id == previousId &&
+        get(decisionPath(roomId, d.replacement_id)).data.conversation_id ==
+          get(decisionPath(roomId, previousId)).data.conversation_id &&
+        getAfter(decisionPath(roomId, d.replacement_id)).data.status == 'locked' &&
+        getAfter(decisionPath(roomId, d.replacement_id)).data.locked_at == request.time;
+    }
+    function validDecline(roomId) {
+      let old = resource.data;
+      let d = request.resource.data;
+      return old.status == 'proposed' &&
+        d.diff(old).affectedKeys().hasOnly(['status','declined_by','declined_at']) &&
+        d.status == 'declined' &&
+        d.declined_by == person(roomId) &&
+        d.declined_at == request.time;
+    }
+    function validIdea(roomId, adventureId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at','last_event_id']) &&
+        d.keys().hasOnly(['id','title','phase','phases','author_uid','author_id','last_modified_by','conversation_id','source_message_id','created_at','updated_at','last_event_id']) &&
+        authored(roomId) && nowCreated() &&
+        d.conversation_id == 'conversation-' + adventureId &&
+        d.id == adventureId && d.title is string && d.title.size() > 0 && d.title.size() <= 160 &&
+        d.phase in ['idea','plan','experience','memory'] && d.phases == [d.phase] &&
+        d.last_modified_by == person(roomId) &&
+        (d.source_message_id == null || (d.source_message_id is string && exists(messagePath(roomId, d.source_message_id)))) &&
+        d.updated_at == request.time &&
+        existsAfter(eventPath(roomId, d.last_event_id)) &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.adventure_id == adventureId &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.previous_id == null;
+    }
+    function validNextPhase(roomId, adventureId) {
+      let old = resource.data;
+      let d = request.resource.data;
+      return d.diff(old).affectedKeys().hasOnly(['phase','phases','updated_at','last_modified_by','last_event_id']) &&
+        d.phase in ['idea','plan','experience','memory'] && d.phase != old.phase &&
+        old.phases.size() < 10000 && d.phases == old.phases.concat([d.phase]) &&
+        d.updated_at == request.time && d.last_modified_by == person(roomId) &&
+        d.last_event_id != old.get('last_event_id', null) &&
+        !exists(eventPath(roomId, d.last_event_id)) &&
+        existsAfter(eventPath(roomId, d.last_event_id)) &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.adventure_id == adventureId &&
+        getAfter(eventPath(roomId, d.last_event_id)).data.previous_id == old.get('last_event_id', null);
+    }
+    function validEvent(roomId, eventId) {
+      let d = request.resource.data;
+      let a = getAfter(adventurePath(roomId, d.adventure_id)).data;
+      return d.keys().hasAll(['adventure_id','phase','previous_id','prior_phases','author_uid','author_id','created_at']) &&
+        d.keys().hasOnly(['adventure_id','phase','previous_id','prior_phases','author_uid','author_id','created_at']) &&
+        authored(roomId) && nowCreated() &&
+        a.last_event_id == eventId && a.phase == d.phase && a.updated_at == request.time &&
+        d.prior_phases is list &&
+        d.prior_phases == (exists(adventurePath(roomId, d.adventure_id)) &&
+          get(adventurePath(roomId, d.adventure_id)).data.get('last_event_id', null) == null ?
+          get(adventurePath(roomId, d.adventure_id)).data.phases : []) &&
+        (exists(adventurePath(roomId, d.adventure_id)) ?
+          d.previous_id == get(adventurePath(roomId, d.adventure_id)).data.get('last_event_id', null) :
+          d.previous_id == null);
+    }
+    match /rooms/{roomId} {
+      allow get: if member(roomId);
+      allow list, create, update, delete: if false;
+      match /messages/{messageId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validMessage(roomId);
+        allow update, delete: if false;
+      }
+      match /attachments/{attachmentId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validAttachment(roomId, attachmentId);
+        allow update, delete: if false;
+      }
+      match /decisions/{decisionId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validProposal(roomId, decisionId);
+        allow update: if member(roomId) &&
+          (validApproval(roomId, decisionId) || validDecline(roomId));
+        allow delete: if false;
+      }
+      match /decision_replacements/{previousId} {
+        allow get: if member(roomId);
+        allow list: if false;
+        allow create: if member(roomId) && validReplacementClaim(roomId, previousId);
+        allow update, delete: if false;
+      }
+      match /adventure_events/{eventId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validEvent(roomId, eventId);
+        allow update, delete: if false;
+      }
+      match /adventures/{adventureId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validIdea(roomId, adventureId);
+        allow update: if member(roomId) && validNextPhase(roomId, adventureId);
+        allow delete: if false;
+      }
+    }
+    match /{other=**} { allow read, write: if false; }
+  }
+}
