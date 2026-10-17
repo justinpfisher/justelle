@@ -1,5 +1,7 @@
 // Small V1 vertical slice. It deliberately excludes map/research and legacy approvals.
 import {nextAdventures,journeyOverview,dayDetail} from './journey-view.mjs';
+import {reviewAdventure} from './adventure-feedback.mjs';
+import {todayEssentials} from './today-essentials.mjs';
 const $=id=>document.getElementById(id);
 const el=(tag,className='',content='')=>{
   const node=document.createElement(tag);if(className)node.className=className;
@@ -45,6 +47,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-summary').textContent=(p.starts_on||'Undated')+' · '+p.duration_days+
       ' days · Revision '+p.revision+' · Shared changes save immediately';
     $('planner-undo').disabled=p.revision===0;
+    $('planner-feedback-results').hidden=true;
+    $('planner-today-result').hidden=true;
     const journey=journeyOverview(p),overview=$('planner-journey');
     overview.replaceChildren(el('p','meta',journey.open_nights.length+' nights without a planned base.'));
     for(const transfer of journey.transfers)
@@ -132,11 +136,40 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       title,from_day:start,through_day:start+nights,status:$('planner-state').value}});
     $('planner-stay-title').value='';
   };
+  const feedback=()=>{
+    const p=plans.find(x=>x.id===selected);if(!p)return;
+    const result=reviewAdventure(p),out=$('planner-feedback-results');
+    out.replaceChildren(el('p','meta','Saved revision '+result.revision+'. '+result.limitations));
+    for(const note of result.notices){
+      const item=el('div','planner-warning');
+      item.append(el('strong','',note.description),el('p','meta',note.action));
+      out.append(item);
+    }
+    if(!result.notices.length)out.append(el('p','', 'No saved-record conflicts detected; no live supplier or route checks were performed.'));
+    out.hidden=false;
+  };
+  const showToday=()=>{
+    const p=plans.find(x=>x.id===selected);if(!p)return;
+    const d=todayEssentials(p,today()),out=$('planner-today-result');
+    out.replaceChildren(el('h4','',"Today's essentials"));
+    if(!d.in_trip)out.append(el('p','', 'No scheduled day in this adventure today.'));
+    else{
+      out.append(el('p','', 'Day '+d.day+' · '+d.date));
+      out.append(el('p','meta','Overnight base: '+(d.overnight?.title||'Not yet planned')));
+      for(const record of d.bookings)out.append(el('p','', 'Recorded booking: '+record.summary));
+      for(const record of d.uncertain)out.append(el('p','meta','Unverified: '+record.summary));
+      if(d.tomorrow)out.append(el('p','meta','Tomorrow: '+(d.tomorrow.planned_places.join(', ')||'No planned base')));
+      out.append(el('p','meta',d.limitations));
+    }
+    out.hidden=false;
+  };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
   const close=()=>{selected=null;render();};
   $('planner-create').addEventListener('submit',created);
   $('planner-add-stay').addEventListener('submit',added);
   $('planner-undo').addEventListener('click',undo);
+  $('planner-feedback').addEventListener('click',feedback);
+  $('planner-today').addEventListener('click',showToday);
   $('planner-close').addEventListener('click',close);
   const unsubscribe=planner.subscribePlans(rows=>{
     const previousRevision=plans.find(p=>p.id===selected)?.revision;
@@ -153,6 +186,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-create').removeEventListener('submit',created);
     $('planner-add-stay').removeEventListener('submit',added);
     $('planner-undo').removeEventListener('click',undo);
+    $('planner-feedback').removeEventListener('click',feedback);
+    $('planner-today').removeEventListener('click',showToday);
     $('planner-close').removeEventListener('click',close);
     plans=[];selected=null;
   };
