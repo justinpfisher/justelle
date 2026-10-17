@@ -187,8 +187,12 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
         if(a.preview_path)files.push({id:a.id+'-preview',mime:'image/jpeg',bytes:await this.imageBytes(a.preview_path)});
       }
       for(const d of planDocuments){
-        if(!mediaTransport?.readDocument)throw Error('Document export requires authenticated media access');
-        files.push({id:'doc-'+d.id,mime:d.mime,bytes:await mediaTransport.readDocument(d.id,12*1024*1024)});
+        // Qualification emulator reads under member-only Storage Rules.
+        // Hosted originals always use the separately authenticated gateway.
+        const bytes=mediaTransport?.readDocument?
+          await mediaTransport.readDocument(d.id,12*1024*1024):
+          new Uint8Array(await getBytes(ref(storage,d.storage_path),12*1024*1024));
+        files.push({id:'doc-'+d.id,mime:d.mime,bytes});
       }
       return createArchive(records,files);
     }
