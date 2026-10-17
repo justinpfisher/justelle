@@ -131,6 +131,12 @@
             <div id="planner-day-detail" aria-live="polite"></div>
           </details>
           <details><summary>Booking anchors</summary><ul id="planner-bookings"></ul></details>
+          <div class="planner-actions">
+            <button type="button" id="planner-feedback" class="secondary">Check my plan</button>
+            <button type="button" id="planner-today" class="secondary">Today's essentials</button>
+          </div>
+          <section id="planner-feedback-results" role="status" aria-label="On-demand planning feedback" hidden></section>
+          <section id="planner-today-result" role="status" aria-label="Travel-day essentials" hidden></section>
           <ul id="planner-stays" class="planner-stays"></ul>
           <form id="planner-add-stay" class="planner-form">
             <label for="planner-stay-title">A place to stay or consider</label>
