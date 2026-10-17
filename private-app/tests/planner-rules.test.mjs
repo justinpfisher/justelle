@@ -207,6 +207,7 @@ test('Unverified transfers persist independently; forged confirmation and partia
 
 
 test('Fictional original PDF uploads are private, immutable and readable to the second member',async()=>{
+ const freshDocumentId='00000000-0000-4000-8000-000000000098';
  const {env,A,B,X,one}=await setup();
  try{
    await one.createPlan({uid:a},{id:planId,title:'Fictional protected documents',durationDays:10,startsOn:'2026-11-01'});
@@ -215,15 +216,15 @@ test('Fictional original PDF uploads are private, immutable and readable to the 
      roomId,membership:members});
    const reader=plannerBackend({db:B.firestore(),storage:B.storage('gs://'+projectId+'.firebasestorage.app'),
      roomId,membership:members});
-   await uploader.addDocument({uid:a},{id:documentId,adventureId:planId,file:{
+   await uploader.addDocument({uid:a},{id:freshDocumentId,adventureId:planId,file:{
      name:'synthetic.pdf',type:'application/pdf',size:bytes.length,arrayBuffer:async()=>bytes
    }});
-   assert.deepEqual(Buffer.from(await reader.documentBytes(documentId)),bytes);
+   assert.deepEqual(Buffer.from(await reader.documentBytes(freshDocumentId)),bytes);
    assert.equal((await reader.readDocuments(planId)).length,1);
-   const location=ref(A.storage('gs://'+projectId+'.firebasestorage.app'),'rooms/'+roomId+'/documents/'+documentId);
+   const location=ref(A.storage('gs://'+projectId+'.firebasestorage.app'),'rooms/'+roomId+'/documents/'+freshDocumentId);
    await assertFails(uploadBytes(location,Buffer.from('different'),{contentType:'application/pdf'}));
-   const denied=ref(X.storage('gs://'+projectId+'.firebasestorage.app'),'rooms/'+roomId+'/documents/'+documentId);
+   const denied=ref(X.storage('gs://'+projectId+'.firebasestorage.app'),'rooms/'+roomId+'/documents/'+freshDocumentId);
    await assertFails(getBytes(denied));
-   await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',documentId)));
+   await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',freshDocumentId)));
  }finally{await env.cleanup();}
 });
