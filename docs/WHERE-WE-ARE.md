@@ -1,6 +1,6 @@
 # Justelle — Where we are
 
-**Private application:** NOT VERIFIED LIVE. The earlier private chat pilot and itinerary data model have development tests, not a qualified public-facing private planner.
+**Private application:** NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; hosted qualification and real-member production remain unverified.
 
 **Accepted milestones:** 2/8. **V1 release milestones:** 1/4. **Private-app PR #5:** Draft development PR.
 
@@ -30,7 +30,8 @@ Only check this when verified. See [implementation Issue #4](https://github.com/
 ## Verified evidence versus outstanding work
 
 - **M0:** Fictional two-member browser/emulator checks, encrypted independent recovery, prepared hosting/AI source, and a pure itinerary model were exercised. This is a **development** milestone, not a hosted pass.
-- **M1–M3:** New journey-first app, authenticated plan/booking history, independently restorable new record types, and bounded AI still need new acceptance evidence.
+- **M1 (development):** Two-member shared records, immutable booking/history, original media and encrypted independent recovery passed fictional emulator/browser tests. [Merged PR #29](https://github.com/justinpfisher/justelle/pull/29) · [Passing CI](https://github.com/justinpfisher/justelle/actions/runs/39061319556). This is not hosted or production evidence.
+- **M2–M3:** The complete journey-first visual experience and bounded AI assistance remain future acceptance work; the M1 planner is a small functional slice.
 - **M4:** Real Firebase environments, protected original media, cloud B2 restoration, physical iPhone Home Screen, production access and tested rollback must pass before the app is called live.
 - **M5–M7:** Today/offline/research, Windows/OneDrive permanent archives and mature usability follow the first launch. [The archive policy](BACKUP-ARCHIVE-POLICY.md) is approved, but its automation is not live.
 
