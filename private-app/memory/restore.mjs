@@ -26,12 +26,12 @@ export async function restoreArchive(bundle,destination) {
       }
     }
     for(const file of bundle.media) {
-      const ext=({'image/jpeg':'.jpg','image/png':'.png','image/heic':'.heic','image/heif':'.heif'})[file.mime];
+      const ext=({'image/jpeg':'.jpg','image/png':'.png','image/heic':'.heic','image/heif':'.heif','application/pdf':'.pdf'})[file.mime];
       const filename=file.id+ext;
-      const preview=file.id.endsWith('-preview');
-      const attachmentId=preview?file.id.slice(0,-8):file.id;
+      const preview=file.id.endsWith('-preview'),document=file.id.startsWith('doc-');
+      const attachmentId=document?file.id.slice(4):preview?file.id.slice(0,-8):file.id;
       await writeFile(join(temp,'media',filename),Buffer.from(file.bytes,'base64'),{flag:'wx'});
-      db.prepare('INSERT INTO media(id,attachment_id,variant,mime,sha256,filename) VALUES(?,?,?,?,?,?)').run(file.id,attachmentId,preview?'preview':'original',file.mime,file.sha256,filename);
+      db.prepare('INSERT INTO media(id,attachment_id,variant,mime,sha256,filename) VALUES(?,?,?,?,?,?)').run(file.id,attachmentId,document?'document':preview?'preview':'original',file.mime,file.sha256,filename);
     }
     db.prepare('INSERT INTO manifest(format,created_at,records_sha256) VALUES(?,?,?)').run(bundle.format,bundle.created_at,bundle.records_sha256);
     db.exec('COMMIT');db.close();db=null;
