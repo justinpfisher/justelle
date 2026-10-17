@@ -41,6 +41,9 @@ Private features must protect pages, records, images and downloads through real 
 
 Keep Justelle separate from Stammtisch and other projects. Reuse useful setup, preview, verification and documentation practices, not their content, credentials or publishing pipelines. Do not introduce recurring automation without a request.
 
+## Authoritative delivery milestones and visible status
+The [GitHub front-page status](https://github.com/justinpfisher/justelle#where-we-are--justelle-project) and [Where We Are view](https://github.com/justinpfisher/justelle/blob/main/docs/WHERE-WE-ARE.md) report the milestone-acceptance issues [#20–#27](https://github.com/justinpfisher/justelle/issues/21). M0 records development-only groundwork, M1–M4 are V1 release acceptance, and M5–M7 are post-launch improvements. For each task, update the corresponding milestone checklist **only with real linked code/test/hosted/physical-device evidence**. Close each milestone only after all acceptance tests pass. The default-branch project-status workflow automatically reflects issue changes on the repository home; do not claim source and emulator tests equal live deployment. Do not include private content in public issues.
+
 ## Workflow and verification
 Work in focused branches and pull requests. Complete authorized tasks without repeated confirmation; ask when missing information materially changes the outcome or the work introduces new spending, an audience expansion, or publication of unapproved personal content. Merge and publish only within the active task's authorization.
 
