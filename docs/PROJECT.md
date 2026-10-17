@@ -1,9 +1,11 @@
+> **Private-app product pivot — 17 October 2026:** [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) is the active product authority, with [open-source-first build/borrow rules](BUILD-BORROW-REPLACE.md). The older chat-first, mutual-approval and scrapbook descriptions below are historical. Keep the Firebase/private media/portable recovery foundations and unchanged public homepage.
+
 # Justelle project brief
 
 Established October 10, 2026 from the owner's direction and repository inspection.
 
-## Confirmed direction
-Justelle combines a simple public homepage with private areas. It should celebrate milestones and adventures, collect shared memories, stories and photos, and support trip planning and shared activities.
+## Historical original direction (10–11 October)
+Justelle originally combined a simple public homepage with private memories, stories and general shared-life planning. **This is superseded for the private app by the adventure-first planner above.**
 
 Public categories: Justelle branding, approved illustrations, first names, relationship milestones, and broad trip destinations and months. Memories, stories, personal photos and detailed planning remain private by default unless specifically approved for publication.
 
@@ -29,7 +31,7 @@ Authentication, authorization, private storage, editing and backup arrangements 
 
 Keep the existing public site. The fictional Cloudflare/Firebase comparison is in [draft PR #2](https://github.com/justinpfisher/justelle/pull/2); its emulator/browser results are not evidence of a live private deployment. No hosting migration, new paid service or real private-data ingestion is authorized by this brief.
 
-## Confirmed private first-release scope (October 11, 2026)
+## Historical private first-release scope (October 11, 2026; superseded)
 
 The owner has confirmed a Firebase-first, mobile Home Screen experience for the couple, persistent sessions without routine reauthentication, one shared AI-assisted conversation, **first-class screenshots/images** (maps, restaurants, menus and similar material), low-friction ideas and plans, explicit two-person agreement before a decision becomes locked, preserved source history, and a provider-neutral export and restore path.
 
