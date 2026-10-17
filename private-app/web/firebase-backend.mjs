@@ -2,6 +2,7 @@ import {collection,doc,getDoc,getDocs,onSnapshot,runTransaction,serverTimestamp,
 import {ref,uploadBytes,getBytes} from 'firebase/storage';
 import {MAX_IMAGE_BYTES,sha256} from './media.mjs';
 import {canonicalRecords} from './memory-records.mjs';
+import {plannerBackend} from './planner-backend.mjs';
 import {createArchive} from './archive-core.mjs';
 import {GENERAL_CONVERSATION,topicConversation,contextFor} from './topics.mjs';
 
@@ -11,6 +12,7 @@ const time=t=>t?.toMillis?.()||0;
 const ascending=rows=>rows.sort((a,b)=>time(a.created_at)-time(b.created_at)||a.id.localeCompare(b.id));
 
 export function firebaseBackend({db,storage,roomId,membership,mediaTransport=null}) {
+  const planner=plannerBackend({db,roomId,membership,mediaTransport});
   const roomDoc=doc(db,'rooms',roomId);
   const collectionAt=kind=>collection(roomDoc,kind);
   const docAt=(kind,id)=>doc(collectionAt(kind),id);
@@ -35,7 +37,7 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
       snap=>callback(ascending(snap.docs.map(d=>({id:d.id,...d.data()})))),error);
   };
   return {
-    membership,person,displayPerson,subscription,readPage,
+    membership,person,displayPerson,subscription,readPage,planner,
     async messageById(id) {
       const snap=await getDoc(docAt('messages',id));
       return snap.exists()?{id:snap.id,...snap.data()}:null;
@@ -174,13 +176,19 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
     async exportFictional() {
       // Export ALL canonical records independently of the paginated display.
       const get=async kind=>(await getDocs(collectionAt(kind))).docs.map(d=>({id:d.id,...d.data()}));
-      const [messages,decisions,adventures,attachments,events]=await Promise.all(
-        ['messages','decisions','adventures','attachments','adventure_events'].map(get));
-      const records=canonicalRecords({membership,messages,decisions,adventures,attachments,events});
+      const [messages,decisions,adventures,attachments,events,adventurePlans,planEvents,planSources,planDocuments]=await Promise.all(
+        ['messages','decisions','adventures','attachments','adventure_events',
+         'adventure_plans','plan_events','plan_sources','plan_documents'].map(get));
+      const records=canonicalRecords({membership,messages,decisions,adventures,attachments,events,
+        adventurePlans,planEvents,planSources,planDocuments});
       const files=[];
       for(const a of attachments) {
         files.push({id:a.id,mime:a.mime,bytes:await this.imageBytes(a.original_path)});
         if(a.preview_path)files.push({id:a.id+'-preview',mime:'image/jpeg',bytes:await this.imageBytes(a.preview_path)});
+      }
+      for(const d of planDocuments){
+        if(!mediaTransport?.readDocument)throw Error('Document export requires authenticated media access');
+        files.push({id:'doc-'+d.id,mime:d.mime,bytes:await mediaTransport.readDocument(d.id,12*1024*1024)});
       }
       return createArchive(records,files);
     }
