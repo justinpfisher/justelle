@@ -11,6 +11,7 @@ import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
 
 const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
 const {projectId,roomId}=runtime;
+const historicalReadOnly=runtime.mode==='production';
 const app=initializeApp(runtime.firebase);
 const auth=getAuth(app),db=getFirestore(app),storage=getStorage(app);
 if(runtime.mode==='local'){
@@ -30,6 +31,10 @@ if(runtime.mode==='production'){
   document.querySelector('.export-area p').textContent='Download our conversations, original images and agreements. This download is unencrypted; keep it somewhere private.';
   $('export-button').textContent='Download our history';
   document.querySelector('footer').textContent='Our private shared space';
+  document.getElementById('idea-form').hidden=true;
+  document.getElementById('proposal-form').hidden=true;
+  document.querySelector('#agreements-tab .intro').textContent=
+    'These are earlier suggestions and agreements. They stay in our history; current adventures update directly when either of you edits a plan.';
 }
 const GENERAL_TITLE='Our chat';
 let correctionId=null;
@@ -242,10 +247,15 @@ function renderMessages(){
       save.type='button';save.onclick=async()=>{
         clearError();
         try{
-          const id=await backend.addIdea(auth.currentUser,{
-            title:(message.body.trim()||'Explore an image').slice(0,160),sourceMessageId:message.id
-          });
-          setNotice('We’ve saved an adventure for this idea.');selectTopic(id);
+          const title=(message.body.trim()||'Explore an image').slice(0,160);
+          if(historicalReadOnly){
+            await backend.planner.createPlan(auth.currentUser,{title});
+            tab('adventures');
+            setNotice('Saved as a new adventure. You can add places and dates in the shared plan.');
+          }else{
+            const id=await backend.addIdea(auth.currentUser,{title,sourceMessageId:message.id});
+            setNotice('We’ve saved an adventure for this idea.');selectTopic(id);
+          }
         }catch(e){error(e);}
       };
       const propose=element('button',null,'Suggest a plan');
@@ -256,7 +266,8 @@ function renderMessages(){
         $('cancel-revision').hidden=false;openPlans();
         $('proposal-input').focus();
       };
-      actions.append(ask,save,propose);
+      actions.append(ask,save);
+      if(!historicalReadOnly)actions.append(propose);
       if(message.author_id===backend.person(auth.currentUser)){
         const correct=element('button',null,'Add a correction');correct.type='button';
         correct.onclick=()=>{correctionId=message.id;$('correction-note').hidden=false;$('message-input').focus();};
@@ -320,7 +331,7 @@ function renderDecisionCard(d){
       '. Our previous agreement stays until we both say yes to a change.'));
   }
   const actions=element('div','actions');
-  if(d.status==='proposed'&&!d.stale){
+  if(!historicalReadOnly&&d.status==='proposed'&&!d.stale){
     const voted=Boolean(d.approvals?.[auth.currentUser.uid]);
     const agree=element('button',voted?'secondary':'primary',voted?'You said yes':'Yes, I agree');
     agree.type='button';agree.disabled=voted;
@@ -334,7 +345,7 @@ function renderDecisionCard(d){
       catch(e){error(e);}
     };
     actions.append(agree,decline);
-  }else if(d.status==='locked'&&!d.superseded_by?.length){
+  }else if(!historicalReadOnly&&d.status==='locked'&&!d.superseded_by?.length){
     const revise=element('button','secondary','Suggest a change');
     revise.type='button';revise.onclick=()=>{
       replacesId=d.id;selectedSourceMessage=null;
@@ -351,7 +362,8 @@ function renderDecisions(){
   if(!backend)return;
   const view=decisionView(records.decisions,currentConversation);
   const count=view.unresolved.length+view.current.length+view.history.length;
-  $('plans-toggle').textContent=count?'Our plans ('+count+')':'Our plans';
+  $('plans-toggle').textContent=historicalReadOnly?
+    (count?'Past suggestions ('+count+')':'Past suggestions'):(count?'Our plans ('+count+')':'Our plans');
   const preview=$('plans-preview');
   preview.replaceChildren();preview.hidden=true;
   if(view.current.length||view.unresolved.length){
@@ -359,7 +371,7 @@ function renderDecisions(){
       ?'We agreed: '+view.current.map(x=>x.body).join('; ').slice(0,135)
       :view.unresolved.length+' suggestion'+(view.unresolved.length===1?'':'s')+' still to discuss.';
     preview.append(element('span',null,summary));
-    const btn=element('button','text-button','See our plans');btn.type='button';btn.onclick=openPlans;
+    const btn=element('button','text-button',historicalReadOnly?'View past agreements':'See our plans');btn.type='button';btn.onclick=openPlans;
     preview.append(btn);preview.hidden=false;
   }
   const root=$('decisions');root.replaceChildren();
@@ -376,7 +388,7 @@ function renderDecisions(){
 }
 function openPlans(){
   $('agreements-tab').hidden=false;$('plans-toggle').setAttribute('aria-expanded','true');
-  $('plans-toggle').textContent='Close plans';
+  $('plans-toggle').textContent=historicalReadOnly?'Close history':'Close plans';
 }
 function closePlans(){
   $('agreements-tab').hidden=true;$('plans-toggle').setAttribute('aria-expanded','false');
@@ -423,7 +435,7 @@ function renderAdventures(){
     discuss.onclick=()=>selectTopic(a.id);
     actions.append(discuss);
     const phaseIndex=['idea','plan','experience','memory'].indexOf(a.phase);
-    if(phaseIndex>=0&&phaseIndex<3){
+    if(!historicalReadOnly&&phaseIndex>=0&&phaseIndex<3){
       const advance=element('button','secondary',nextLabels[a.phase]);
       advance.type='button';advance.onclick=async()=>{
         clearError();
@@ -443,6 +455,7 @@ function renderAdventures(){
       change.onclick=async()=>{change.disabled=true;try{await backend.advance(auth.currentUser,a.id,phase);}catch(e){error(e);}finally{change.disabled=false;}};
       choices.append(change);
     }
+    if(historicalReadOnly)choices.hidden=true;
     card.append(actions,choices);root.append(card);
   }
   renderTopics();renderTopicHeading();
