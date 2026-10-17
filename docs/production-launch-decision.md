@@ -1,5 +1,7 @@
 # Justelle Version 1 — account, cost and release decision
 
+> **New owner-approved archive architecture — 17 October 2026:** [Low-Cost Backup & Archive Policy](BACKUP-ARCHIVE-POLICY.md) adds incremental active recovery and post-trip encrypted OneDrive/Windows archives using pre-existing storage, without superseding the already approved B2 initial disaster-recovery path. The B2 backup and hosted restoration are still first-release prerequisites; GMKtec/OneDrive archival requires implementation and qualification before any original is moved or deleted. No new provider purchase, quota guarantee or live activation is implied.
+
 > **Product and architecture clarification — 17 October 2026:** This 13 October document preserves previously granted account/spending and infrastructure authorizations but describes the earlier chat-first pilot and historical pricing assumptions. [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) now defines the target private experience, and [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) governs new libraries and managed providers. The AI model allowance below **does not automatically fund or enable the newly requested research/web-search feature**. Verify any new provider's current costs, terms, privacy and applicable approvals before activation; source/emulator green checks are not live release proof.
 
 
