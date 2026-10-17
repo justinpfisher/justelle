@@ -4,7 +4,7 @@ import {createItinerary,applyItineraryEdit,itineraryDays,itinerarySignals,sortAd
 const make = (args={}) => createItinerary({id:'fictional-trip',title:'Amber Coast',durationDays:21,...args});
 const edit = (plan,change,eventId,lastEvent=null) => applyItineraryEdit(plan,change,{eventId,actorId:'member-a',at:'2026-10-17T14:00:00Z',lastEvent});
 const stop = (id='town-a',p={}) => ({id,place_id:id,title:id,from_day:4,through_day:7,status:'possible',...p});
-const booking = (p={}) => ({id:'booking-1',kind:'stay',stop_id:'town-a',from_day:4,through_day:7,status:'confirmed',summary:'Fictional hotel',source_id:'synthetic-source',...p});
+const booking = (p={}) => ({id:'booking-1',kind:'stay',stop_id:'town-a',starts_on:'2026-10-28',ends_on:'2026-10-31',status:'confirmed',summary:'Fictional hotel',source_id:'synthetic-source',...p});
 
 test('blank day canvas respects dates and daylight saving boundaries',()=>{
   const p=make({startsOn:'2026-10-25'}), days=itineraryDays(p);
@@ -30,10 +30,10 @@ test('city stays can be moved immediately without mutating an earlier revision',
   assert.equal(itineraryDays(b)[7].stops[0].id,'town-a');
 });
 test('bookings remain anchored when a city block moves; never silently rebook',()=>{
-  const a=edit(make(),{type:'add_stop',stop:stop()},'ev1').plan;
+  const a=edit(make({startsOn:'2026-10-25'}),{type:'add_stop',stop:stop()},'ev1').plan;
   const b=edit(a,{type:'add_booking',booking:booking()},'ev2').plan;
   const c=edit(b,{type:'edit_stop',id:'town-a',patch:{from_day:9,through_day:12}},'ev3').plan;
-  assert.equal(c.bookings[0].from_day,4);
+  assert.equal(c.bookings[0].starts_on,'2026-10-28');
   assert.deepEqual(itinerarySignals(c),[{code:'booking_plan_mismatch',booking_id:'booking-1',stop_id:'town-a'}]);
   assert.equal(itineraryDays(c)[3].bookings[0].id,'booking-1');
 });
@@ -55,7 +55,7 @@ test('undo creates another attributable event instead of deleting history',()=>{
   assert.throws(()=>edit(a.plan,{type:'undo_last'},'ev3',null),/Latest event/);
 });
 test('removing a city does not erase its booking; review highlights orphan',()=>{
-  let p=edit(make(),{type:'add_stop',stop:stop()},'ev1').plan;
+  let p=edit(make({startsOn:'2026-10-25'}),{type:'add_stop',stop:stop()},'ev1').plan;
   p=edit(p,{type:'add_booking',booking:booking()},'ev2').plan;
   p=edit(p,{type:'remove_stop',id:'town-a'},'ev3').plan;
   assert.equal(p.bookings.length,1);
@@ -90,4 +90,23 @@ test('booking is never silently marked confirmed from missing source status',()=
   const x=edit(p,{type:'add_booking',booking:booking({status:'unverified'})},'unverified').plan;
   assert.equal(x.bookings[0].status,'unverified');
   assert.equal(itinerarySignals(x).length,0);
+});
+
+test('trip date changes move tentative stays but never external booking dates',()=>{
+  let p=edit(make({startsOn:'2026-10-25'}),{type:'add_stop',stop:stop('town-a',{status:'planned'})},'ev1').plan;
+  p=edit(p,{type:'add_booking',booking:booking()},'ev2').plan;
+  const moved=edit(p,{type:'edit_trip',patch:{starts_on:'2026-11-01'}},'ev3');
+  assert.equal(moved.plan.bookings[0].starts_on,'2026-10-28');
+  assert.deepEqual(itinerarySignals(moved.plan),[
+    {code:'booking_plan_mismatch',booking_id:'booking-1',stop_id:'town-a'},
+    {code:'booking_outside_trip',booking_id:'booking-1'}]);
+  assert.equal(itineraryDays(moved.plan)[3].date,'2026-11-04');
+  const restored=edit(moved.plan,{type:'undo_last'},'ev4',moved.event);
+  assert.equal(restored.plan.starts_on,'2026-10-25');
+  assert.deepEqual(itinerarySignals(restored.plan),[]);
+});
+test('shortening adventure may not discard a city stay silently',()=>{
+  const p=edit(make(),{type:'add_stop',stop:stop('far',{from_day:19,through_day:22})},'ev1').plan;
+  assert.throws(()=>edit(p,{type:'edit_trip',patch:{duration_days:14}},'ev2'),/duration conflicts/);
+  assert.equal(p.duration_days,21);
 });
