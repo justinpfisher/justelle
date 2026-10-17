@@ -82,3 +82,12 @@ test('earliest active or next trip sorts above undated and archived adventures',
   const archived=edit(plans[0],{type:'set_status',status:'archived'},'archive-ev').plan;
   assert.deepEqual(sortAdventurePlans([archived,...plans.slice(1)],'2026-10-17').map(x=>x.id),['current','future','undated','archive']);
 });
+
+
+test('booking is never silently marked confirmed from missing source status',()=>{
+  const p=make();
+  assert.throws(()=>edit(p,{type:'add_booking',booking:booking({status:undefined})},'no-status'),/booking kind or status/);
+  const x=edit(p,{type:'add_booking',booking:booking({status:'unverified'})},'unverified').plan;
+  assert.equal(x.bookings[0].status,'unverified');
+  assert.equal(itinerarySignals(x).length,0);
+});
