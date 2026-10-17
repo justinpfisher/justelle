@@ -2,6 +2,7 @@
 import {nextAdventures,journeyOverview,dayDetail} from './journey-view.mjs';
 import {reviewAdventure} from './adventure-feedback.mjs';
 import {todayEssentials} from './today-essentials.mjs';
+import {mountBookingUI} from './booking-ui.mjs';
 const $=id=>document.getElementById(id);
 const el=(tag,className='',content='')=>{
   const node=document.createElement(tag);if(className)node.className=className;
@@ -42,7 +43,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     }
     const p=plans.find(p=>p.id===selected);
     $('planner-detail').hidden=!p;
-    if(!p)return;
+    if(!p){void bookingUI.render(null);return;}
+    void bookingUI.render(p);
     $('planner-detail-title').textContent=p.title;
     $('planner-summary').textContent=(p.starts_on||'Undated')+' · '+p.duration_days+
       ' days · Revision '+p.revision+' · Shared changes save immediately';
@@ -70,10 +72,6 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       };
       days.append(button);
     }
-    const bookings=$('planner-bookings');bookings.replaceChildren();
-    for(const booking of journey.bookings)
-      bookings.append(el('li','',booking.kind+' · '+booking.starts_on+' · '+
-        (booking.is_external_confirmation?'Source-linked confirmation':'Unverified entry')+' · '+booking.summary));
     const stays=$('planner-stays');stays.replaceChildren();
     for(const s of p.stops.slice().sort((a,b)=>a.from_day-b.from_day)){
       const row=el('li','planner-stay');
@@ -171,6 +169,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   $('planner-feedback').addEventListener('click',feedback);
   $('planner-today').addEventListener('click',showToday);
   $('planner-close').addEventListener('click',close);
+  const bookingUI=mountBookingUI({planner,user,getPlan:()=>plans.find(x=>x.id===selected),onError,announce});
   const unsubscribe=planner.subscribePlans(rows=>{
     const previousRevision=plans.find(p=>p.id===selected)?.revision;
     plans=rows;
@@ -182,7 +181,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     }
   },onError);
   return ()=>{
-    stopped=true;unsubscribe();
+    stopped=true;unsubscribe();bookingUI.dispose();
     $('planner-create').removeEventListener('submit',created);
     $('planner-add-stay').removeEventListener('submit',added);
     $('planner-undo').removeEventListener('click',undo);
