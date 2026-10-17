@@ -154,7 +154,7 @@ function selectTopic(adventureId=null,{preserveTab=false}={}){
   $('correction-note').hidden=!correctionId;
   selectedAdventure=scope.adventureId;currentConversation=scope.conversationId;
   try{localStorage.setItem('justelle-last-topic:'+auth.currentUser.uid,adventureId||'');}catch{}
-  stopTopic();stopTopic=()=>{};stopPlanner();stopPlanner=()=>{};topicVersion++;
+  stopTopic();stopTopic=()=>{};topicVersion++;
   latest=[];older=[];before=null;hasOlder=false;startedTopic=false;loadingOlder=false;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();
@@ -570,7 +570,7 @@ $('sign-out').onclick=async()=>{clearError();await signOut(auth);};
 
 onAuthStateChanged(auth,async user=>{
   for(const unsub of unsubscribers)unsub();unsubscribers=[];
-  stopTopic();stopTopic=()=>{};topicVersion++;
+  stopTopic();stopTopic=()=>{};stopPlanner();stopPlanner=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();
   for(const draft of drafts.values())for(const item of draft.pending||[])revokePrepared(item);
@@ -605,7 +605,7 @@ onAuthStateChanged(auth,async user=>{
       if(first){
         first=false;
         renderAdventures();
-        selectTopic(wanted&&rows.some(a=>a.id===wanted)?wanted:null);
+        selectTopic(wanted&&rows.some(a=>a.id===wanted)?wanted:null,{preserveTab:true});
       }else{
         renderAdventures();void renderSourceNote(topicVersion);
       }
