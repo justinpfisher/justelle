@@ -49,14 +49,16 @@ function booking(value, plan) {
   const b = {
     id: checkId(value.id), kind: value.kind,
     stop_id: value.stop_id == null ? null : checkId(value.stop_id),
-    from_day: value.from_day, through_day: value.through_day,
+    starts_on: value.starts_on, ends_on: value.ends_on,
     status: value.status,
     source_id: value.source_id == null ? null : checkId(value.source_id),
     summary: clean(value.summary, 500)
   };
   if (!kinds.includes(b.kind) || !['unverified', 'confirmed', 'cancelled', 'voided'].includes(b.status))
     throw Error('Invalid booking kind or status');
-  span(b, plan);
+  if (!isoDate(b.starts_on) || !isoDate(b.ends_on) ||
+      (b.kind === 'stay' && b.starts_on >= b.ends_on))
+    throw Error('Invalid booking calendar dates');
   return b;
 }
 export function createItinerary({id, title, durationDays = 21, startsOn = null}) {
@@ -107,7 +109,7 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
     collection = 'bookings'; recordId = checkId(change.id);
     const old = readRecord(plan, collection, recordId);
     if (!old) throw Error('Booking does not exist');
-    const allowed = ['kind', 'stop_id', 'from_day', 'through_day', 'status', 'source_id', 'summary'];
+    const allowed = ['kind', 'stop_id', 'starts_on', 'ends_on', 'status', 'source_id', 'summary'];
     if (!change.patch || Object.keys(change.patch).some(k => !allowed.includes(k))) throw Error('Invalid booking correction');
     after = booking({...old, ...change.patch}, plan);
     before = collectionUpdate(plan, collection, recordId, after);
@@ -116,6 +118,20 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
     if (readRecord(plan, collection, recordId)) throw Error('Lesson already exists');
     after = {id: recordId, text: clean(change.text, 2000)};
     collectionUpdate(plan, collection, recordId, after);
+  } else if (change.type === 'edit_trip') {
+    collection = 'trip'; recordId = original.id;
+    const patch = change.patch;
+    const allowed = ['title', 'starts_on', 'duration_days'];
+    if (!patch || !Object.keys(patch).length || Object.keys(patch).some(k => !allowed.includes(k)))
+      throw Error('Invalid trip edit');
+    before = {title: plan.title, starts_on: plan.starts_on, duration_days: plan.duration_days};
+    after = {...before, ...patch};
+    clean(after.title, 160);
+    if (after.starts_on !== null && !isoDate(after.starts_on)) throw Error('Invalid calendar date');
+    if (!Number.isInteger(after.duration_days) || after.duration_days < 1 || after.duration_days > 90 ||
+        plan.stops.some(s => s.through_day > after.duration_days + 1))
+      throw Error('Trip duration conflicts with current stops');
+    Object.assign(plan, after);
   } else if (change.type === 'set_status') {
     collection = 'status'; recordId = original.id;
     if (!['planning', 'archived'].includes(change.status)) throw Error('Invalid adventure status');
@@ -123,10 +139,14 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
   } else if (change.type === 'undo_last') {
     if (!lastEvent || lastEvent.id !== original.last_event_id ||
         lastEvent.revision !== original.revision ||
-        !['stops', 'bookings', 'lessons', 'status'].includes(lastEvent.collection))
+        !['stops', 'bookings', 'lessons', 'status', 'trip'].includes(lastEvent.collection))
       throw Error('Latest event required for undo');
     collection = lastEvent.collection; recordId = lastEvent.record_id;
-    if (collection === 'status') {
+    if (collection === 'trip') {
+      const current = {title: plan.title, starts_on: plan.starts_on, duration_days: plan.duration_days};
+      if (!same(current, lastEvent.after)) throw Error('Trip changed since this event');
+      before = current; after = clone(lastEvent.before); Object.assign(plan, after);
+    } else if (collection === 'status') {
       if (plan.status !== lastEvent.after) throw Error('Current status has changed');
       before = plan.status; after = lastEvent.before; plan.status = after;
     } else {
@@ -153,10 +173,11 @@ function dateAt(start, day) {
 export function itineraryDays(input) {
   const plan = verifyPlan(input);
   return Array.from({length: plan.duration_days}, (_, i) => {
-    const day = i + 1;
-    return {day, date: dateAt(plan.starts_on, day),
+    const day = i + 1, date = dateAt(plan.starts_on, day);
+    return {day, date,
       stops: plan.stops.filter(s => s.from_day <= day && day < s.through_day),
-      bookings: plan.bookings.filter(b => b.from_day <= day && day < b.through_day)};
+      bookings: date === null ? [] : plan.bookings.filter(b => b.kind === 'stay' ?
+        (b.starts_on <= date && date < b.ends_on) : b.starts_on === date)};
   });
 }
 export function itinerarySignals(input) {
@@ -170,9 +191,16 @@ export function itinerarySignals(input) {
   for (const b of plan.bookings.filter(x => x.status === 'confirmed')) {
     const s = b.stop_id && plan.stops.find(x => x.id === b.stop_id);
     if (b.stop_id && !s) signals.push({code: 'booking_without_stop', booking_id: b.id});
-    else if (s && b.kind === 'stay' &&
-      (s.from_day !== b.from_day || s.through_day !== b.through_day))
+    else if (s && b.kind === 'stay' && plan.starts_on &&
+      (dateAt(plan.starts_on,s.from_day) !== b.starts_on ||
+       dateAt(plan.starts_on,s.through_day) !== b.ends_on))
       signals.push({code: 'booking_plan_mismatch', booking_id: b.id, stop_id: s.id});
+  }
+  if (plan.starts_on) {
+    const end = dateAt(plan.starts_on,plan.duration_days+1);
+    for (const b of plan.bookings.filter(x => x.status === 'confirmed'))
+      if (b.starts_on < plan.starts_on || b.starts_on >= end)
+        signals.push({code:'booking_outside_trip',booking_id:b.id});
   }
   return signals;
 }
