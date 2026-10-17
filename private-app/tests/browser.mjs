@@ -126,8 +126,8 @@ try{
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
   const downloadPromise=B.waitForEvent('download');
   await B.getByRole('button',{name:'Open protected original'}).click();
-  const original=await downloadPromise;
-  assert.equal(original.suggestedFilename(),'synthetic-source.pdf');
+  const bookingDownload=await downloadPromise;
+  assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
   // One member changing a trip must not silently overwrite another member's
   // unsaved draft, even if the live subscription receives a newer revision.
