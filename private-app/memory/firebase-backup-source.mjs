@@ -26,7 +26,10 @@ export async function firebaseBackupSource({db,bucket,roomId='fictional-room',pa
     }
     return result;
   },{readOnly:true});
-  const records=canonicalRecords(snapshot);verifyRecords(records);
+  const records=canonicalRecords({...snapshot,
+    adventurePlans:snapshot.adventure_plans,
+    planEvents:snapshot.plan_events,planSources:snapshot.plan_sources,
+    planDocuments:snapshot.plan_documents});verifyRecords(records);
   async function* media(){
     for(const a of snapshot.attachments){
       if(a.original_path!==root+'/media/'+a.id||(a.preview_path&&a.preview_path!==root+'/media/'+a.id+'-preview'))throw Error('Backup image path is outside its canonical room');
