@@ -1,9 +1,10 @@
 // No provider SDK dependency. This compact JSON archive is intentionally for
 // fictional/local use only: real backups need encryption, streaming and recovery drills.
 import {sha256} from './media.mjs';
+import {validatePortablePlannerRecords} from './plan-integrity.mjs';
 export const archiveFormat='justelle-memory-v1';
 export const recordKinds=['persons','conversations','messages','decisions','adventures','attachments'];
-export const optionalRecordKinds=['adventure_events'];
+export const optionalRecordKinds=['adventure_events','adventure_plans','plan_events','plan_sources','plan_documents'];
 
 function binaryToBase64(data) {
   if (typeof Buffer!=='undefined') return Buffer.from(data).toString('base64');
@@ -44,7 +45,7 @@ export async function verifyArchive(bundle) {
   verifyRecords(r);
   const files=new Map();
   for(const f of bundle.media) {
-    if(!/^[a-f0-9-]{36}(?:-preview)?$/.test(f.id)|| !['image/png','image/jpeg','image/heic','image/heif'].includes(f.mime) || files.has(f.id)) throw Error('Invalid media entry');
+    if(!(/^[a-f0-9-]{36}(?:-preview)?$/.test(f.id)||/^doc-[a-f0-9-]{36}$/.test(f.id))|| !['image/png','image/jpeg','image/heic','image/heif','application/pdf'].includes(f.mime) || files.has(f.id)) throw Error('Invalid media entry');
     const bytes=base64ToBinary(f.bytes);
     if(bytes.length>12*1024*1024||bytes.length===0||await sha256(bytes)!==f.sha256) throw Error('Media checksum mismatch');
     files.set(f.id,{...f,bytes});
@@ -54,7 +55,15 @@ export async function verifyArchive(bundle) {
     if(!original || original.sha256!==a.sha256 || original.mime!==a.mime || original.bytes.length!==a.size) throw Error('Missing or mismatched original attachment');
     if(a.preview_path && !files.has(a.id+'-preview')) throw Error('Missing HEIC preview');
   }
-  const expected=new Set(r.attachments.flatMap(a=>a.preview_path?[a.id,a.id+'-preview']:[a.id]));
+  for(const d of r.plan_documents||[]){
+    const file=files.get('doc-'+d.id);
+    if(!file||file.sha256!==d.sha256||file.mime!==d.mime||file.bytes.length!==d.size)
+      throw Error('Missing or mismatched original plan document');
+  }
+  const expected=new Set([
+    ...r.attachments.flatMap(a=>a.preview_path?[a.id,a.id+'-preview']:[a.id]),
+    ...(r.plan_documents||[]).map(d=>'doc-'+d.id)
+  ]);
   if([...files.keys()].some(id=>!expected.has(id)))throw Error('Unreferenced media in archive');
   return {records:Object.fromEntries([...recordKinds,...optionalRecordKinds.filter(k=>r[k])].map(k=>[k,r[k].length])),files:files.size,bytes:[...files.values()].reduce((sum,f)=>sum+f.bytes.length,0)};
 }
@@ -147,5 +156,6 @@ export function verifyRecords(r) {
     if(JSON.stringify(chain)!==JSON.stringify(a.phases))throw Error('Adventure event history mismatch');
   }
   if(visited.size!==events.size)throw Error('Unreferenced adventure event');
+  validatePortablePlannerRecords(r);
   return Object.fromEntries([...recordKinds,...optionalRecordKinds.filter(k=>r[k])].map(k=>[k,r[k].length]));
 }

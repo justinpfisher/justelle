@@ -197,7 +197,175 @@ service cloud.firestore {
           d.previous_id == get(adventurePath(roomId, d.adventure_id)).data.get('last_event_id', null) :
           d.previous_id == null);
     }
+
+    // V1 planner records are isolated from the historical agreement pilot.
+    // Every revision pairs a plan state with immutable exact before/after
+    // snapshots. These mutual getAfter checks reject unpaired or forged writes.
+    function planPath(roomId, planId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/adventure_plans/$(planId);
+    }
+    function planEventPath(roomId, eventId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/plan_events/$(eventId);
+    }
+    function planSourcePath(roomId, sourceId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/plan_sources/$(sourceId);
+    }
+    function planDocumentPath(roomId, documentId) {
+      return /databases/$(database)/documents/rooms/$(roomId)/plan_documents/$(documentId);
+    }
+    function planState(s, planId) {
+      return s is map &&
+        s.keys().hasAll(['schema','id','title','duration_days','starts_on','status','stops','bookings','lessons','revision','last_event_id']) &&
+        s.keys().hasOnly(['schema','id','title','duration_days','starts_on','status','stops','bookings','lessons','revision','last_event_id']) &&
+        s.schema == 'justelle-itinerary-v1' && s.id == planId &&
+        s.title is string && s.title.size() > 0 && s.title.size() <= 160 &&
+        s.duration_days is int && s.duration_days > 0 && s.duration_days <= 90 &&
+        (s.starts_on == null || (s.starts_on is string && s.starts_on.size() == 10)) &&
+        s.status in ['planning','archived'] &&
+        s.stops is list && s.stops.size() <= 100 &&
+        s.bookings is list && s.bookings.size() <= 150 &&
+        s.lessons is list && s.lessons.size() <= 100 &&
+        s.revision is int && s.revision >= 0 &&
+        s.last_event_id is string;
+    }
+    function planEventMatches(roomId, planId, eventId, oldState, newState) {
+      let e = getAfter(planEventPath(roomId, eventId)).data;
+      return !exists(planEventPath(roomId, eventId)) &&
+        existsAfter(planEventPath(roomId, eventId)) &&
+        e.id == eventId && e.adventure_id == planId &&
+        e.author_uid == request.auth.uid && e.author_id == person(roomId) &&
+        e.actor_id == person(roomId) && e.created_at == request.time &&
+        e.at == request.time && e.before_state == oldState &&
+        e.after_state == newState && e.revision == newState.revision &&
+        e.previous_event_id == (oldState == null ? null : oldState.last_event_id);
+    }
+    function validPlanCreate(roomId, planId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['state','author_uid','author_id','last_modified_by','created_at','updated_at']) &&
+        d.keys().hasOnly(['state','author_uid','author_id','last_modified_by','created_at','updated_at']) &&
+        authored(roomId) && nowCreated() && d.updated_at == request.time &&
+        d.last_modified_by == person(roomId) &&
+        planState(d.state, planId) && d.state.revision == 0 &&
+        planEventMatches(roomId, planId, d.state.last_event_id, null, d.state);
+    }
+    function validPlanUpdate(roomId, planId) {
+      let old = resource.data;
+      let d = request.resource.data;
+      return d.diff(old).affectedKeys().hasOnly(['state','last_modified_by','updated_at']) &&
+        d.updated_at == request.time && d.last_modified_by == person(roomId) &&
+        planState(d.state, planId) &&
+        d.state.revision == old.state.revision + 1 &&
+        d.state.last_event_id != old.state.last_event_id &&
+        planEventMatches(roomId, planId, d.state.last_event_id, old.state, d.state);
+    }
+    // Only the record named by the event may change. In particular, moving
+    // a tentative stay cannot silently re-date or confirm an external booking.
+    function planUnchangedExcept(d,collectionName) {
+      let before = d.before_state;
+      let after = d.after_state;
+      return (collectionName == 'stops' || before.stops == after.stops) &&
+        (collectionName == 'bookings' || before.bookings == after.bookings) &&
+        (collectionName == 'lessons' || before.lessons == after.lessons) &&
+        (collectionName == 'trip' || (
+          before.title == after.title &&
+          before.starts_on == after.starts_on &&
+          before.duration_days == after.duration_days)) &&
+        (collectionName == 'status' || before.status == after.status);
+    }
+    function validPlanDelta(d) {
+      return d.operation == 'create_trip' ||
+        (d.before_state is map && d.after_state is map &&
+          ((d.operation in ['add_stop','edit_stop','remove_stop'] && d.collection == 'stops') ||
+           (d.operation in ['add_booking','correct_booking'] && d.collection == 'bookings') ||
+           (d.operation == 'add_lesson' && d.collection == 'lessons') ||
+           (d.operation == 'edit_trip' && d.collection == 'trip') ||
+           (d.operation == 'set_status' && d.collection == 'status') ||
+           (d.operation == 'undo_last' &&
+             d.collection in ['stops','bookings','lessons','trip','status'])) &&
+          planUnchangedExcept(d,d.collection));
+    }
+    function validPlanEvent(roomId, eventId) {
+      let d = request.resource.data;
+      let p = planPath(roomId, d.adventure_id);
+      return d.keys().hasAll(['id','adventure_id','revision','previous_event_id','actor_id','author_uid','author_id','at','operation','collection','record_id','before','after','before_state','after_state','created_at']) &&
+        d.keys().hasOnly(['id','adventure_id','revision','previous_event_id','actor_id','author_uid','author_id','at','operation','collection','record_id','before','after','before_state','after_state','created_at']) &&
+        authored(roomId) && nowCreated() && d.at == request.time &&
+        d.id == eventId && d.actor_id == person(roomId) &&
+        d.adventure_id is string && existsAfter(p) &&
+        planState(d.after_state, d.adventure_id) &&
+        d.after_state.last_event_id == eventId &&
+        d.revision == d.after_state.revision &&
+        validPlanDelta(d) &&
+        getAfter(p).data.state == d.after_state &&
+        (exists(p) ?
+          (d.before_state == get(p).data.state &&
+           d.previous_event_id == get(p).data.state.last_event_id &&
+           d.revision == get(p).data.state.revision + 1 &&
+           d.operation != 'create_trip') :
+          (d.before_state == null && d.previous_event_id == null &&
+           d.revision == 0 && d.operation == 'create_trip')) &&
+        // Member-declared confirmation is anchored to a separate immutable
+        // original. It is not a claim that an external supplier was contacted.
+        (!(d.operation in ['add_booking','correct_booking']) ||
+          !(d.after is map) || d.after.status != 'confirmed' ||
+          (d.after.source_id is string &&
+           exists(planSourcePath(roomId,d.after.source_id)) &&
+           get(planSourcePath(roomId,d.after.source_id)).data.kind == 'booking' &&
+           get(planSourcePath(roomId,d.after.source_id)).data.adventure_id == d.adventure_id));
+    }
+    function validPlanSource(roomId, sourceId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['id','adventure_id','kind','title','notes','supplier','reference','document_id','author_uid','author_id','created_at']) &&
+        d.keys().hasOnly(['id','adventure_id','kind','title','notes','supplier','reference','document_id','author_uid','author_id','created_at']) &&
+        authored(roomId) && nowCreated() && d.id == sourceId &&
+        d.adventure_id is string && exists(planPath(roomId,d.adventure_id)) &&
+        d.kind in ['booking','note','research'] &&
+        d.title is string && d.title.size() > 0 && d.title.size() <= 180 &&
+        d.notes is string && d.notes.size() <= 4000 &&
+        d.supplier is string && d.supplier.size() <= 180 &&
+        d.reference is string && d.reference.size() <= 180 &&
+        (d.document_id == null || (d.document_id is string &&
+          exists(planDocumentPath(roomId,d.document_id)) &&
+          get(planDocumentPath(roomId,d.document_id)).data.adventure_id == d.adventure_id));
+    }
+    function validPlanDocument(roomId, documentId) {
+      let d = request.resource.data;
+      return d.keys().hasAll(['id','adventure_id','name','mime','size','sha256','storage_path','author_uid','author_id','created_at']) &&
+        d.keys().hasOnly(['id','adventure_id','name','mime','size','sha256','storage_path','author_uid','author_id','created_at']) &&
+        authored(roomId) && nowCreated() && d.id == documentId &&
+        documentId.matches('[a-f0-9-]{36}') &&
+        d.adventure_id is string && exists(planPath(roomId,d.adventure_id)) &&
+        d.name is string && d.name.size() > 0 && d.name.size() <= 180 &&
+        d.mime in ['application/pdf','image/jpeg','image/png','image/heic','image/heif'] &&
+        d.size is int && d.size > 0 && d.size <= 12582912 &&
+        d.sha256 is string && d.sha256.matches('[a-f0-9]{64}') &&
+        d.storage_path == 'rooms/' + roomId + '/documents/' + documentId;
+    }
+
     match /rooms/{roomId} {
+      // New immediate-edit planner. Historical /adventures and /decisions
+      // continue under their original immutable/approval Rules for recovery.
+      match /adventure_plans/{planId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validPlanCreate(roomId,planId);
+        allow update: if member(roomId) && validPlanUpdate(roomId,planId);
+        allow delete: if false;
+      }
+      match /plan_events/{eventId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validPlanEvent(roomId,eventId);
+        allow update, delete: if false;
+      }
+      match /plan_sources/{sourceId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validPlanSource(roomId,sourceId);
+        allow update, delete: if false;
+      }
+      match /plan_documents/{documentId} {
+        allow get, list: if member(roomId);
+        allow create: if member(roomId) && validPlanDocument(roomId,documentId);
+        allow update, delete: if false;
+      }
       allow get: if member(roomId);
       allow list, create, update, delete: if false;
       match /messages/{messageId} {

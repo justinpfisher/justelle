@@ -13,7 +13,7 @@ export async function firebaseBackupSource({db,bucket,roomId='fictional-room',pa
     const room=await transaction.get(db.doc(root)),membership=room.data();
     if(!room.exists||membership.uids?.length!==2||membership.uids.some(uid=>!membership.people?.[uid]))throw Error('Invalid fictional room membership');
     const result={membership};
-    for(const kind of ['messages','decisions','adventures','attachments','adventure_events']){
+    for(const kind of ['messages','decisions','adventures','attachments','adventure_events','adventure_plans','plan_events','plan_sources','plan_documents']){
       const rows=[];let cursor;
       do{
         let query=db.collection(root+'/'+kind).orderBy('__name__').limit(pageSize);
@@ -26,12 +26,19 @@ export async function firebaseBackupSource({db,bucket,roomId='fictional-room',pa
     }
     return result;
   },{readOnly:true});
-  const records=canonicalRecords(snapshot);verifyRecords(records);
+  const records=canonicalRecords({...snapshot,
+    adventurePlans:snapshot.adventure_plans,
+    planEvents:snapshot.plan_events,planSources:snapshot.plan_sources,
+    planDocuments:snapshot.plan_documents});verifyRecords(records);
   async function* media(){
     for(const a of snapshot.attachments){
       if(a.original_path!==root+'/media/'+a.id||(a.preview_path&&a.preview_path!==root+'/media/'+a.id+'-preview'))throw Error('Backup image path is outside its canonical room');
       yield {id:a.id,mime:a.mime,stream:bucket.file(a.original_path).createReadStream()};
       if(a.preview_path)yield {id:a.id+'-preview',mime:'image/jpeg',stream:bucket.file(a.preview_path).createReadStream()};
+    }
+    for(const d of snapshot.plan_documents){
+      if(d.storage_path!==root+'/documents/'+d.id)throw Error('Backup document path is outside canonical room');
+      yield {id:'doc-'+d.id,mime:d.mime,stream:bucket.file(d.storage_path).createReadStream()};
     }
   }
   return {records,media:media()};

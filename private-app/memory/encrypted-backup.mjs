@@ -28,6 +28,12 @@ function expectedFiles(records){
     files.set(a.id,{mime:a.mime,size:a.size,sha256:a.sha256});
     if(a.preview_path)files.set(a.id+'-preview',{mime:'image/jpeg'});
   }
+  for(const d of records.plan_documents||[]){
+    if(!/^[a-f0-9-]{36}$/.test(d.id)||!['application/pdf','image/png','image/jpeg','image/heic','image/heif'].includes(d.mime)||
+       !Number.isSafeInteger(d.size)||d.size<1||d.size>12582912||!/^[a-f0-9]{64}$/.test(d.sha256))
+      throw Error('Invalid source document descriptor');
+    files.set('doc-'+d.id,{mime:d.mime,size:d.size,sha256:d.sha256});
+  }
   return files;
 }
 function mediaEnd(expected,actual){

@@ -1,7 +1,8 @@
 // Canonical Justelle records: account UIDs never become permanent person IDs.
 import {GENERAL_CONVERSATION} from './topics.mjs';
 const asISO=t=>typeof t==='string'?t:(t?.toDate?.()?.toISOString()||null);
-export function canonicalRecords({membership,messages,decisions,adventures,attachments,events=[]}) {
+export function canonicalRecords({membership,messages,decisions,adventures,attachments,events=[],
+  adventurePlans=[],planEvents=[],planSources=[],planDocuments=[]}) {
       const uidPerson=uid=>membership.people[uid];
       const topics=[{id:GENERAL_CONVERSATION,kind:'shared',adventure_id:null},
         ...adventures.filter(a=>a.conversation_id!==GENERAL_CONVERSATION).map(a=>({
@@ -30,6 +31,27 @@ export function canonicalRecords({membership,messages,decisions,adventures,attac
           conversation_id:a.conversation_id,created_at:asISO(a.created_at),updated_at:asISO(a.updated_at)
         })),
         adventure_events:events.map(e=>({id:e.id,adventure_id:e.adventure_id,phase:e.phase,previous_id:e.previous_id,prior_phases:e.prior_phases||[],author_id:e.author_id,created_at:asISO(e.created_at)})),
+        adventure_plans:adventurePlans.map(a=>({
+          id:a.id,state:a.state,author_id:a.author_id,last_modified_by:a.last_modified_by,
+          created_at:asISO(a.created_at),updated_at:asISO(a.updated_at)
+        })),
+        plan_events:planEvents.map(e=>({
+          id:e.id,adventure_id:e.adventure_id,revision:e.revision,
+          previous_event_id:e.previous_event_id,actor_id:e.actor_id,author_id:e.author_id,
+          at:asISO(e.created_at),created_at:asISO(e.created_at),operation:e.operation,
+          collection:e.collection,record_id:e.record_id,before:e.before,after:e.after,
+          before_state:e.before_state,after_state:e.after_state
+        })),
+        plan_sources:planSources.map(a=>({
+          id:a.id,adventure_id:a.adventure_id,kind:a.kind,title:a.title,notes:a.notes,
+          supplier:a.supplier,reference:a.reference,document_id:a.document_id,
+          author_id:a.author_id,created_at:asISO(a.created_at)
+        })),
+        plan_documents:planDocuments.map(a=>({
+          id:a.id,adventure_id:a.adventure_id,name:a.name,mime:a.mime,size:a.size,
+          sha256:a.sha256,author_id:a.author_id,created_at:asISO(a.created_at),
+          storage_path:'documents/'+a.id
+        })),
         attachments:attachments.map(a=>({
           id:a.id,name:a.name,mime:a.mime,size:a.size,sha256:a.sha256,author_id:a.author_id,
           created_at:asISO(a.created_at),preview_path:a.preview_path?'media/'+a.id+'-preview':null
