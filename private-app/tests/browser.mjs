@@ -129,6 +129,26 @@ try{
   const original=await downloadPromise;
   assert.equal(original.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
+  // One member changing a trip must not silently overwrite another member's
+  // unsaved draft, even if the live subscription receives a newer revision.
+  await A.getByText('Dates and trip basics',{exact:true}).click();
+  await B.getByText('Dates and trip basics',{exact:true}).click();
+  await A.locator('#planner-trip-title').fill('Old unsaved fictional draft');
+  await B.locator('#planner-trip-title').fill('Fictional Coast Updated');
+  await B.locator('#planner-trip-date').fill('2026-11-02');
+  await B.locator('#planner-trip-form button[type=submit]').click();
+  await poll(async()=>await A.locator('#planner-detail-title').textContent()==='Fictional Coast Updated');
+  await A.locator('#planner-trip-form button[type=submit]').click();
+  await A.getByText(/shared plan changed while you were editing/i).waitFor({timeout:15000});
+  await A.locator('#planner-trip-refresh').click();
+  assert.equal(await A.locator('#planner-trip-title').inputValue(),'Fictional Coast Updated');
+  assert.equal(await A.locator('#planner-trip-date').inputValue(),'2026-11-02');
+  await B.locator('#planner-archive').click();
+  await poll(async()=>await A.locator('#planner-archive').textContent()==='Return to planning');
+  await B.locator('#planner-archive').click();
+  await poll(async()=>await A.locator('#planner-archive').textContent()==='Move to archive');
+  assert.ok((await A.locator('#planner-bookings').textContent()).includes('Fictional inn confirmation'));
+
 
   await A.locator('[data-tab="conversation"]').click();
   await B.locator('[data-tab="conversation"]').click();
