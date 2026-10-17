@@ -11,7 +11,7 @@ This page is generated from issues #20–#27. Checkboxes are evidence-tracking c
 | Milestone | Horizon | Criteria | Recorded status |
 | --- | --- | ---: | --- |
 | [M0 — Development foundation](https://github.com/justinpfisher/justelle/issues/20) | Foundation | 5/5 | Complete |
-| [M1 — Shared records and recovery](https://github.com/justinpfisher/justelle/issues/21) | V1 | 0/5 | Current |
+| [M1 — Shared records and recovery](https://github.com/justinpfisher/justelle/issues/21) | V1 | 0/6 | Current |
 | [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22) | V1 | 0/6 | Upcoming |
 | [M3 — Controlled AI planning](https://github.com/justinpfisher/justelle/issues/23) | V1 | 0/5 | Upcoming |
 | [M4 — Secure iPhone production launch](https://github.com/justinpfisher/justelle/issues/24) | V1 | 0/6 | Upcoming |
