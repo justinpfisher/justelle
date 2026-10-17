@@ -1,3 +1,5 @@
+> **Product direction superseded 17 October 2026:** Follow [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) for the active private-app experience and acceptance. This document remains the historical October 11 pilot specification. In particular, **mandatory two-person approval, chat-first navigation and scrapbook memories are no longer V1 requirements**. Retain its verified security, protected media, replaceable AI, backup and provider portability safeguards.
+
 # Justelle private app — first-release decisions
 
 **Decision date:** October 11, 2026 (America/Toronto)  
