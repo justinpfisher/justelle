@@ -1,5 +1,5 @@
 // Small V1 vertical slice. It deliberately excludes map/research and legacy approvals.
-import {nextAdventures,journeyOverview,dayDetail} from './journey-view.mjs';
+import {nextAdventures,journeyOverview,dayDetail,journeyWeeks} from './journey-view.mjs';
 import {reviewAdventure} from './adventure-feedback.mjs';
 import {todayEssentials} from './today-essentials.mjs';
 import {mountBookingUI} from './booking-ui.mjs';
@@ -70,7 +70,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     for(const signal of journey.signals)
       alerts.append(el('p','planner-warning',signal.code.replaceAll('_',' ')+' · This has not changed an external reservation.'));
     const days=$('planner-days-view');days.replaceChildren();
-    for(const day of journey.days){
+    for(const week of journeyWeeks(p)){
+      const panel=el('details','planner-week');panel.open=week.number===1;
+      panel.append(el('summary','', 'Week '+week.number+' · Days '+week.from_day+'–'+week.to_day));
+      const weekDays=el('div','planner-day-grid');
+      for(const day of week.days){
       const button=el('button','secondary','Day '+day.day+(day.date?' · '+day.date:''));
       button.type='button';
       button.onclick=()=>{
@@ -81,7 +85,9 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
         for(const booking of detail.bookings)
           out.append(el('p','meta',booking.status+' · '+booking.summary));
       };
-      days.append(button);
+      weekDays.append(button);
+      }
+      panel.append(weekDays);days.append(panel);
     }
     const stays=$('planner-stays');stays.replaceChildren();
     for(const s of p.stops.slice().sort((a,b)=>a.from_day-b.from_day)){
