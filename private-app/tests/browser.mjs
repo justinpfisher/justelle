@@ -103,6 +103,14 @@ try{
   await poll(async()=>await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).count()>0);
   await A.getByText('Previous edits',{exact:true}).click();
   await poll(async()=>await A.locator('#planner-history li').count()===4);
+  await A.getByText('Explore days',{exact:true}).click();
+  assert.equal(await A.locator('.planner-week').count(),2,'Ten-day trip is displayed in two weeks');
+  assert.equal(await A.locator('.planner-week').first().evaluate(n=>n.open),true);
+  await A.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
+  await A.locator('#planner-day-detail').getByText('Fictional Harbour').waitFor();
+  assert.equal(await A.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,
+    'The journey must not require horizontal scrolling on a 390px phone');
+
   // A records a fictional supplier anchor and PDF; B opens the exact protected
   // original through the shared itinerary. No supplier booking is amended.
   await A.getByText('Booking anchors',{exact:true}).click();
