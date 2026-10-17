@@ -37,7 +37,7 @@ export function plannerBackend({db,roomId,membership,mediaTransport=null}){
           created_at:serverTimestamp(),updated_at:serverTimestamp()});
         t.set(eventRef,{id:eventId,adventure_id:planId,revision:0,previous_event_id:null,
           actor_id:author.author_id,...author,operation:'create_trip',collection:'trip',record_id:planId,
-          before:null,after:state,before_state:null,after_state:state,created_at:serverTimestamp()});
+          before:null,after:state,before_state:null,after_state:state,at:serverTimestamp(),created_at:serverTimestamp()});
       });
       return planId;
     },
