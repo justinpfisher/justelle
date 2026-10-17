@@ -33,11 +33,10 @@ service firebase.storage {
         documentId.matches('[a-f0-9-]{36}') &&
         request.resource.size > 0 && request.resource.size <= 12582912 &&
         request.resource.contentType in ['application/pdf','image/png','image/jpeg','image/heic','image/heif'] &&
-        request.resource.metadata.keys().hasAll(['author_uid','document_id','sha256']) &&
+        request.resource.metadata.keys().hasAll(['author_uid','document_id']) &&
         request.resource.metadata.keys().hasOnly(['author_uid','document_id','sha256']) &&
         request.resource.metadata.author_uid == request.auth.uid &&
-        request.resource.metadata.document_id == documentId &&
-        request.resource.metadata.sha256.matches('[a-f0-9]{64}');
+        request.resource.metadata.document_id == documentId;
       allow update, delete: if false;
     }
     match /{other=**} {allow read, write: if false;}
