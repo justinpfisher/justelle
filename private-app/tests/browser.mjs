@@ -70,7 +70,17 @@ try{
   await A.locator('#planner-date').fill('2026-11-01');
   await A.locator('#planner-days').fill('10');
   await A.locator('#planner-create button[type="submit"]').click();
-  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'}).waitFor({timeout:15000});
+  try{
+    await Promise.all([
+      A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'}).waitFor({timeout:15000}),
+      B.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'}).waitFor({timeout:15000})
+    ]);
+  }catch(e){
+    throw Error('Shared planner not visible: '+e.message+
+      ' | A: '+await A.locator('#error').textContent()+
+      ' | B: '+await B.locator('#error').textContent()+
+      ' | JS: '+pageErrors.join(' / '));
+  }
   await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'}).getByRole('button',{name:'Open plan'}).click();
   await A.locator('#planner-stay-title').fill('Fictional Harbour');
   await A.locator('#planner-from').fill('2');
