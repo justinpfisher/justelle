@@ -131,3 +131,11 @@ select{font:inherit;width:100%;border:1px solid #adc5c4;border-radius:12px;paddi
 .pilot-archive-divider{border-top:1px dashed #afc7bd;padding-top:17px;margin-top:24px}
 .pilot-archive-divider .meta{font-size:.84rem;line-height:1.5;color:#567770}
 @media (max-width:440px){.planner-stay button{display:block;margin:5px 0}.planner-actions>*{width:100%}}
+
+.planner-group-heading{font-size:1rem;color:#355f57;margin:18px 0 1px}
+.planner-warning{border-left:4px solid #b87b42;background:#fff8eb;padding:10px 12px;font-size:.88rem}
+.planner-day-grid{display:flex;flex-wrap:wrap;gap:7px;margin:13px 0}
+.planner-day-grid button{min-height:44px;font-size:.79rem}
+.journey-days{margin:14px 0}
+.journey-days summary,.planner-detail details summary{padding:12px 2px;cursor:pointer;font-weight:600}
+#planner-day-detail{background:#f6f9f7;border-radius:12px;padding:10px;margin:7px 0}

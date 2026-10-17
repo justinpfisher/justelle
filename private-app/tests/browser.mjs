@@ -101,7 +101,7 @@ try{
   await poll(async()=>await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Keep as possible'}).count()>0);
   await B.locator('#planner-undo').click();
   await poll(async()=>await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).count()>0);
-  await A.locator('#planner-detail details summary').click();
+  await A.getByText('Previous edits',{exact:true}).click();
   await poll(async()=>await A.locator('#planner-history li').count()===4);
   await A.locator('[data-tab="conversation"]').click();
   await B.locator('[data-tab="conversation"]').click();
