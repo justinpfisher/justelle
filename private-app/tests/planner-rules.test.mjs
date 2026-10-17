@@ -204,3 +204,26 @@ test('Unverified transfers persist independently; forged confirmation and partia
     assert.equal((await two.readHistory(planId)).length,2);
   }finally{await env.cleanup();}
 });
+
+
+test('Fictional original PDF uploads are private, immutable and readable to the second member',async()=>{
+ const {env,A,B,X,one}=await setup();
+ try{
+   await one.createPlan({uid:a},{id:planId,title:'Fictional protected documents',durationDays:10,startsOn:'2026-11-01'});
+   const bytes=Buffer.from('%PDF-1.4\\nfictional original\\n%%EOF\\n');
+   const uploader=plannerBackend({db:A.firestore(),storage:A.storage('gs://'+projectId+'.firebasestorage.app'),
+     roomId,membership:members});
+   const reader=plannerBackend({db:B.firestore(),storage:B.storage('gs://'+projectId+'.firebasestorage.app'),
+     roomId,membership:members});
+   await uploader.addDocument({uid:a},{id:documentId,adventureId:planId,file:{
+     name:'synthetic.pdf',type:'application/pdf',size:bytes.length,arrayBuffer:async()=>bytes
+   }});
+   assert.deepEqual(Buffer.from(await reader.documentBytes(documentId)),bytes);
+   assert.equal((await reader.readDocuments(planId)).length,1);
+   const location=ref(A.storage('gs://'+projectId+'.firebasestorage.app'),'rooms/'+roomId+'/documents/'+documentId);
+   await assertFails(uploadBytes(location,Buffer.from('different'),{contentType:'application/pdf'}));
+   const denied=ref(X.storage('gs://'+projectId+'.firebasestorage.app'),'rooms/'+roomId+'/documents/'+documentId);
+   await assertFails(getBytes(denied));
+   await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',documentId)));
+ }finally{await env.cleanup();}
+});
