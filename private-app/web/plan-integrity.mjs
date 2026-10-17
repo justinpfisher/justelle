@@ -9,6 +9,18 @@ function eq(a,b){
 }
 const fail=s=>{throw Error('Plan recovery integrity: '+s);};
 const linked=(id,set,label)=>{if(id!=null&&!set.has(id))fail('Broken '+label+' relationship');};
+function untouchedExcept(before,after,collection){
+  if(!before||!after)return false;
+  const fields=['stops','bookings','lessons','status'];
+  if(fields.some(field=>field!==collection&&!eq(before[field],after[field])))return false;
+  return collection==='trip'||(before.title===after.title &&
+    before.starts_on===after.starts_on && before.duration_days===after.duration_days);
+}
+const operations={
+  add_stop:'stops',edit_stop:'stops',remove_stop:'stops',
+  add_booking:'bookings',correct_booking:'bookings',add_lesson:'lessons',
+  edit_trip:'trip',set_status:'status'
+};
 function value(state,collection,id){
   if(state==null)return null;
   if(['stops','bookings','lessons'].includes(collection))
@@ -90,7 +102,11 @@ export function validatePortablePlannerRecords(records){
           e.collection!=='trip'||e.record_id!==p.id||!eq(e.after,e.after_state))
           fail('Invalid adventure creation event');
       }else{
-        if(e.operation==='create_trip'||!eq(e.before,value(e.before_state,e.collection,e.record_id))||
+        if(e.operation==='create_trip'||
+           (e.operation==='undo_last'?!['stops','bookings','lessons','status','trip'].includes(e.collection):
+              operations[e.operation]!==e.collection)||
+           !untouchedExcept(e.before_state,e.after_state,e.collection)||
+           !eq(e.before,value(e.before_state,e.collection,e.record_id))||
            !eq(e.after,value(e.after_state,e.collection,e.record_id)))
           fail('Event before/after does not match actual revision');
       }
