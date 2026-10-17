@@ -103,6 +103,33 @@ try{
   await poll(async()=>await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).count()>0);
   await A.getByText('Previous edits',{exact:true}).click();
   await poll(async()=>await A.locator('#planner-history li').count()===4);
+  // A records a fictional supplier anchor and PDF; B opens the exact protected
+  // original through the shared itinerary. No supplier booking is amended.
+  await A.getByText('Booking anchors',{exact:true}).click();
+  await B.getByText('Booking anchors',{exact:true}).click();
+  await A.locator('#planner-booking-title').fill('Fictional inn confirmation');
+  await A.locator('#planner-booking-kind').selectOption('stay');
+  await A.locator('#planner-booking-start').fill('2026-11-02');
+  await A.locator('#planner-booking-end').fill('2026-11-05');
+  await A.locator('#planner-booking-supplier').fill('Test-only supplier');
+  await A.locator('#planner-booking-reference').fill('SYNTHETIC-REF');
+  await A.locator('#planner-booking-state').selectOption('confirmed');
+  await A.locator('#planner-booking-file').setInputFiles({
+    name:'synthetic-source.pdf',mimeType:'application/pdf',
+    buffer:Buffer.from('%PDF-1.4\\n1 0 obj\\n<< /Type /Catalog >>\\nendobj\\n%%EOF\\n')
+  });
+  await A.locator('#planner-add-booking button[type=submit]').click();
+  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
+    .waitFor({timeout:15000});
+  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
+    .getByRole('button',{name:'Show original details'}).click();
+  await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
+  const downloadPromise=B.waitForEvent('download');
+  await B.getByRole('button',{name:'Open protected original'}).click();
+  const original=await downloadPromise;
+  assert.equal(original.suggestedFilename(),'synthetic-source.pdf');
+  assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
+
   await A.locator('[data-tab="conversation"]').click();
   await B.locator('[data-tab="conversation"]').click();
 
