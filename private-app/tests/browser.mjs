@@ -304,6 +304,10 @@ try{
   const bundle=JSON.parse(await readFile(await download.path(),'utf8'));
   assert.equal(bundle.records.conversations.length,3);
   assert.ok(bundle.records.messages.length>=53);
+  assert.equal(bundle.records.adventure_plans.length,1);
+  assert.equal(bundle.records.plan_documents.length,1);
+  assert.ok(bundle.media.some(f=>f.id==='doc-'+bundle.records.plan_documents[0].id&&f.mime==='application/pdf'));
+
   assert.ok(bundle.records.messages.some(m=>m.conversation_id===topic2));
   assert.ok(bundle.records.messages.some(m=>m.conversation_id===topic1));
   const sourceIdea=bundle.records.adventures.find(a=>a.conversation_id===topic1);
