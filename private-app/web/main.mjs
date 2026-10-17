@@ -5,6 +5,7 @@ import {getStorage,connectStorageEmulator} from 'firebase/storage';
 import {resolveRuntime} from './runtime-config.mjs';
 import {protectedMediaTransport} from './protected-media.mjs';
 import {firebaseBackend} from './firebase-backend.mjs';
+import {mountPlannerUI} from './planner-ui.mjs';
 import {prepareImage,revokePrepared} from './media.mjs';
 import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
 
@@ -33,7 +34,7 @@ if(runtime.mode==='production'){
 const GENERAL_TITLE='Our chat';
 let correctionId=null;
 const drafts=new Map(),sendAttempts=new Map();
-let backend=null,unsubscribers=[],stopTopic=()=>{},pending=[],sending=false;
+let backend=null,unsubscribers=[],stopTopic=()=>{},stopPlanner=()=>{},pending=[],sending=false;
 let records={adventures:[],decisions:[],messages:[]};
 let selectedAdventure=null,currentConversation=GENERAL_CONVERSATION,latest=[],older=[],before=null,hasOlder=false;
 let topicVersion=0,loadingOlder=false,startedTopic=false,selectedSourceMessage=null,replacesId=null;
@@ -148,7 +149,7 @@ function selectTopic(adventureId=null,{preserveTab=false}={}){
   $('correction-note').hidden=!correctionId;
   selectedAdventure=scope.adventureId;currentConversation=scope.conversationId;
   try{localStorage.setItem('justelle-last-topic:'+auth.currentUser.uid,adventureId||'');}catch{}
-  stopTopic();stopTopic=()=>{};topicVersion++;
+  stopTopic();stopTopic=()=>{};stopPlanner();stopPlanner=()=>{};topicVersion++;
   latest=[];older=[];before=null;hasOlder=false;startedTopic=false;loadingOlder=false;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();
@@ -577,7 +578,8 @@ onAuthStateChanged(auth,async user=>{
     if(!membership.exists()||!membership.data().uids.includes(user.uid))
       throw Error('Member access denied.');
     backend=firebaseBackend({db,storage,roomId,membership:membership.data(),mediaTransport:runtime.mode==='local'?null:protectedMediaTransport({baseUrl:runtime.mediaUrl,getToken:()=>auth.currentUser.getIdToken()})});
-    $('private-app').hidden=false;tab('conversation');
+    stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),onError:error,announce:setNotice});
+    $('private-app').hidden=false;tab(runtime.mode==='production'?'adventures':'conversation');
     setNotice('Signed in; your local session stays available when reopening.');
     let wanted=null;
     try{wanted=localStorage.getItem('justelle-last-topic:'+user.uid)||null;}catch{}
