@@ -46,6 +46,17 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     if(!p){void bookingUI.render(null);return;}
     void bookingUI.render(p);
     $('planner-detail-title').textContent=p.title;
+    const tripForm=$('planner-trip-form');
+    if(tripForm.dataset.planId!==p.id||tripForm.dataset.dirty!=='true'){
+      $('planner-trip-title').value=p.title;
+      $('planner-trip-date').value=p.starts_on||'';
+      $('planner-trip-days').value=String(p.duration_days);
+      tripForm.dataset.planId=p.id;
+      tripForm.dataset.baseRevision=String(p.revision);
+      tripForm.dataset.dirty='false';
+    }
+    $('planner-archive').textContent=p.status==='archived'?'Return to planning':'Move to archive';
+
     $('planner-summary').textContent=(p.starts_on||'Undated')+' · '+p.duration_days+
       ' days · Revision '+p.revision+' · Shared changes save immediately';
     $('planner-undo').disabled=p.revision===0;
@@ -161,9 +172,33 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     }
     out.hidden=false;
   };
+  const tripDirty=()=>{$('planner-trip-form').dataset.dirty='true';};
+  const saveTrip=async event=>{
+    event.preventDefault();
+    const p=plans.find(x=>x.id===selected);if(!p)return;
+    const form=$('planner-trip-form');
+    if(Number(form.dataset.baseRevision)!==p.revision)
+      return onError(Error('Your shared plan changed while you were editing. Review the new version before saving.'));
+    const patch={title:$('planner-trip-title').value.trim(),
+      starts_on:$('planner-trip-date').value||null,
+      duration_days:Number($('planner-trip-days').value)};
+    const button=form.querySelector('[type=submit]');button.disabled=true;
+    try{
+      await planner.editPlan(user,p.id,{type:'edit_trip',patch},p.revision);
+      form.dataset.dirty='false';
+      announce('Trip details saved for both of you. Undo is available.');
+    }catch(error){onError(error);}finally{button.disabled=false;}
+  };
+  const archive=()=>{
+    const p=plans.find(x=>x.id===selected);if(!p)return;
+    void edit(p,{type:'set_status',status:p.status==='archived'?'planning':'archived'});
+  };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
   const close=()=>{selected=null;render();};
   $('planner-create').addEventListener('submit',created);
+  $('planner-trip-form').addEventListener('input',tripDirty);
+  $('planner-trip-form').addEventListener('submit',saveTrip);
+  $('planner-archive').addEventListener('click',archive);
   $('planner-add-stay').addEventListener('submit',added);
   $('planner-undo').addEventListener('click',undo);
   $('planner-feedback').addEventListener('click',feedback);
@@ -183,6 +218,9 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   return ()=>{
     stopped=true;unsubscribe();bookingUI.dispose();
     $('planner-create').removeEventListener('submit',created);
+    $('planner-trip-form').removeEventListener('input',tripDirty);
+    $('planner-trip-form').removeEventListener('submit',saveTrip);
+    $('planner-archive').removeEventListener('click',archive);
     $('planner-add-stay').removeEventListener('submit',added);
     $('planner-undo').removeEventListener('click',undo);
     $('planner-feedback').removeEventListener('click',feedback);
