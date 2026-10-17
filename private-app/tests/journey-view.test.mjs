@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createItinerary,applyItineraryEdit} from '../web/itinerary-core.mjs';
-import {journeyOverview,dayDetail,nextAdventures} from '../web/journey-view.mjs';
+import {journeyOverview,dayDetail,nextAdventures,journeyWeeks} from '../web/journey-view.mjs';
 const make=(id='fictional')=>createItinerary({id,title:'Fictional journey',durationDays:6,startsOn:'2026-10-30'});
 function change(p,c,id){return applyItineraryEdit(p,c,{eventId:id,actorId:'member-a',at:'2026-10-17T14:00:00Z'}).plan;}
 test('Open nights and possible stops stay distinct across Toronto autumn DST transition',()=>{
@@ -30,4 +30,13 @@ test('Current, upcoming, past, undated and archived adventures remain distinct',
  assert.deepEqual(x.undated.map(z=>z.id),['undated']);
  assert.deepEqual(x.past.map(z=>z.id),['past']);
  assert.deepEqual(x.archived.map(z=>z.id),['archive']);
+});
+
+test('A 21-day journey opens as three bounded week groups without losing date or day identity',()=>{
+ const p=createItinerary({id:'three-weeks',title:'Fictional three-week adventure',durationDays:21,startsOn:'2026-10-25'});
+ const weeks=journeyWeeks(p);
+ assert.deepEqual(weeks.map(w=>[w.number,w.from_day,w.to_day]),[[1,1,7],[2,8,14],[3,15,21]]);
+ assert.equal(weeks[0].from_date,'2026-10-25');
+ assert.equal(weeks[2].to_date,'2026-11-14');
+ assert.equal(weeks.flatMap(w=>w.days).length,21);
 });
