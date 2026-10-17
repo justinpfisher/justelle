@@ -1,3 +1,5 @@
+> **Private-app product pivot — 17 October 2026:** [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) is the active scope. Earlier chat-first, mutual agreement and scrapbook descriptions below are historical. Keep the Firebase/private media/portable recovery foundations and unchanged public homepage.
+
 # Justelle project brief
 
 Established October 10, 2026 from the owner's direction and repository inspection.
