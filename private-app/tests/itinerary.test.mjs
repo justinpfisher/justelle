@@ -110,3 +110,13 @@ test('shortening adventure may not discard a city stay silently',()=>{
   assert.throws(()=>edit(p,{type:'edit_trip',patch:{duration_days:14}},'ev2'),/duration conflicts/);
   assert.equal(p.duration_days,21);
 });
+
+test('audit event snapshots do not alias mutable current plan records',()=>{
+  const saved=edit(make(),{type:'add_stop',stop:stop()},'audit-one');
+  saved.plan.stops[0].title='Edited without event';
+  assert.equal(saved.event.after.title,'town-a');
+});
+test('a confirmed hotel extending beyond departure is flagged without deleting it',()=>{
+  const p=edit(make({startsOn:'2026-10-25'}),{type:'add_booking',booking:booking({stop_id:null,starts_on:'2026-11-13',ends_on:'2026-11-18'})},'hotel-overrun').plan;
+  assert.deepEqual(itinerarySignals(p),[{code:'booking_outside_trip',booking_id:'booking-1'}]);
+});
