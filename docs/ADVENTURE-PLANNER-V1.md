@@ -48,7 +48,7 @@ Build under fictional data until hosted member/media protection, backup restore,
 - **Change event:** append-only author/time/type/before/after chain for plan edits, amendments, undo and archiving.
 - **Lesson / preference:** optional archived-trip feedback and reusable user preferences, with source/context and per-trip overrides.
 
-The new provider-independent private-app/web/itinerary-core.mjs establishes a **first pure-model slice**: blank day canvas, movable possible/planned stays, independent booking anchors, basic deterministic mismatch signals, archive lessons, sort order and undo/change events. It does **not** yet connect to Firestore, export/recovery, AI, maps or the visible application. Do not represent it as a deployed planner. Production persistence must store immutable events separately from the current snapshot; do not accumulate indefinite events in a single Firestore document.
+The new provider-independent private-app/web/itinerary-core.mjs establishes a **first pure-model slice**: blank day canvas, movable possible/planned stays, externally confirmed bookings with independent absolute dates that never shift with the trip canvas, basic deterministic mismatch signals, archive lessons, sort order and undo/change events. It does **not** yet connect to Firestore, export/recovery, AI, maps or the visible application. Do not represent it as a deployed planner. Production persistence must store immutable events separately from the current snapshot; do not accumulate indefinite events in a single Firestore document.
 
 ## Next implementable vertical slice and exit checks
 
