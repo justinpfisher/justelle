@@ -1,3 +1,5 @@
+> **Historical private-app decisions (11 October):** [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) and [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) are the current product and engineering authority. The older chat-first, mandatory mutual approval and scrapbook sections below are **superseded**. Preserve verified security, protected media, provider-neutral identities, backups and portability; do not mistake older pilot tests for acceptance of the new planner.
+
 # Justelle private app — first-release decisions
 
 **Decision date:** October 11, 2026 (America/Toronto)  
