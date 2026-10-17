@@ -1,5 +1,7 @@
 > **Approved mature end goal — 17 October 2026:** [Mature Product Vision](PRODUCT-VISION.md) defines the journey-first, iPhone-centred private adventure experience. [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) defines the smaller first release, and [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) governs technology decisions. The older chat-first, mutual-approval, calendar-grid-first and scrapbook directions below are historical. Keep Firebase/private media/portable recovery safeguards and the unchanged public homepage.
 
+> **Current delivery status:** [Where We Are](WHERE-WE-ARE.md) provides the evidence-linked roadmap and next acceptance check, also visible on the [GitHub front page](../README.md). Milestones M1–M4 are required for a verified private V1; M0 covers development evidence and M5–M7 are later improvements. The dashboard updates from milestone issues rather than speculative percentages.
+
 # Justelle project brief
 
 Established October 10, 2026 from the owner's direction and repository inspection.

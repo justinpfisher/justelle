@@ -41,6 +41,11 @@ Private features must protect pages, records, images and downloads through real 
 
 Keep Justelle separate from Stammtisch and other projects. Reuse useful setup, preview, verification and documentation practices, not their content, credentials or publishing pipelines. Do not introduce recurring automation without a request.
 
+## Authoritative delivery milestones and visible status
+The [GitHub front-page status](README.md) and [Where We Are view](docs/WHERE-WE-ARE.md) are generated from milestone-acceptance issues [M0–M7 (#20–#27)](https://github.com/justinpfisher/justelle/issues?q=is%3Aissue+M). The linked issues—not a manually maintained percent-complete claim—are the evidence source. V1 delivery requires M1–M4; M0 records fictional development-only groundwork; M5–M7 cover post-launch improvements. See `docs/PRODUCT-VISION.md` for the mature outcome.
+
+For **each authorised implementation task**, identify affected milestones, add code/test/hosted/physical-device evidence to the matching issue, check only criteria genuinely verified, and close a milestone issue only when *all* acceptance criteria pass. The `project-status.yml` workflow regenerates the main README and `docs/WHERE-WE-ARE.md` automatically from those issues; do not hand-edit the generated status block. Report a failed automation rather than claim a stale view refreshed. The status automation itself never deploys the app; source merges and emulator tests do not establish a live production release. Do not publish private personal information in public issues.
+
 ## Workflow and verification
 Work in focused branches and pull requests. Complete authorized tasks without repeated confirmation; ask when missing information materially changes the outcome or the work introduces new spending, an audience expansion, or publication of unapproved personal content. Merge and publish only within the active task's authorization.
 
