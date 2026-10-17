@@ -4,7 +4,7 @@ import {readFile,mkdtemp,writeFile,stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,collection,getDoc,getDocs,setDoc,updateDoc,deleteDoc,serverTimestamp,onSnapshot} from 'firebase/firestore';
+import {doc,collection,getDoc,getDocs,setDoc,updateDoc,deleteDoc,writeBatch,serverTimestamp,onSnapshot} from 'firebase/firestore';
 import {ref,uploadBytes,getBytes} from 'firebase/storage';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
@@ -172,4 +172,35 @@ test('Protected source PDF and complete plan/event/history restore work without 
     await assert.rejects(restoreEncryptedBackup(destination,generateRecoveryKey(),join(folder,'wrong-key')),/authentication/);
     await assert.rejects(stat(join(folder,'wrong-key')),{code:'ENOENT'});
   }finally{await db.terminate();await deleteApp(admin);await env.cleanup();}
+});
+
+test('Unverified transfers persist independently; forged confirmation and partial writes cannot mutate a plan',async()=>{
+  const {env,A,B,one,two}=await setup();
+  try{
+    await one.createPlan({uid:a},{id:planId,title:'Fictional transfers',durationDays:10,startsOn:'2026-11-01'});
+    const transfer={id:'transfer-1',kind:'transport',stop_id:null,starts_on:'2026-11-04',
+      ends_on:'2026-11-04',status:'unverified',source_id:null,summary:'Possible ferry'};
+    await two.editPlan({uid:b},planId,{type:'add_booking',booking:transfer},0);
+    const saved=await one.readPlan(planId);
+    assert.equal(saved.bookings[0].kind,'transport');assert.equal(saved.bookings[0].status,'unverified');
+    await assert.rejects(one.editPlan({uid:a},planId,{type:'add_booking',booking:{
+      ...transfer,id:'confirmed-without-proof',status:'confirmed',source_id:'missing-source'}},1),
+      /source.*missing/i);
+    assert.equal((await two.readPlan(planId)).revision,1);
+    assert.equal((await one.readHistory(planId)).length,2);
+    // Deliberately forge a valid-looking atomic plan/event pair to try to slip
+    // a confirmed booking into an unrelated change: security rules must reject.
+    const altered=structuredClone(saved);
+    altered.revision=2;altered.last_event_id='forged-edit';
+    altered.bookings.push({...transfer,id:'forged-confirmed',status:'confirmed'});
+    const batch=writeBatch(A.firestore());
+    batch.update(plan(A),{state:altered,last_modified_by:'person-a',updated_at:serverTimestamp()});
+    batch.set(event(A,'forged-edit'),{id:'forged-edit',adventure_id:planId,revision:2,
+      previous_event_id:saved.last_event_id,actor_id:'person-a',author_uid:a,author_id:'person-a',
+      at:serverTimestamp(),created_at:serverTimestamp(),operation:'edit_stop',collection:'stops',
+      record_id:'forged',before:null,after:null,before_state:saved,after_state:altered});
+    await assertFails(batch.commit());
+    assert.equal((await one.readPlan(planId)).revision,1);
+    assert.equal((await two.readHistory(planId)).length,2);
+  }finally{await env.cleanup();}
 });
