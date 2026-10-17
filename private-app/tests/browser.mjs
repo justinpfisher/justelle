@@ -63,6 +63,34 @@ try{
   await login(A,fixture.a);await login(B,fixture.b);
   assert.equal(await A.locator('#topic-title').textContent(),'Our chat');
   assert.equal(await B.locator('#topic-title').textContent(),'Our chat');
+  // M1 iPhone-sized journey slice: direct member edits, realtime visibility, Undo.
+  await A.locator('[data-tab="adventures"]').click();
+  await B.locator('[data-tab="adventures"]').click();
+  await A.locator('#planner-title').fill('Fictional Shared Coast');
+  await A.locator('#planner-date').fill('2026-11-01');
+  await A.locator('#planner-days').fill('10');
+  await A.locator('#planner-create button[type="submit"]').click();
+  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'}).waitFor({timeout:15000});
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'}).getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-stay-title').fill('Fictional Harbour');
+  await A.locator('#planner-from').fill('2');
+  await A.locator('#planner-nights').fill('3');
+  await A.locator('#planner-state').selectOption('possible');
+  await A.locator('#planner-add-stay button[type="submit"]').click();
+  await poll(async()=>await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByText('1 possibilities').count()>0);
+  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await B.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).click();
+  await poll(async()=>await A.locator('#planner-stays .planner-stay').getByText('planned',{exact:false}).count()>0);
+  await poll(async()=>await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Keep as possible'}).count()>0);
+  await B.locator('#planner-undo').click();
+  await poll(async()=>await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).count()>0);
+  await A.locator('#planner-detail details summary').click();
+  await poll(async()=>await A.locator('#planner-history li').count()===4);
+  await A.locator('[data-tab="conversation"]').click();
+  await B.locator('[data-tab="conversation"]').click();
+
 
   // Keyboard affordances remain functional in every conversation.
   const input=A.locator('#message-input');
