@@ -2,7 +2,7 @@
 
 **Private application:** NOT VERIFIED LIVE. The earlier private chat pilot and itinerary data model have development tests, not a qualified public-facing private planner.
 
-**Accepted milestones:** 1/8. **V1 release milestones:** 0/4. **Private-app PR #5:** Draft development PR.
+**Accepted milestones:** 2/8. **V1 release milestones:** 1/4. **Private-app PR #5:** Draft development PR.
 
 This page is generated from issues #20–#27. Checkboxes are evidence-tracking controls, not proof of a live app.
 
@@ -11,8 +11,8 @@ This page is generated from issues #20–#27. Checkboxes are evidence-tracking c
 | Milestone | Horizon | Criteria | Recorded status |
 | --- | --- | ---: | --- |
 | [M0 — Development foundation](https://github.com/justinpfisher/justelle/issues/20) | Foundation | 5/5 | Complete |
-| [M1 — Shared records and recovery](https://github.com/justinpfisher/justelle/issues/21) | V1 | 0/6 | Current |
-| [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22) | V1 | 0/6 | Upcoming |
+| [M1 — Shared records and recovery](https://github.com/justinpfisher/justelle/issues/21) | V1 | 6/6 | Complete |
+| [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22) | V1 | 0/6 | Current |
 | [M3 — Controlled AI planning](https://github.com/justinpfisher/justelle/issues/23) | V1 | 0/5 | Upcoming |
 | [M4 — Secure iPhone production launch](https://github.com/justinpfisher/justelle/issues/24) | V1 | 0/6 | Upcoming |
 | [M5 — Travel-day essentials and discovery](https://github.com/justinpfisher/justelle/issues/25) | Later | 0/5 | Upcoming |
@@ -21,9 +21,9 @@ This page is generated from issues #20–#27. Checkboxes are evidence-tracking c
 
 ## Immediate next evidence
 
-**[M1 — Shared records and recovery](https://github.com/justinpfisher/justelle/issues/21)** is the first incomplete milestone. Next unchecked acceptance criterion:
+**[M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22)** is the first incomplete milestone. Next unchecked acceptance criterion:
 
-> Connect the adventure, stays, nights, transfers and possible/planned state to protected Firestore records with two-member access rules.
+> Upcoming-first adventure Home works, including undated ideas, current adventures and separate archived items.
 
 Only check this when verified. See [implementation Issue #4](https://github.com/justinpfisher/justelle/issues/4).
 
