@@ -12,8 +12,12 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     return uid===user.uid?'You':membership.labels?.[uid]||'The other member';
   };
   function today(){
-    return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Toronto',year:'numeric',month:'2-digit',day:'2-digit'})
-      .format(new Date()).replaceAll('/','-');
+    // ICU locale date separators vary between browsers. Build an explicit ISO
+    // date so the itinerary sort never crashes on an iPhone locale change.
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Toronto',
+      year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+    const byType=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+    return byType.year+'-'+byType.month+'-'+byType.day;
   }
   function render(){
     if(stopped)return;
