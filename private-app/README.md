@@ -1,3 +1,5 @@
+> **Implementation status / product pivot (17 October 2026):** The live pilot code described below remains chat-first and requires two approvals, but those experiences are superseded by [Adventure Planner V1](../docs/ADVENTURE-PLANNER-V1.md). The provider-neutral itinerary model and tests are the first new foundation; Firestore, interface, export, maps and AI integration are **not yet implemented**. The rest of this README documents existing historical behaviour and cannot be treated as acceptance for the new product.
+
 # Justelle private shared-life pilot (fictional / local)
 
 This is the first working implementation for GitHub Issue #4, developed on branch feat/private-shared-app-v1 and reviewed in PR #5. It is not deployed and must not be used with actual personal data. The existing public homepage and domain remain unchanged. The Firestore/Storage foundation was adapted from the working Firebase side of draft PR #2 without merging that comparative PoC.
