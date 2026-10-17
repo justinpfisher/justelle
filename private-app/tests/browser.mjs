@@ -79,7 +79,12 @@ try{
     throw Error('Shared planner not visible: '+e.message+
       ' | A: '+await A.locator('#error').textContent()+
       ' | B: '+await B.locator('#error').textContent()+
-      ' | JS: '+pageErrors.join(' / '));
+      ' | JS: '+pageErrors.join(' / ')+
+      ' | A cards: '+await A.locator('#planner-list').textContent()+
+      ' | B cards: '+await B.locator('#planner-list').textContent()+
+      ' | Form valid: '+await A.locator('#planner-create').evaluate(f=>f.checkValidity())+
+      ' | Button disabled: '+await A.locator('#planner-create button').isDisabled()+
+      ' | Tabs: '+await A.locator('#adventures-tab').isVisible());
   }
   await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'}).getByRole('button',{name:'Open plan'}).click();
   await A.locator('#planner-stay-title').fill('Fictional Harbour');
