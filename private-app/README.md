@@ -1,3 +1,5 @@
+> **Architecture / dependency policy:** Follow [Build, Borrow and Replace](../docs/BUILD-BORROW-REPLACE.md) and the latest [Adventure Planner V1](../docs/ADVENTURE-PLANNER-V1.md). Prefer suitable maintained open-source components, small replaceable service adapters and the existing secured Firebase/backup foundation. Svelte, MapLibre, interact.js, PDF.js and mapping/search providers are **candidates**, not installed or activated integrations. No new real-data handling, paid API or deployment is implied.
+
 > **Implementation status / product pivot (17 October 2026):** The live pilot code described below remains chat-first and requires two approvals, but those experiences are superseded by [Adventure Planner V1](../docs/ADVENTURE-PLANNER-V1.md). The provider-neutral itinerary model and tests are the first new foundation; Firestore, interface, export, maps and AI integration are **not yet implemented**. The rest of this README documents existing historical behaviour and cannot be treated as acceptance for the new product.
 
 # Justelle private shared-life pilot (fictional / local)
