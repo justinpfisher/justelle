@@ -108,7 +108,16 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   $('planner-add-stay').addEventListener('submit',added);
   $('planner-undo').addEventListener('click',undo);
   $('planner-close').addEventListener('click',close);
-  const unsubscribe=planner.subscribePlans(rows=>{plans=rows;if(!stopped)render();},onError);
+  const unsubscribe=planner.subscribePlans(rows=>{
+    const previousRevision=plans.find(p=>p.id===selected)?.revision;
+    plans=rows;
+    if(!stopped){
+      render();
+      const currentRevision=plans.find(p=>p.id===selected)?.revision;
+      if(selected&&currentRevision!==undefined&&currentRevision!==previousRevision)
+        void renderHistory();
+    }
+  },onError);
   return ()=>{
     stopped=true;unsubscribe();
     $('planner-create').removeEventListener('submit',created);
