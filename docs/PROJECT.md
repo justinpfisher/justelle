@@ -1,8 +1,16 @@
-> **Private-app product pivot — 17 October 2026:** [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) is the active product authority, with [open-source-first build/borrow rules](BUILD-BORROW-REPLACE.md). The older chat-first, mutual-approval and scrapbook descriptions below are historical. Keep the Firebase/private media/portable recovery foundations and unchanged public homepage.
+> **Approved mature end goal — 17 October 2026:** [Mature Product Vision](PRODUCT-VISION.md) defines the journey-first, iPhone-centred private adventure experience. [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) defines the smaller first release, and [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) governs technology decisions. The older chat-first, mutual-approval, calendar-grid-first and scrapbook directions below are historical. Keep Firebase/private media/portable recovery safeguards and the unchanged public homepage.
 
 # Justelle project brief
 
 Established October 10, 2026 from the owner's direction and repository inspection.
+
+## Active private product goal (approved 17 October 2026)
+
+Justelle is a private, shared adventure planner that begins with a thought and becomes a trustworthy, editable visual journey. The whole-trip view emphasizes destinations, **nights**, meaningful travel transitions, open time and unscheduled possibilities; individual day slots are progressive detail, not the compulsory primary view. Map, itinerary, research results and booking originals are connected views of one provider-independent record.
+
+Either member can change the plan immediately, with attribution and Undo. External bookings stay independent from suggested and intended plans. On-demand AI interprets natural contributions, shows short results and contextual previews, and researches a few credible choices with evidence and drawbacks. During an adventure, essential local-time travel information and responsibly saved offline records take priority. The mature goal includes accessible, warm, light iPhone design, and useful archived lessons rather than required albums or journaling.
+
+The full outcomes, non-goals, UI hypotheses, phased delivery and usability acceptance live in [Mature Product Vision](PRODUCT-VISION.md). Do not infer these features are implemented or deployed by their inclusion here.
 
 ## Historical original direction (10–11 October)
 Justelle originally combined a simple public homepage with private memories, stories and general shared-life planning. **This is superseded for the private app by the adventure-first planner above.**
@@ -24,7 +32,7 @@ Preserve the established “Justelle. Still us.” identity, approved illustrati
 
 These are source findings. Live deployment was not independently verified during this inspection.
 
-## Private-area requirements
+## Private-area requirements (original scope; implementation status captured at the time)
 Private content must stay outside public repository history, branches, issues, logs and deployment output. Protect records, images and downloads as well as pages. An unlisted link or browser-only password is insufficient.
 
 Authentication, authorization, private storage, editing and backup arrangements are not deployed. Firebase Authentication, Firestore and protected Firebase Cloud Storage are now the preferred first-release path, subject to proper configuration, testing and billing approval. Initially assume access is for the couple only; do not invite additional users without direction. Exact login identities and access rules remain to be established.
@@ -39,7 +47,7 @@ Photo galleries, bulk Apple Photos synchronisation and automatic album imports a
 
 See [Private app V1 decisions](PRIVATE-APP-V1.md) for scope, safeguards, pilot criteria and remaining implementation decisions.
 
-## Delivery sequence
+## Historical delivery sequence (superseded for the private adventure planner)
 1. Establish project instructions and repository guidance.
 2. Verify and document current hosting and preview; introduce proportionate checks for public behaviour.
 3. Select private access, storage, editing and backup arrangements.
