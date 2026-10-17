@@ -1,5 +1,8 @@
 # Justelle repository instructions
 
+## Current private-product authority (17 October 2026)
+For the private app, follow [Adventure Planner V1](docs/ADVENTURE-PLANNER-V1.md). It supersedes chat-first interaction, required two-member approval, and reminiscence/scrapbook scope. Both members directly edit an adventure plan; preserve atomic, attributable changes and separate external booking anchors. Treat earlier chat/approval requirements in the historical pilot as superseded, not as an excuse to discard working privacy, backup or deployment safeguards.
+
 ## Purpose and authority
 Maintain https://justelle.life/ from `justinpfisher/justelle`, default branch `main`. Read [the project brief](docs/PROJECT.md) and relevant source before changing behaviour. The latest explicit user direction governs scope and publication.
 
