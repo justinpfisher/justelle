@@ -58,8 +58,8 @@ export function plannerBackend({db,roomId,membership,mediaTransport=null}){
           lastEvent=prev.data();
         }
         const sourceId=change?.type==='add_booking'?change.booking?.source_id:
-          change?.type==='correct_booking'?change.patch?.source_id:
-          null;
+          change?.type==='correct_booking'?(change.patch?.source_id ??
+            previous.bookings.find(b=>b.id===change.id)?.source_id):null;
         if(sourceId){
           source=await t.get(at('plan_sources',id(sourceId)));
           if(!source.exists()||source.data().adventure_id!==planId)
@@ -77,7 +77,7 @@ export function plannerBackend({db,roomId,membership,mediaTransport=null}){
         if((await t.get(eventRef)).exists())throw Error('This edit ID has already been used');
         // The event carries exact before/after state. Firestore Rules enforce both
         // directions of the atomic relationship even if a client is modified.
-        t.set(eventRef,{...event,...author,created_at:serverTimestamp(),
+        t.set(eventRef,{...event,...author,at:serverTimestamp(),created_at:serverTimestamp(),
           before_state:previous,after_state:plan});
         t.set(target,{...saved.data(),state:plan,last_modified_by:author.author_id,
           updated_at:serverTimestamp()});
