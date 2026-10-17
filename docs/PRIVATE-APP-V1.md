@@ -1,4 +1,4 @@
-> **Product direction superseded 17 October 2026:** Follow [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) for the active private-app experience and acceptance. This document remains the historical October 11 pilot specification. In particular, **mandatory two-person approval, chat-first navigation and scrapbook memories are no longer V1 requirements**. Retain its verified security, protected media, replaceable AI, backup and provider portability safeguards.
+> **Historical private-app decisions (11 October):** [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) and [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) are the current product and engineering authority. The older chat-first, mandatory mutual approval and scrapbook sections below are **superseded**. Preserve verified security, protected media, provider-neutral identities, backups and portability; do not mistake older pilot tests for acceptance of the new planner.
 
 # Justelle private app — first-release decisions
 
