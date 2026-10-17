@@ -103,6 +103,58 @@ try{
   await poll(async()=>await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).count()>0);
   await A.getByText('Previous edits',{exact:true}).click();
   await poll(async()=>await A.locator('#planner-history li').count()===4);
+  // A records a fictional supplier anchor and PDF; B opens the exact protected
+  // original through the shared itinerary. No supplier booking is amended.
+  await A.getByText('Booking anchors',{exact:true}).click();
+  await B.getByText('Booking anchors',{exact:true}).click();
+  await A.locator('#planner-booking-title').fill('Fictional inn confirmation');
+  await A.locator('#planner-booking-kind').selectOption('stay');
+  await A.locator('#planner-booking-start').fill('2026-11-02');
+  await A.locator('#planner-booking-end').fill('2026-11-05');
+  await A.locator('#planner-booking-supplier').fill('Test-only supplier');
+  await A.locator('#planner-booking-reference').fill('SYNTHETIC-REF');
+  await A.locator('#planner-booking-state').selectOption('confirmed');
+  await A.locator('#planner-booking-file').setInputFiles({
+    name:'synthetic-source.pdf',mimeType:'application/pdf',
+    buffer:Buffer.from('%PDF-1.4\\n1 0 obj\\n<< /Type /Catalog >>\\nendobj\\n%%EOF\\n')
+  });
+  await A.locator('#planner-add-booking button[type=submit]').click();
+  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
+    .waitFor({timeout:15000});
+  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
+    .getByRole('button',{name:'Show original details'}).click();
+  await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
+  const downloadPromise=B.waitForEvent('download',{timeout:12000});
+  await B.getByRole('button',{name:'Open protected original'}).click();
+  let bookingDownload;
+  try{bookingDownload=await downloadPromise;}
+  catch(e){throw Error('Protected original did not open: '+e.message+
+    ' | B UI: '+await B.locator('#error').textContent()+
+    ' | source: '+await B.locator('#planner-booking-source').textContent()+
+    ' | browser: '+pageErrors.join('; '));}
+  assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
+  assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
+  // One member changing a trip must not silently overwrite another member's
+  // unsaved draft, even if the live subscription receives a newer revision.
+  await A.getByText('Dates and trip basics',{exact:true}).click();
+  await B.getByText('Dates and trip basics',{exact:true}).click();
+  await A.locator('#planner-trip-title').fill('Old unsaved fictional draft');
+  await B.locator('#planner-trip-title').fill('Fictional Coast Updated');
+  await B.locator('#planner-trip-date').fill('2026-11-02');
+  await B.locator('#planner-trip-form button[type=submit]').click();
+  await poll(async()=>await A.locator('#planner-detail-title').textContent()==='Fictional Coast Updated');
+  await A.locator('#planner-trip-form button[type=submit]').click();
+  await A.getByText(/shared plan changed while you were editing/i).waitFor({timeout:15000});
+  await A.locator('#planner-trip-refresh').click();
+  assert.equal(await A.locator('#planner-trip-title').inputValue(),'Fictional Coast Updated');
+  assert.equal(await A.locator('#planner-trip-date').inputValue(),'2026-11-02');
+  await B.locator('#planner-archive').click();
+  await poll(async()=>await A.locator('#planner-archive').textContent()==='Return to planning');
+  await B.locator('#planner-archive').click();
+  await poll(async()=>await A.locator('#planner-archive').textContent()==='Move to archive');
+  assert.ok((await A.locator('#planner-bookings').textContent()).includes('Fictional inn confirmation'));
+
+
   await A.locator('[data-tab="conversation"]').click();
   await B.locator('[data-tab="conversation"]').click();
 
@@ -252,6 +304,10 @@ try{
   const bundle=JSON.parse(await readFile(await download.path(),'utf8'));
   assert.equal(bundle.records.conversations.length,3);
   assert.ok(bundle.records.messages.length>=53);
+  assert.equal(bundle.records.adventure_plans.length,1);
+  assert.equal(bundle.records.plan_documents.length,1);
+  assert.ok(bundle.media.some(f=>f.id==='doc-'+bundle.records.plan_documents[0].id&&f.mime==='application/pdf'));
+
   assert.ok(bundle.records.messages.some(m=>m.conversation_id===topic2));
   assert.ok(bundle.records.messages.some(m=>m.conversation_id===topic1));
   const sourceIdea=bundle.records.adventures.find(a=>a.conversation_id===topic1);

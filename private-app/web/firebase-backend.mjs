@@ -12,7 +12,7 @@ const time=t=>t?.toMillis?.()||0;
 const ascending=rows=>rows.sort((a,b)=>time(a.created_at)-time(b.created_at)||a.id.localeCompare(b.id));
 
 export function firebaseBackend({db,storage,roomId,membership,mediaTransport=null}) {
-  const planner=plannerBackend({db,roomId,membership,mediaTransport});
+  const planner=plannerBackend({db,storage,roomId,membership,mediaTransport});
   const roomDoc=doc(db,'rooms',roomId);
   const collectionAt=kind=>collection(roomDoc,kind);
   const docAt=(kind,id)=>doc(collectionAt(kind),id);
@@ -187,8 +187,12 @@ export function firebaseBackend({db,storage,roomId,membership,mediaTransport=nul
         if(a.preview_path)files.push({id:a.id+'-preview',mime:'image/jpeg',bytes:await this.imageBytes(a.preview_path)});
       }
       for(const d of planDocuments){
-        if(!mediaTransport?.readDocument)throw Error('Document export requires authenticated media access');
-        files.push({id:'doc-'+d.id,mime:d.mime,bytes:await mediaTransport.readDocument(d.id,12*1024*1024)});
+        // Qualification emulator reads under member-only Storage Rules.
+        // Hosted originals always use the separately authenticated gateway.
+        const bytes=mediaTransport?.readDocument?
+          await mediaTransport.readDocument(d.id,12*1024*1024):
+          new Uint8Array(await getBytes(ref(storage,d.storage_path),12*1024*1024));
+        files.push({id:'doc-'+d.id,mime:d.mime,bytes});
       }
       return createArchive(records,files);
     }

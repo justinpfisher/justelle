@@ -3,12 +3,13 @@
 import {collection,doc,getDoc,getDocs,onSnapshot,query,where,runTransaction,serverTimestamp} from 'firebase/firestore';
 import {createItinerary,applyItineraryEdit} from './itinerary-core.mjs';
 import {sha256} from './media.mjs';
+import {ref,getBytes,uploadBytes} from 'firebase/storage';
 const ID=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const UUID=/^[a-f0-9-]{36}$/;
 const text=(s,max)=>{if(typeof s!=='string'||!s.trim()||s.length>max)throw Error('Invalid text');return s.trim();};
 const id=s=>{if(typeof s!=='string'||!ID.test(s))throw Error('Invalid stable ID');return s;};
 const documentMimes=new Set(['application/pdf','image/png','image/jpeg','image/heic','image/heif']);
-export function plannerBackend({db,roomId,membership,mediaTransport=null}){
+export function plannerBackend({db,storage=null,roomId,membership,mediaTransport=null}){
   if(!membership?.uids||membership.uids.length!==2)throw Error('Two-member room required');
   const root=doc(db,'rooms',roomId),at=(kind,key)=>doc(collection(root,kind),key);
   function actor(user){
@@ -26,6 +27,20 @@ export function plannerBackend({db,roomId,membership,mediaTransport=null}){
     async readHistory(key){
       const q=query(collection(root,'plan_events'),where('adventure_id','==',id(key)));
       return (await getDocs(q)).docs.map(s=>({id:s.id,...s.data()})).sort((a,b)=>a.revision-b.revision);
+    },
+    async readSources(planId){
+      const q=query(collection(root,'plan_sources'),where('adventure_id','==',id(planId)));
+      return (await getDocs(q)).docs.map(s=>({id:s.id,...s.data()}));
+    },
+    async readDocuments(planId){
+      const q=query(collection(root,'plan_documents'),where('adventure_id','==',id(planId)));
+      return (await getDocs(q)).docs.map(s=>({id:s.id,...s.data()}));
+    },
+    async documentBytes(documentId,maxBytes=12582912){
+      if(!UUID.test(documentId))throw Error('Invalid protected document reference');
+      if(mediaTransport?.readDocument)return mediaTransport.readDocument(documentId,maxBytes);
+      if(!storage)throw Error('Document retrieval is unavailable');
+      return new Uint8Array(await getBytes(ref(storage,'rooms/'+roomId+'/documents/'+documentId),maxBytes));
     },
     async createPlan(user,{id:planId=crypto.randomUUID(),title,durationDays=21,startsOn=null}){
       const author=actor(user),state=createItinerary({id:id(planId),title,durationDays,startsOn});
@@ -109,10 +124,14 @@ export function plannerBackend({db,roomId,membership,mediaTransport=null}){
       if(!UUID.test(documentId))throw Error('Document identifier must be a UUID');
       if(!file||!documentMimes.has(file.type)||file.size<=0||file.size>12*1024*1024)
         throw Error('Use a PDF or supported image under 12 MB');
-      if(!mediaTransport?.uploadDocument)throw Error('Private document service is not configured');
+      if(!mediaTransport?.uploadDocument&&!storage)
+        throw Error('Private document service is not configured');
       if(!(await getDoc(at('adventure_plans',adventureId))).exists())throw Error('Adventure not found');
       const bytes=new Uint8Array(await file.arrayBuffer()),digest=await sha256(bytes);
-      await mediaTransport.uploadDocument(documentId,bytes,file.type);
+      if(mediaTransport?.uploadDocument)await mediaTransport.uploadDocument(documentId,bytes,file.type);
+      else await uploadBytes(ref(storage,'rooms/'+roomId+'/documents/'+documentId),bytes,{
+        contentType:file.type,customMetadata:{author_uid:user.uid,document_id:documentId,sha256:digest}
+      });
       const metadata={id:documentId,adventure_id:adventureId,name:text(file.name,180),
         mime:file.type,size:bytes.length,sha256:digest,
         storage_path:'rooms/'+roomId+'/documents/'+documentId,...author};

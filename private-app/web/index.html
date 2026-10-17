@@ -124,13 +124,52 @@
           <div class="section-header"><div><p class="eyebrow">Our living plan</p><h3 id="planner-detail-title"></h3></div>
             <button type="button" id="planner-close" class="text-button">Close</button></div>
           <p id="planner-summary" class="meta"></p>
+          <details><summary>Dates and trip basics</summary>
+            <form id="planner-trip-form" class="planner-form soft-card">
+              <label for="planner-trip-title">Adventure name</label>
+              <input id="planner-trip-title" maxlength="160" required>
+              <div class="planner-fields">
+                <label for="planner-trip-date">Start date (optional)<input id="planner-trip-date" type="date"></label>
+                <label for="planner-trip-days">Number of days<input id="planner-trip-days" type="number" min="1" max="90" required></label>
+              </div>
+              <button type="submit" class="secondary">Save trip changes</button>
+              <button type="button" id="planner-trip-refresh" class="text-button">Review latest shared version</button>
+            </form>
+            <button id="planner-archive" class="text-button" type="button">Move to archive</button>
+            <p class="meta">Archiving keeps every original and revision; it does not delete records or automatically move backups.</p>
+          </details>
+
           <section id="planner-journey" aria-label="Whole journey"></section>
           <section id="planner-alerts" role="status" aria-label="Planning conflicts"></section>
           <details class="journey-days"><summary>Explore days</summary>
             <div id="planner-days-view" class="planner-day-grid"></div>
             <div id="planner-day-detail" aria-live="polite"></div>
           </details>
-          <details><summary>Booking anchors</summary><ul id="planner-bookings"></ul></details>
+          <details><summary>Booking anchors</summary>
+            <ul id="planner-bookings"></ul>
+            <form id="planner-add-booking" class="planner-form soft-card">
+              <p class="meta">Copy details from your original confirmation. This records information in Justelle; it does not change the supplier booking.</p>
+              <label for="planner-booking-title">Booking or transfer</label>
+              <input id="planner-booking-title" required maxlength="180" placeholder="Hotel, train, flight or activity">
+              <div class="planner-fields">
+                <label for="planner-booking-kind">Type<select id="planner-booking-kind">
+                  <option value="stay">Accommodation</option><option value="flight">Flight</option>
+                  <option value="transport">Other transfer</option><option value="activity">Activity</option>
+                </select></label>
+                <label for="planner-booking-start">Starts<input type="date" id="planner-booking-start" required></label>
+                <label for="planner-booking-end">Ends<input type="date" id="planner-booking-end" required></label>
+              </div>
+              <label for="planner-booking-supplier">Supplier (optional)</label><input id="planner-booking-supplier" maxlength="180">
+              <label for="planner-booking-reference">Reference (optional)</label><input id="planner-booking-reference" maxlength="180">
+              <label for="planner-booking-state">What do we know?</label>
+              <select id="planner-booking-state"><option value="unverified">Possible or unverified</option>
+                <option value="confirmed">I have a booking confirmation</option></select>
+              <label for="planner-booking-file">Original PDF or image (optional, private)</label>
+              <input type="file" id="planner-booking-file" accept="application/pdf,image/png,image/jpeg,image/heic,image/heif,.pdf,.heic,.heif">
+              <button type="submit" class="primary">Save booking details</button>
+            </form>
+            <section id="planner-booking-source" role="status" aria-live="polite"></section>
+          </details>
           <div class="planner-actions">
             <button type="button" id="planner-feedback" class="secondary">Check my plan</button>
             <button type="button" id="planner-today" class="secondary">Today's essentials</button>
