@@ -165,7 +165,7 @@ test('Protected source PDF and complete plan/event/history restore work without 
     assert.equal(JSON.stringify(recovered).includes('fictional-a'),false,
       'Portable records must not contain Firebase account IDs');
     const damaged=structuredClone(recovered);
-    damaged.plan_events[1].after_state.stops[0].title='Altered historical stop';
+    damaged.plan_events.find(e=>e.revision===1).after_state.stops[0].title='Altered historical stop';
     assert.throws(()=>validatePortablePlannerRecords(damaged),/integrity/);
     const orphan=structuredClone(recovered);orphan.plan_sources=[];
     assert.throws(()=>validatePortablePlannerRecords(orphan),/source|booking/);
