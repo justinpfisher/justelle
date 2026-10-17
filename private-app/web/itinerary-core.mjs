@@ -160,7 +160,7 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
   plan.revision++;
   const event = {id: eventId, adventure_id: plan.id, revision: plan.revision,
     previous_event_id: original.last_event_id, actor_id: actorId, at,
-    operation: change.type, collection, record_id: recordId, before, after};
+    operation: change.type, collection, record_id: recordId, before: clone(before), after: clone(after)};
   plan.last_event_id = eventId;
   return {plan, event};
 }
@@ -199,7 +199,8 @@ export function itinerarySignals(input) {
   if (plan.starts_on) {
     const end = dateAt(plan.starts_on,plan.duration_days+1);
     for (const b of plan.bookings.filter(x => x.status === 'confirmed'))
-      if (b.starts_on < plan.starts_on || b.starts_on >= end)
+      if (b.starts_on < plan.starts_on || b.starts_on >= end ||
+          (b.kind === 'stay' && b.ends_on > end))
         signals.push({code:'booking_outside_trip',booking_id:b.id});
   }
   return signals;
