@@ -124,6 +124,20 @@
           <div class="section-header"><div><p class="eyebrow">Our living plan</p><h3 id="planner-detail-title"></h3></div>
             <button type="button" id="planner-close" class="text-button">Close</button></div>
           <p id="planner-summary" class="meta"></p>
+          <details><summary>Dates and trip basics</summary>
+            <form id="planner-trip-form" class="planner-form soft-card">
+              <label for="planner-trip-title">Adventure name</label>
+              <input id="planner-trip-title" maxlength="160" required>
+              <div class="planner-fields">
+                <label for="planner-trip-date">Start date (optional)<input id="planner-trip-date" type="date"></label>
+                <label for="planner-trip-days">Number of days<input id="planner-trip-days" type="number" min="1" max="90" required></label>
+              </div>
+              <button type="submit" class="secondary">Save trip changes</button>
+            </form>
+            <button id="planner-archive" class="text-button" type="button">Move to archive</button>
+            <p class="meta">Archiving keeps every original and revision; it does not delete records or automatically move backups.</p>
+          </details>
+
           <section id="planner-journey" aria-label="Whole journey"></section>
           <section id="planner-alerts" role="status" aria-label="Planning conflicts"></section>
           <details class="journey-days"><summary>Explore days</summary>
