@@ -258,6 +258,32 @@ service cloud.firestore {
         d.state.last_event_id != old.state.last_event_id &&
         planEventMatches(roomId, planId, d.state.last_event_id, old.state, d.state);
     }
+    // Only the record named by the event may change. In particular, moving
+    // a tentative stay cannot silently re-date or confirm an external booking.
+    function planUnchangedExcept(d,collectionName) {
+      let before = d.before_state;
+      let after = d.after_state;
+      return (collectionName == 'stops' || before.stops == after.stops) &&
+        (collectionName == 'bookings' || before.bookings == after.bookings) &&
+        (collectionName == 'lessons' || before.lessons == after.lessons) &&
+        (collectionName == 'trip' || (
+          before.title == after.title &&
+          before.starts_on == after.starts_on &&
+          before.duration_days == after.duration_days)) &&
+        (collectionName == 'status' || before.status == after.status);
+    }
+    function validPlanDelta(d) {
+      return d.operation == 'create_trip' ||
+        (d.before_state is map && d.after_state is map &&
+          ((d.operation in ['add_stop','edit_stop','remove_stop'] && d.collection == 'stops') ||
+           (d.operation in ['add_booking','correct_booking'] && d.collection == 'bookings') ||
+           (d.operation == 'add_lesson' && d.collection == 'lessons') ||
+           (d.operation == 'edit_trip' && d.collection == 'trip') ||
+           (d.operation == 'set_status' && d.collection == 'status') ||
+           (d.operation == 'undo_last' &&
+             d.collection in ['stops','bookings','lessons','trip','status'])) &&
+          planUnchangedExcept(d,d.collection));
+    }
     function validPlanEvent(roomId, eventId) {
       let d = request.resource.data;
       let p = planPath(roomId, d.adventure_id);
@@ -269,6 +295,7 @@ service cloud.firestore {
         planState(d.after_state, d.adventure_id) &&
         d.after_state.last_event_id == eventId &&
         d.revision == d.after_state.revision &&
+        validPlanDelta(d) &&
         getAfter(p).data.state == d.after_state &&
         (exists(p) ?
           (d.before_state == get(p).data.state &&
