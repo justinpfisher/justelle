@@ -96,7 +96,7 @@ Record a one-paragraph decision in the PR rather than commissioning a separate a
 
 - Retain the selected Firebase-first architecture and the protected media, AI gateway, and encrypted independent backup work from PR #5. Do not rewrite those merely to use a new fashionable library.
 - The 13 October production-launch account/budget authorization remains subject to provider access and hosted/device qualification. **The old AI spending design intentionally disabled web search.** The new product direction includes on-demand cited research, but it is **not automatically enabled or covered by that old model-only budget**; verify pricing, provider terms, new account needs and applicable approvals before activation.
-- Production deployment still needs hosted fictional authorization/security, direct-file denial, encrypted independent restoration, actual iPhone acceptance, and safe release/rollback. Keep public \`justelle.life\` untouched; private app is separate at \`app.justelle.life\`.
+- Production deployment still needs hosted fictional authorization/security, direct-file denial, encrypted independent restoration, actual iPhone acceptance, and safe release/rollback. Keep public `justelle.life` untouched; private app is separate at `app.justelle.life`.
 - No real personal content, credentials, private booking references, sensitive medical/dietary records or travel documents go into this public GitHub repository, issues, PRs, artifacts or logs.
 
 ## How to know the policy is working
