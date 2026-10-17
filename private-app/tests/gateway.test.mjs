@@ -70,3 +70,42 @@ test('A lost upload acknowledgement replays only identical bytes from the origin
   identity=member;metadata={...metadata,metadata:{...metadata.metadata,sha256:'0'.repeat(64)}};
   const changed=res();await handler(request(),changed);assert.equal(changed.status,409);
 });
+
+test('Source PDFs use the protected immutable gateway; outsiders and altered replays fail',async()=>{
+  const bytes=Buffer.from('%PDF-1.4\\nfictional\\n%%EOF'),digest=createHash('sha256').update(bytes).digest('hex');
+  let identity=member,metadata=null,writes=0;
+  const handler=createMediaHandler({roomId:'fictional-room',
+    verifyIdentity:async()=>identity,readMembership:async()=>room,
+    bucket:{file:()=>({
+      async save(data,{metadata:headers,preconditionOpts}){
+        assert.equal(preconditionOpts.ifGenerationMatch,0);
+        if(metadata)throw Object.assign(Error('Already exists'),{code:412});
+        assert.deepEqual(data,bytes);
+        writes++;
+        metadata={contentType:headers.contentType,size:data.length,
+          metadata:{...headers.metadata}};
+      },
+      async getMetadata(){return [metadata];},
+      createReadStream(){return Readable.from([bytes]);}
+    })}});
+  const url='/api/media/documents/'+id;
+  const send=()=>({url,method:'PUT',rawBody:bytes,headers:{authorization:'Bearer fictional-token', 'content-type':'application/pdf'}});
+  const put=res();await handler(send(),put);
+  assert.equal(put.status,201);assert.equal(writes,1);
+  assert.equal(metadata.metadata.sha256,digest);
+  const retry=res();await handler(send(),retry);
+  assert.equal(retry.status,200);assert.equal(writes,1);
+  const read=res();const result=[];
+  read.write=chunk=>{result.push(Buffer.from(chunk));return true;};
+  await handler({url,method:'GET',headers:{authorization:'Bearer fictional-token'}},read);
+  assert.equal(read.status,200);assert.deepEqual(Buffer.concat(result),bytes);
+  identity={...member,uid:'outsider'};
+  const forbidden=res();await handler(send(),forbidden);assert.equal(forbidden.status,403);
+  identity=member;metadata.metadata.firebaseStorageDownloadTokens='public-token';
+  const token=res();await handler({url,method:'GET',headers:{authorization:'Bearer fictional-token'}},token);
+  assert.equal(token.status,503);
+  const changed=res();
+  await handler({url,method:'PUT',rawBody:Buffer.from('altered'),
+    headers:{authorization:'Bearer fictional-token','content-type':'application/pdf'}},changed);
+  assert.equal(changed.status,409);
+});
