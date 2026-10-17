@@ -2,6 +2,10 @@
 
 The October 13 approval remains in force. Source preparation is not a live deployment. This checkout contains the hosted response route, production client mode, self-contained Functions packaging, scheduled encrypted B2 backup, hosted acceptance runner and automatic release/recovery orchestration. Cloud configuration and hosted qualification still have to be completed in the intended Justelle accounts.
 
+## Technology changes and provider operations
+
+The default selection rule is [Build, Borrow and Replace](../../docs/BUILD-BORROW-REPLACE.md). Reuse suitable verified code, evaluate maintained open-source options before bespoke work, and integrate external maps/place/research/AI/document services behind thin, independently testable boundaries. Check current licence, data-use/caching terms, private information sent, iPhone fallback, vendor replacement path, and **CAD operating cost/approved caps** before activation. No plugin marketplace, arbitrary executable extension, cross-project credential reuse or undocumented third-party upload. The old model-only AI budget does not automatically include on-demand web-search charges. Record provider choices and safe failure modes in the implementing PR; preserve isolated hosted acceptance, original protected files and independent restoration.
+
 ## One-time provider setup
 
 Use two new Justelle-only Firebase projects, each with its own C$5/month billing alert and zero-minimum-instance Functions. Never use another project's account, credentials, identities or content. Provision Firestore and Storage in an appropriate Canadian location, with gateway and backup functions in `northamerica-northeast1`. Do not connect the qualification project to `app.justelle.life`: use its temporary `web.app` origin. Production alone uses `app.justelle.life`. Leave root DNS, root artwork, `CNAME` and the existing public publisher untouched.
