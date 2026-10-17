@@ -46,7 +46,8 @@ The application should own these **behaviours and records**, not implement its o
 | AI vision, planning and interpretation | Existing server-side provider-neutral AI adapter with budgets and output validation | Current approved AI provider; changeable later |
 | Current research and traveller perspectives | Permitted provider search with evidence, dates and links; no mass scraping or local mirror | Provider's web search, or separate search API if objectively better |
 | Authentication, persistence, protected media | Reuse selected and tested managed foundation | Firebase Auth / Firestore / private Storage |
-| Independent recovery | Retain encrypted, provider-independent exports with restore tests | Existing backup implementation and independent B2 destination |
+| Independent recovery | Retain encrypted, provider-independent exports with restore tests | Existing backup implementation and independent B2 destination for active recovery |
+| Completed-trip archival | Stop repeatedly copying unchanged trips; keep protected on-demand access and independently restorable encrypted originals | Owner's existing Microsoft 365 Family OneDrive storage through an owner-managed Windows mini PC, plus a non-sync local recovery copy; see [Low-Cost Backup & Archive Policy](BACKUP-ARCHIVE-POLICY.md) |
 
 **Do not treat a candidate as installed, selected, currently licensed for our use, free at production volume, or activated.** Before adoption, verify the current licence, redistribution obligations, maintainer activity, security advisories, iOS compatibility, deployment size, usage terms, data rights/caching and genuine improvement. Prefer existing dependencies and native browser capabilities when sufficient. Install no new package merely to satisfy this table.
 
