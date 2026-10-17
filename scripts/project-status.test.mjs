@@ -52,3 +52,15 @@ test('README insertion and repeated automatic updates are idempotent',()=>{
   assert.equal((once.match(/JUSTELLE_MILESTONE_STATUS_START/g)||[]).length,1);
   assert.throws(()=>replaceReadmeStatus('# Title\n<!-- JUSTELLE_MILESTONE_STATUS_END -->',block),/Malformed/);
 });
+
+test('accepted M1 keeps production warning while crediting passing shared-planner evidence',()=>{
+  const m=issues();m.set(21,issue(21,'M1 — Storage',[true,true],'closed'));
+  const result=calculateMilestones(def,m,{state:'open',draft:true});
+  const details=renderDetails(result);
+  assert.match(details,/M1 \(development\)/);
+  assert.match(details,/39061319556/);
+  assert.match(details,/NOT VERIFIED LIVE/);
+  assert.match(details,/M2–M3/);
+  assert.doesNotMatch(details,/M1–M3/);
+  assert.equal(result.completed,2);
+});
