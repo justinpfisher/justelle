@@ -108,6 +108,16 @@ try{
   assert.equal(await A.locator('.planner-week').first().evaluate(n=>n.open),true);
   await A.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour').waitFor();
+  // Stay details use the existing atomic revision chain, with touch/keyboard
+  // controls and immediate subscription updates on the second member's phone.
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
+  await A.locator('#planner-edit-title').fill('Fictional Harbour Revised');
+  await A.locator('#planner-edit-nights').fill('2');
+  await A.locator('#planner-edit-stay button[type=submit]').click();
+  await B.locator('#planner-stays').getByText('Fictional Harbour Revised').waitFor({timeout:15000});
+  assert.equal(await A.locator('#planner-edit-stay').isVisible(),false);
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show day 2'}).click();
+  await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
   assert.equal(await A.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,
     'The journey must not require horizontal scrolling on a 390px phone');
 
@@ -117,6 +127,10 @@ try{
   await B.getByText('Booking anchors',{exact:true}).click();
   await A.locator('#planner-booking-title').fill('Fictional inn confirmation');
   await A.locator('#planner-booking-kind').selectOption('stay');
+  const relatedStop=await A.locator('#planner-booking-stop option').filter({hasText:'Fictional Harbour Revised'})
+    .getAttribute('value');
+  assert.ok(relatedStop,'Booking can be anchored to a saved place');
+  await A.locator('#planner-booking-stop').selectOption(relatedStop);
   await A.locator('#planner-booking-start').fill('2026-11-02');
   await A.locator('#planner-booking-end').fill('2026-11-05');
   await A.locator('#planner-booking-supplier').fill('Test-only supplier');
@@ -132,6 +146,12 @@ try{
   await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
     .getByRole('button',{name:'Show original details'}).click();
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:/Booking: Fictional inn confirmation/}).click();
+  await A.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
+  await B.getByText('Explore days',{exact:true}).click();
+  await B.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
+  await B.locator('#planner-day-detail').getByRole('button',{name:/View booking · Fictional inn confirmation/}).click();
+  await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   const downloadPromise=B.waitForEvent('download',{timeout:12000});
   await B.getByRole('button',{name:'Open protected original'}).click();
   let bookingDownload;
@@ -142,6 +162,20 @@ try{
     ' | browser: '+pageErrors.join('; '));}
   assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
+  // A stay edit drafted before another member's save must not overwrite their
+  // newer changes, even when live updates arrive during the draft.
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
+  await A.locator('#planner-edit-title').fill('Unsaved outdated name');
+  await B.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-edit-title').fill('Fictional Coast Harbour');
+  await B.locator('#planner-edit-stay button[type=submit]').click();
+  await A.locator('#planner-stays').getByText('Fictional Coast Harbour').waitFor({timeout:15000});
+  assert.equal(await A.locator('#planner-edit-title').inputValue(),'Unsaved outdated name');
+  await A.locator('#planner-edit-stay button[type=submit]').click();
+  await A.getByText(/shared plan changed while you were editing/i).first().waitFor();
+  await A.locator('#planner-edit-refresh').click();
+  assert.equal(await A.locator('#planner-edit-title').inputValue(),'Fictional Coast Harbour');
+  await A.locator('#planner-edit-cancel').click();
   // One member changing a trip must not silently overwrite another member's
   // unsaved draft, even if the live subscription receives a newer revision.
   await A.getByText('Dates and trip basics',{exact:true}).click();
