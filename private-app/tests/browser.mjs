@@ -160,7 +160,7 @@ try{
   await poll(async()=>await A.locator('#planner-archive').textContent()==='Return to planning');
   await B.locator('#planner-archive').click();
   await poll(async()=>await A.locator('#planner-archive').textContent()==='Move to archive');
-  assert.ok((await A.locator('#planner-bookings').textContent()).includes('Fictional inn confirmation'));
+  await A.locator('#planner-bookings').getByText('Fictional inn confirmation',{exact:true}).waitFor({timeout:15000});
 
 
   await A.locator('[data-tab="conversation"]').click();

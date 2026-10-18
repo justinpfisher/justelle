@@ -8,8 +8,9 @@ import {getFirestore as adminFirestore} from 'firebase-admin/firestore';
 import {getStorage as adminStorage} from 'firebase-admin/storage';
 import {initializeApp,deleteApp} from 'firebase/app';
 import {getAuth,signInWithEmailAndPassword} from 'firebase/auth';
-import {getFirestore,getDoc,doc,terminate,updateDoc} from 'firebase/firestore';
+import {getFirestore,doc,terminate} from 'firebase/firestore';
 import {firebaseBackend} from '../web/firebase-backend.mjs';
+import {plannerBackend} from '../web/planner-backend.mjs';
 import {protectedMediaTransport} from '../web/protected-media.mjs';
 import {qualify} from './qualify.mjs';
 import {buildEnvironment} from './deployment-config.mjs';
@@ -50,7 +51,9 @@ try{
     const user=(await signInWithEmailAndPassword(authClient,fixtures[i].email,fixtures[i].password)).user;
     const backend=firebaseBackend({db:clientDB,storage:null,roomId:'fictional-room',membership,
       mediaTransport:protectedMediaTransport({baseUrl:config.origin+'/api/media',getToken:()=>user.getIdToken()})});
-    clients.push({user,db:clientDB,backend,token:await user.getIdToken()});
+    const planner=plannerBackend({db:clientDB,roomId:'fictional-room',membership,
+      mediaTransport:protectedMediaTransport({baseUrl:config.origin+'/api/media',getToken:()=>user.getIdToken()})});
+    clients.push({user,db:clientDB,backend,planner,token:await user.getIdToken()});
   }
   const [A,B,X]=clients;
   const original=await A.backend.addMessage(A.user,{body:'A fictional museum plan, contributed by member A.'});
@@ -75,22 +78,49 @@ try{
   const answer=await ai.json();assert(answer.message_id==='ai-'+source);
   const generated=(await db.doc('rooms/fictional-room/messages/'+answer.message_id).get()).data();assert(generated.kind==='ai'&&generated.author_id==='ai-justelle'&&generated.body.length>0);
   const replay=await http('/api/respond',{method:'POST',token:B.token,contentType:'application/json',body:JSON.stringify({source_message_id:source})});assert((await replay.json()).replayed===true);results.push('protected_images_immutable_retry_and_live_vision');
-  const plan=await A.backend.propose(A.user,{body:'A fictional museum visit.',sourceMessageId:source});
-  await A.backend.approve(A.user,plan);assert((await getDoc(doc(B.db,'rooms/fictional-room/decisions/'+plan))).data().status==='proposed');
-  await B.backend.approve(B.user,plan);assert((await getDoc(doc(A.db,'rooms/fictional-room/decisions/'+plan))).data().status==='locked');
-  await denial(updateDoc(doc(A.db,'rooms/fictional-room/decisions/'+plan),{body:'Silently overwritten'}));
-  const r1=await A.backend.propose(A.user,{body:'Fictional revision one.',replacesId:plan});
-  const r2=await B.backend.propose(B.user,{body:'Fictional revision two.',replacesId:plan});
-  await A.backend.approve(A.user,r1);await A.backend.approve(A.user,r2);
-  const races=await Promise.allSettled([B.backend.approve(B.user,r1),B.backend.approve(B.user,r2)]);assert(races.filter(r=>r.status==='fulfilled').length===1);results.push('agreement_integrity');
+  // Qualify the current immediate-edit planner; legacy approvals are compatibility tests only.
+  const planId=randomUUID(),documentId=randomUUID(),sourceId=randomUUID();
+  await A.planner.createPlan(A.user,{id:planId,title:'Synthetic shared journey',durationDays:4,startsOn:'2026-11-01'});
+  assert((await B.planner.readPlan(planId)).revision===0);
+  const pdf=Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+  await A.planner.addDocument(A.user,{id:documentId,adventureId:planId,
+    file:{type:'application/pdf',size:pdf.length,name:'synthetic-confirmation.pdf',arrayBuffer:async()=>pdf}});
+  await A.planner.addSource(A.user,{id:sourceId,adventureId:planId,kind:'booking',
+    title:'Synthetic supplier confirmation',documentId});
+  await A.planner.editPlan(A.user,planId,{type:'add_stop',stop:{id:'synthetic-stop',place_id:'synthetic-place',
+    title:'Synthetic harbour',from_day:1,through_day:3,status:'planned'}},0);
+  await B.planner.editPlan(B.user,planId,{type:'add_booking',booking:{id:'synthetic-booking',kind:'stay',
+    stop_id:'synthetic-stop',starts_on:'2026-11-01',ends_on:'2026-11-03',status:'confirmed',
+    source_id:sourceId,summary:'Synthetic hotel booking'}},1);
+  await A.planner.editPlan(A.user,planId,{type:'edit_stop',id:'synthetic-stop',patch:{from_day:2,through_day:4}},2);
+  assert((await B.planner.readPlan(planId)).bookings[0].starts_on==='2026-11-01');
+  await denial(B.planner.editPlan(B.user,planId,{type:'edit_stop',id:'synthetic-stop',patch:{title:'Stale'}},2));
+  await B.planner.editPlan(B.user,planId,{type:'undo_last'},3);
+  const current=await A.planner.readPlan(planId),history=await B.planner.readHistory(planId);
+  assert(current.revision===4&&current.stops[0].from_day===1&&history.length===5);
+  assert(history[2].actor_id==='person-b'&&history[4].actor_id==='person-b');
+  assert(Buffer.from(await B.planner.documentBytes(documentId)).equals(pdf));
+  await denial(X.planner.readPlan(planId));
+  const directDocument='https://firebasestorage.googleapis.com/v0/b/'+env.VITE_FIREBASE_STORAGE_BUCKET+
+    '/o/'+encodeURIComponent('rooms/fictional-room/documents/'+documentId)+'?alt=media';
+  for(const token of [undefined,A.token,X.token]){
+    const denied=await fetch(directDocument,{redirect:'error',cache:'no-store',headers:token?{Authorization:'Bearer '+token}:{}});
+    assert([401,403].includes(denied.status));await denied.body?.cancel();
+  }
+  const rawDocument=await fetch('https://storage.googleapis.com/'+env.VITE_FIREBASE_STORAGE_BUCKET+
+    '/rooms/fictional-room/documents/'+documentId,{redirect:'error',cache:'no-store'});
+  assert([401,403].includes(rawDocument.status));await rawDocument.body?.cancel();
+  results.push('immediate_two_member_planner_edits_history_undo_and_protected_booking_original');
   await denial(X.backend.messageById(original));
   for(const token of [undefined,X.token]){
     await http('/api/media/'+imageId+'/original',{token},[401,403]);
+    await http('/api/media/documents/'+documentId,{token},[401,403]);
     await http('/api/respond',{method:'POST',token,contentType:'application/json',body:JSON.stringify({source_message_id:source})},[401,403]);
   }
   // Fence the old token in Rules and revoke refresh sessions; keep both canonical authors in memory.
   const fenced={...membership,revoked_auth_before:{'fictional-b':Math.floor(Date.now()/1000)}};
   await db.doc('rooms/fictional-room').set(fenced);await auth.revokeRefreshTokens('fictional-b');
+  await http('/api/media/documents/'+documentId,{token:B.token},[401,403]);
   await qualify({origin:config.origin,room_id:'fictional-room',project_id:config.projectId,bucket:env.VITE_FIREBASE_STORAGE_BUCKET,
     record_id:original,image_id:imageId,member_token:A.token,outsider_token:X.token,revoked_token:B.token});
   await http('/api/respond',{method:'POST',token:B.token,contentType:'application/json',body:JSON.stringify({source_message_id:source})},[401]);results.push('outsider_direct_file_and_revoked_session_denial');

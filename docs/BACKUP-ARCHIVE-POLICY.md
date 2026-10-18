@@ -1,5 +1,7 @@
 # Justelle — low-cost backups and permanent adventure archives
 
+**Delivery tracking:** [Milestone M6](https://github.com/justinpfisher/justelle/issues/26) is the single active archive/incremental-backup tracker. Current implementation evidence is in [Where We Are](WHERE-WE-ARE.md) and that issue. Post-trip archival must not delay a separately qualified V1 B2 recovery path.
+
 **Approved direction:** 17 October 2026 (America/Toronto).  
 **Status:** Binding architecture and product decision, **not yet implemented, activated or production-qualified**. Read with [Adventure Planner V1](ADVENTURE-PLANNER-V1.md), [Mature Product Vision](PRODUCT-VISION.md), [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) and [AGENTS.md](../AGENTS.md). Newer explicit owner decisions control.
 

@@ -1,5 +1,5 @@
-// Fictional-source adapter: consistent metadata snapshot + immutable original streams.
-// No deployment, scheduling, credentials or real-member mode is enabled here.
+// Consistent metadata snapshot + immutable original streams.
+// Production requires the separately qualified runtime to pass productionApproved.
 import {canonicalRecords} from '../web/memory-records.mjs';
 import {verifyRecords} from '../web/archive-core.mjs';
 import {writeEncryptedBackup} from './encrypted-backup.mjs';
@@ -7,11 +7,11 @@ export async function firebaseBackupSource({db,bucket,roomId='fictional-room',pa
   if(!/^[a-zA-Z0-9-]{1,100}$/.test(roomId)||roomId!=='fictional-room'&&!productionApproved)throw Error('Real-content backup activation is not approved');
   if(!Number.isSafeInteger(pageSize)||pageSize<1||pageSize>500)throw Error('Invalid backup page size');
   const root='rooms/'+roomId;
-  // Every query executes inside ONE read-only transaction, so two-person votes,
+  // Every query executes inside ONE read-only transaction, so historical decisions,
   // new messages and event pointers cannot come from different read times.
   const snapshot=await db.runTransaction(async transaction=>{
     const room=await transaction.get(db.doc(root)),membership=room.data();
-    if(!room.exists||membership.uids?.length!==2||membership.uids.some(uid=>!membership.people?.[uid]))throw Error('Invalid fictional room membership');
+    if(!room.exists||membership.uids?.length!==2||membership.uids.some(uid=>!membership.people?.[uid]))throw Error('Invalid room membership');
     const result={membership};
     for(const kind of ['messages','decisions','adventures','attachments','adventure_events','adventure_plans','plan_events','plan_sources','plan_documents']){
       const rows=[];let cursor;

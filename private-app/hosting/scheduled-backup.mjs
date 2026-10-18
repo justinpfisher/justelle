@@ -20,8 +20,8 @@ export async function runScheduledBackup({db,bucket,roomId,productionApproved=fa
     await writeEncryptedBackup({...snapshot,key},destination);
     const size=(await stat(destination)).size;
     if(size>128*1024*1024)throw Error('Backup exceeds the qualified 128 MiB scheduled snapshot limit');
-    await restoreEncryptedBackup(destination,key,join(work,'local-restore'));
-    await rm(join(work,'local-restore'),{recursive:true});
+    // The downloaded object is independently restored below; a second local
+    // restore of the identical bytes adds no recovery assurance.
     await remote.verifyRetention();
     const name=config.prefix+'/'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID()+'.jmb';
     await remote.put(name,destination,size);

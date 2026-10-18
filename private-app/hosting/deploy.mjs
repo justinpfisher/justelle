@@ -9,6 +9,7 @@ import {getFirestore} from 'firebase-admin/firestore';
 import {release} from './release-core.mjs';
 import {smoke} from './smoke.mjs';
 import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
+import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const [configPath,command='production']=process.argv.slice(2);
 try{
@@ -36,7 +37,11 @@ try{
     const app=initializeApp({projectId:config.projectId}),db=getFirestore(app);
     const state=db.doc('rooms/'+config.roomId+'/operations/release');
     try{
-      await release({sha,qualified:true,readLastGood:async()=>{const s=await state.get();return s.exists?s.data():null;},
+      const saved=await state.get(),previous=saved.exists?saved.data():null;
+      // A failed sensitive release cannot be smuggled out by a later CSS-only commit.
+      requireHostedEvidence(previous?changedPaths(previous.sha,sha):null,
+        process.env.JUSTELLE_HOSTED_QUALIFIED==='true');
+      await release({sha,qualified:true,readLastGood:async()=>previous,
         deploy:()=>deploy(root),check:version=>smoke({...config,sha:version}),
         recordGood:async good=>state.set({...good,verified_at:new Date().toISOString()}),
         rollback:async previous=>{

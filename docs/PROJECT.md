@@ -1,61 +1,17 @@
-> **Approved mature end goal — 17 October 2026:** [Mature Product Vision](PRODUCT-VISION.md) defines the journey-first, iPhone-centred private adventure experience. [Adventure Planner V1](ADVENTURE-PLANNER-V1.md) defines the smaller first release, and [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md) governs technology decisions. The older chat-first, mutual-approval, calendar-grid-first and scrapbook directions below are historical. Keep Firebase/private media/portable recovery safeguards and the unchanged public homepage.
-
 # Justelle project brief
 
-Established October 10, 2026 from the owner's direction and repository inspection.
+Justelle is a private, adventures-first planner for two members, with a separate minimal public homepage. The approved mature journey-first experience and smaller first release are defined in [Product Vision](PRODUCT-VISION.md) and [Adventure Planner V1](ADVENTURE-PLANNER-V1.md). Both members can edit immediately with history and Undo; planning never silently changes supplier bookings. The October 11 chat-first and mandatory two-person approval design is retired.
 
-## Active private product goal (approved 17 October 2026)
+## Where to look
 
-Justelle is a private, shared adventure planner that begins with a thought and becomes a trustworthy, editable visual journey. The whole-trip view emphasizes destinations, **nights**, meaningful travel transitions, open time and unscheduled possibilities; individual day slots are progressive detail, not the compulsory primary view. Map, itinerary, research results and booking originals are connected views of one provider-independent record.
+- [Where We Are](WHERE-WE-ARE.md): current milestone evidence and release state, also displayed on the repository homepage. Source tests do not establish a live private service.
+- [AGENTS.md](../AGENTS.md): instruction precedence, standing release authority and proportionate verification.
+- [Operations](../private-app/hosting/OPERATIONS.md): one-time setup, recurring releases, secrets and recovery.
+- [Private-app README](../private-app/README.md): local development commands.
+- [Build, Borrow and Replace](BUILD-BORROW-REPLACE.md): reuse and provider decisions.
+- [Backup & Archive Policy](BACKUP-ARCHIVE-POLICY.md): independent recovery and completed-trip preservation.
+- [Approved account and spending decision](production-launch-decision.md): continuing authority and limits.
 
-Either member can change the plan immediately, with attribution and Undo. External bookings stay independent from suggested and intended plans. On-demand AI interprets natural contributions, shows short results and contextual previews, and researches a few credible choices with evidence and drawbacks. During an adventure, essential local-time travel information and responsibly saved offline records take priority. The mature goal includes accessible, warm, light iPhone design, and useful archived lessons rather than required albums or journaling.
+The source baseline is `main`; future work branches from it rather than maintaining mirrored product documents on a permanent development branch. Keep `index.html`, `CNAME` and approved public illustration unchanged during private-app work. Private data, credentials and recovery material stay outside this public repository. Public/home date facts remain in the homepage source; do not copy obsolete planned dates into new requirements.
 
-The full outcomes, non-goals, UI hypotheses, phased delivery and usability acceptance live in [Mature Product Vision](PRODUCT-VISION.md). Do not infer these features are implemented or deployed by their inclusion here.
-
-## Historical original direction (10–11 October)
-Justelle originally combined a simple public homepage with private memories, stories and general shared-life planning. **This is superseded for the private app by the adventure-first planner above.**
-
-Public categories: Justelle branding, approved illustrations, first names, relationship milestones, and broad trip destinations and months. Memories, stories, personal photos and detailed planning remain private by default unless specifically approved for publication.
-
-Preserve the established “Justelle. Still us.” identity, approved illustration, calm teal/ocean styling and warm, playful, charming tone. Retain Newfoundland/Signal Hill influences where appropriate. Use Canadian English and prioritize phones and accessibility.
-
-## Verified baseline
-- Repository: [justinpfisher/justelle](https://github.com/justinpfisher/justelle), default branch `main`; public.
-- `CNAME`: `justelle.life`.
-- `index.html`: self-contained HTML/CSS/JavaScript, with no external dependencies or build step.
-- Approved illustration asset: `justelle-caricature.png`.
-- Together since August 11, 2006; married since June 24, 2011.
-- Date calculations and annual greetings use `America/Toronto`.
-- Upcoming cards: Calgary, July 2027; Philippines, March 2028.
-- Past trip months leave the upcoming section; the source does not infer completion.
-- README describes opening `index.html` for preview.
-
-These are source findings. Live deployment was not independently verified during this inspection.
-
-## Private-area requirements (original scope; implementation status captured at the time)
-Private content must stay outside public repository history, branches, issues, logs and deployment output. Protect records, images and downloads as well as pages. An unlisted link or browser-only password is insufficient.
-
-Authentication, authorization, private storage, editing and backup arrangements are not deployed. Firebase Authentication, Firestore and protected Firebase Cloud Storage are now the preferred first-release path, subject to proper configuration, testing and billing approval. Initially assume access is for the couple only; do not invite additional users without direction. Exact login identities and access rules remain to be established.
-
-Keep the existing public site. The fictional Cloudflare/Firebase comparison is in [draft PR #2](https://github.com/justinpfisher/justelle/pull/2); its emulator/browser results are not evidence of a live private deployment. No hosting migration, new paid service or real private-data ingestion is authorized by this brief.
-
-## Historical private first-release scope (October 11, 2026; superseded)
-
-The owner has confirmed a Firebase-first, mobile Home Screen experience for the couple, persistent sessions without routine reauthentication, one shared AI-assisted conversation, **first-class screenshots/images** (maps, restaurants, menus and similar material), low-friction ideas and plans, explicit two-person agreement before a decision becomes locked, preserved source history, and a provider-neutral export and restore path.
-
-Photo galleries, bulk Apple Photos synchronisation and automatic album imports are deferred. Ordinary image attachments are not deferred. Privacy means genuine member-only pages, records and direct image access; the product is not being designed around repeated Face ID prompts or elaborate unlocked-device scenarios.
-
-See [Private app V1 decisions](PRIVATE-APP-V1.md) for scope, safeguards, pilot criteria and remaining implementation decisions.
-
-## Historical delivery sequence (superseded for the private adventure planner)
-1. Establish project instructions and repository guidance.
-2. Verify and document current hosting and preview; introduce proportionate checks for public behaviour.
-3. Select private access, storage, editing and backup arrangements.
-4. Implement and verify the private foundation using non-sensitive sample data, including direct-request access checks.
-5. Add an initial memory collection and shared planning area from supplied material.
-6. Expand based on use while retaining a simple homepage.
-
-## Maintenance
-Follow `AGENTS.md` for repository work. Use focused branches, proportionate checks and clear deployment reporting. Reuse Stammtisch's useful maintenance practices without copying its features, content or credentials. Add recurring work only when requested.
-
-Update this brief when decisions or implementation status change. Record assumptions as assumptions; do not describe planned functionality as operational.
+Historical specifications and launch estimates are retained under `docs/history/` and in Git history, clearly separated from operative instructions.

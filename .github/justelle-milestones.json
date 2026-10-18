@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "milestones": [
+    { "id": "M0", "issue": 20, "title": "Development foundation", "release": "Foundation" },
+    { "id": "M1", "issue": 21, "title": "Shared records and recovery", "release": "V1" },
+    { "id": "M2", "issue": 22, "title": "Journey-first iPhone planner", "release": "V1" },
+    { "id": "M3", "issue": 23, "title": "Controlled AI planning", "release": "V1" },
+    { "id": "M4", "issue": 24, "title": "Secure iPhone production launch", "release": "V1" },
+    { "id": "M5", "issue": 25, "title": "Travel-day essentials and discovery", "release": "Later" },
+    { "id": "M6", "issue": 26, "title": "OneDrive archives and efficient backups", "release": "Later" },
+    { "id": "M7", "issue": 27, "title": "Mature usability and sustainability", "release": "Later" }
+  ]
+}
