@@ -39,3 +39,15 @@ export function nextAdventures(plans,today){
     undated:sorted.filter(p=>p.status!=='archived'&&!p.starts_on),
     archived:sorted.filter(p=>p.status==='archived')};
 }
+
+// Progressive detail: groups local calendar days into small, expandable weeks
+// without assuming that the first day must be a Monday.
+export function journeyWeeks(plan){
+  const days=itineraryDays(plan),weeks=[];
+  for(let start=0;start<days.length;start+=7){
+    const chunk=days.slice(start,start+7);
+    weeks.push({number:weeks.length+1,from_day:chunk[0].day,to_day:chunk.at(-1).day,
+      from_date:chunk[0].date,to_date:chunk.at(-1).date,days:chunk});
+  }
+  return weeks;
+}
