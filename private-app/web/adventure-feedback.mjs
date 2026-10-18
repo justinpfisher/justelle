@@ -18,6 +18,15 @@ export function reviewAdventure(plan){
     description:free.length+' days have no planned overnight base.',
     evidence:{days:free.map(d=>d.day)},
     action:'Leave days open or add an intended stay; do not invent an accommodation booking.'});
+  // A heuristic prompt, not a claim that activities actually conflict: we
+  // have neither timings nor route-duration evidence in these records.
+  for(const day of days){
+    const planned=(day.experiences??[]).filter(e=>e.status==='planned');
+    if(planned.length>=4)notices.push({severity:'info',code:'busy_day',
+      description:'Day '+day.day+' has '+planned.length+' intended experiences.',
+      evidence:{day:day.day,experience_ids:planned.map(e=>e.id)},
+      action:'Consider the pace and leave room for travel or breaks; exact times and distances were not checked.'});
+  }
   const tentativeTransfers=plan.bookings.filter(b=>['flight','transport'].includes(b.kind)&&b.status!=='confirmed');
   for(const b of tentativeTransfers)notices.push({severity:'info',code:'unconfirmed_transfer',
     description:'A possible transfer is not confirmed.',
