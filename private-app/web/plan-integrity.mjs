@@ -11,20 +11,23 @@ const fail=s=>{throw Error('Plan recovery integrity: '+s);};
 const linked=(id,set,label)=>{if(id!=null&&!set.has(id))fail('Broken '+label+' relationship');};
 function untouchedExcept(before,after,collection){
   if(!before||!after)return false;
-  const fields=['stops','bookings','lessons','status'];
-  if(fields.some(field=>field!==collection&&!eq(before[field],after[field])))return false;
+  const fields=['stops','experiences','bookings','lessons','status'];
+  if(fields.some(field=>field!==collection&&!eq(
+    field==='experiences'?(before[field]??[]):before[field],
+    field==='experiences'?(after[field]??[]):after[field])))return false;
   return collection==='trip'||(before.title===after.title &&
     before.starts_on===after.starts_on && before.duration_days===after.duration_days);
 }
 const operations={
   add_stop:'stops',edit_stop:'stops',remove_stop:'stops',
   add_booking:'bookings',correct_booking:'bookings',add_lesson:'lessons',
+  add_experience:'experiences',edit_experience:'experiences',remove_experience:'experiences',
   edit_trip:'trip',set_status:'status'
 };
 function value(state,collection,id){
   if(state==null)return null;
-  if(['stops','bookings','lessons'].includes(collection))
-    return state[collection].find(x=>x.id===id)||null;
+  if(['stops','experiences','bookings','lessons'].includes(collection))
+    return (state[collection]??[]).find(x=>x.id===id)||null;
   if(collection==='status')return state.status;
   if(collection==='trip')return {title:state.title,starts_on:state.starts_on,duration_days:state.duration_days};
   fail('Unknown event collection');
@@ -58,21 +61,29 @@ export function validatePortablePlannerRecords(records){
     if(!state||state.schema!=='justelle-itinerary-v1'||state.id!==p.id||
        !Number.isSafeInteger(state.revision)||state.revision<0||
        typeof state.last_event_id!=='string'||!state.last_event_id||
-       !Array.isArray(state.stops)||!Array.isArray(state.bookings)||!Array.isArray(state.lessons))
+       !Array.isArray(state.stops)||!Array.isArray(state.bookings)||!Array.isArray(state.lessons)||
+       (state.experiences!==undefined&&!Array.isArray(state.experiences)))
       fail('Invalid saved adventure state');
     linked(p.author_id,members,'planner author');
     linked(p.last_modified_by,members,'planner editor');
     // The day projection validates trip bounds without deriving local dates
     // from time-zone-sensitive midnight conversions.
     try{itineraryDays(state);}catch{fail('Invalid itinerary dates or duration');}
-    for(const kind of ['stops','bookings','lessons']){
-      const rows=state[kind];if(new Set(rows.map(x=>x.id)).size!==rows.length)
+    for(const kind of ['stops','experiences','bookings','lessons']){
+      const rows=state[kind]??[];if(new Set(rows.map(x=>x.id)).size!==rows.length)
         fail('Duplicate '+kind+' stable ID');
     }
     for(const s of state.stops)if(!['possible','planned'].includes(s.status)||
       !Number.isInteger(s.from_day)||!Number.isInteger(s.through_day)||
       s.from_day<1||s.through_day<=s.from_day||s.through_day>state.duration_days+1)
       fail('Invalid stay/nights or possible/planned state');
+    for(const e of state.experiences??[]){
+      if(typeof e.title!=='string'||!e.title.trim()||e.title.length>200||
+         !Number.isInteger(e.day)||e.day<1||e.day>state.duration_days||
+         !['possible','planned'].includes(e.status)||
+         typeof e.notes!=='string'||e.notes.length>1000)
+        fail('Invalid day experience');
+    }
     for(const b of state.bookings){
       if(!['stay','flight','transport','activity'].includes(b.kind)||
          !['unverified','confirmed','cancelled','voided'].includes(b.status)||
@@ -103,7 +114,7 @@ export function validatePortablePlannerRecords(records){
           fail('Invalid adventure creation event');
       }else{
         if(e.operation==='create_trip'||
-           (e.operation==='undo_last'?!['stops','bookings','lessons','status','trip'].includes(e.collection):
+           (e.operation==='undo_last'?!['stops','experiences','bookings','lessons','status','trip'].includes(e.collection):
               operations[e.operation]!==e.collection)||
            !untouchedExcept(e.before_state,e.after_state,e.collection)||
            !eq(e.before,value(e.before_state,e.collection,e.record_id))||
