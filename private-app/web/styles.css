@@ -124,7 +124,7 @@ select{font:inherit;width:100%;border:1px solid #adc5c4;border-radius:12px;paddi
 .planner-stay{border:1px solid #dce9e4;border-left:5px solid #328779;padding:12px;border-radius:11px}
 .planner-stay strong{display:block;overflow-wrap:anywhere}
 .planner-stay .meta{margin:7px 0}
-.planner-stay button{margin:0 9px 0 0;padding:9px;min-height:42px}
+.planner-stay button{margin:0 9px 0 0;padding:9px;min-height:44px}
 .planner-actions{display:flex;justify-content:space-between;align-items:flex-start;gap:15px;flex-wrap:wrap;margin:13px 0}
 .planner-actions details{max-width:100%;font-size:.85rem;color:#3c6560}
 .planner-actions details ol{padding-left:18px;line-height:1.6}
@@ -139,3 +139,8 @@ select{font:inherit;width:100%;border:1px solid #adc5c4;border-radius:12px;paddi
 .journey-days{margin:14px 0}
 .journey-days summary,.planner-detail details summary{padding:12px 2px;cursor:pointer;font-weight:600}
 #planner-day-detail{background:#f6f9f7;border-radius:12px;padding:10px;margin:7px 0}
+
+/* Day and stay navigation are explicit controls, including a non-drag fallback. */
+#planner-day-detail button{min-height:44px;margin:4px 8px 6px 0}
+#planner-days-view button[aria-pressed="true"]{outline:2px solid #17696a;outline-offset:2px}
+#planner-edit-stay{margin:10px 0 18px}
