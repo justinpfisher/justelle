@@ -108,6 +108,14 @@ try{
   assert.equal(await A.locator('.planner-week').first().evaluate(n=>n.open),true);
   await A.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour').waitFor();
+  const dayMap=await A.locator('#planner-day-detail a[href^="https://maps.apple.com/"]')
+    .first().getAttribute('href');
+  const placeMap=await A.locator('#planner-stays .planner-stay a[href^="https://maps.apple.com/"]')
+    .first().getAttribute('href');
+  assert.equal(dayMap,placeMap,'Place and day navigation use the same canonical stop');
+  assert.equal(new URL(dayMap).searchParams.get('query'),'Fictional Harbour');
+  assert.equal(await A.locator('#planner-day-detail').getByRole('link',
+    {name:'Search in Apple Maps'}).getAttribute('rel'),'noopener noreferrer');
   // Stay details use the existing atomic revision chain, with touch/keyboard
   // controls and immediate subscription updates on the second member's phone.
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
