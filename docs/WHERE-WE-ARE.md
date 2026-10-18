@@ -12,7 +12,7 @@ This page is generated from issues #20–#27. Checkboxes are evidence-tracking c
 | --- | --- | ---: | --- |
 | [M0 — Development foundation](https://github.com/justinpfisher/justelle/issues/20) | Foundation | 5/5 | Complete |
 | [M1 — Shared records and recovery](https://github.com/justinpfisher/justelle/issues/21) | V1 | 6/6 | Complete |
-| [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22) | V1 | 2/6 | Current |
+| [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22) | V1 | 3/6 | Current |
 | [M3 — Controlled AI planning](https://github.com/justinpfisher/justelle/issues/23) | V1 | 0/5 | Upcoming |
 | [M4 — Secure iPhone production launch](https://github.com/justinpfisher/justelle/issues/24) | V1 | 0/6 | Upcoming |
 | [M5 — Travel-day essentials and discovery](https://github.com/justinpfisher/justelle/issues/25) | Later | 0/5 | Upcoming |
@@ -23,7 +23,7 @@ This page is generated from issues #20–#27. Checkboxes are evidence-tracking c
 
 **[M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22)** is the first incomplete milestone. Next unchecked acceptance criterion:
 
-> Either member can adjust stays, dates and experiences through simple accessible controls, see synchronized live updates, inspect History and Undo.
+> Map/place/day selections agree with the same canonical itinerary; tentative routes are never portrayed as confirmed transport.
 
 Only check this when verified. See [implementation Issue #4](https://github.com/justinpfisher/justelle/issues/4).
 
