@@ -36,7 +36,12 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
   async function render(plan){
     const ticket=++request,root=$('planner-bookings');root.replaceChildren();
     $('planner-booking-source').replaceChildren();
+    const related=$('planner-booking-stop'),previous=related.value;
+    related.replaceChildren(new Option('No specific place',''));
     if(!plan)return;
+    for(const stop of plan.stops.slice().sort((a,b)=>a.from_day-b.from_day))
+      related.add(new Option(stop.title+' · day '+stop.from_day,stop.id));
+    if([...related.options].some(x=>x.value===previous))related.value=previous;
     if(!plan.bookings.length)root.append(node('li','empty','No saved booking details yet.'));
     let sources=[];
     try{sources=await planner.readSources(plan.id);}
@@ -50,9 +55,21 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
         ' · '+(b.status==='confirmed'?'Member-recorded confirmation':'Not confirmed')));
       const view=node('button','text-button',b.source_id?'Show original details':'No source attached');
       view.type='button';view.disabled=!b.source_id;
-      view.onclick=()=>void openSource({...b,adventure_id:plan.id},map.get(b.source_id));
+      view.onclick=()=>void openBooking(b.id);
       li.append(view);root.append(li);
     }
+  }
+  async function openBooking(bookingId){
+    const plan=getPlan(),booking=plan?.bookings.find(b=>b.id===bookingId);
+    if(!plan||!booking)return;
+    $('planner-bookings-panel').open=true;
+    try{
+      const sources=await planner.readSources(plan.id);
+      if(stopped||getPlan()?.id!==plan.id)return;
+      await openSource({...booking,adventure_id:plan.id},
+        sources.find(source=>source.id===booking.source_id));
+      $('planner-booking-source').scrollIntoView({block:'nearest'});
+    }catch(error){onError(error);}
   }
   const submit=async e=>{
     e.preventDefault();const p=getPlan();if(!p)return;
@@ -69,7 +86,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
         supplier:$('planner-booking-supplier').value,reference:$('planner-booking-reference').value,
         documentId});
       await planner.editPlan(user,p.id,{type:'add_booking',booking:{
-        id:crypto.randomUUID(),kind,stop_id:null,starts_on:starts,ends_on:ends,
+        id:crypto.randomUUID(),kind,stop_id:$('planner-booking-stop').value||null,
+        starts_on:starts,ends_on:ends,
         status,source_id:sourceId,summary:title
       }},p.revision);
       $('planner-add-booking').reset();
@@ -78,5 +96,5 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     finally{button.disabled=false;}
   };
   $('planner-add-booking').addEventListener('submit',submit);
-  return {render,dispose(){stopped=true;request++;$('planner-add-booking').removeEventListener('submit',submit);}};
+  return {render,openBooking,dispose(){stopped=true;request++;$('planner-add-booking').removeEventListener('submit',submit);}};
 }
