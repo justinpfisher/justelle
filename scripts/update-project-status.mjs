@@ -15,7 +15,7 @@ export function acceptanceItems(body) {
   return rows;
 }
 
-export function calculateMilestones(config,issues,pr) {
+export function calculateMilestones(config,issues) {
   if(config.schema!==1||!Array.isArray(config.milestones)||!config.milestones.length)
     throw Error('Invalid milestone configuration');
   const rows=config.milestones.map(m=>{
@@ -35,12 +35,9 @@ export function calculateMilestones(config,issues,pr) {
     m.checked?'Ready for review':m.id===first?.id?'Current':m.done>0?'In progress':'Upcoming'}));
   const v1=rows.filter(x=>x.release==='V1');
   const ready=v1.length>0&&v1.every(x=>x.complete);
-  const pr5=pr?.merged_at?'Merged source (not proof of deployment)':
-    pr?.state==='closed'?'Closed without merging':
-    pr?.draft?'Draft development PR':pr?.state==='open'?'Open development PR':'Unknown';
   return {rows:styled,next:styled.find(x=>x.id===first?.id)||null,
     completed:rows.filter(x=>x.complete).length,
-    ready,v1Completed:v1.filter(x=>x.complete).length,v1Count:v1.length,pr5};
+    ready,v1Completed:v1.filter(x=>x.complete).length,v1Count:v1.length};
 }
 function link(m){return '['+m.id+' — '+m.title+']('+gh+'/issues/'+m.issue+')';}
 function table(data){return data.rows.map(m=>
@@ -58,7 +55,7 @@ export function renderFrontPage(data){
     data.v1Completed+'/'+data.v1Count+' V1 delivery milestones accepted**.','',now,'',
     '| Milestone | Horizon | Criteria | Status |','| --- | --- | ---: | --- |',table(data),'',
     '**[Detailed status and verification boundaries](docs/WHERE-WE-ARE.md)** · '+
-      '[Release issue #4]('+gh+'/issues/4) · [Private-app PR #5]('+gh+'/pull/5) ('+data.pr5+')','',
+      '[Implementation and release issue #4]('+gh+'/issues/4)','',
     'Updated automatically from evidence checklists and milestone issue state. Recorded acceptance is not a separate live-system test. '+
       'The public [justelle.life](https://justelle.life/) homepage is unchanged.','',END].join('\n');
 }
@@ -78,7 +75,7 @@ export function renderDetails(data){
   return ['# Justelle — Where we are','',
     '**Private application:** '+live,'',
     '**Accepted milestones:** '+data.completed+'/'+data.rows.length+'. **V1 release milestones:** '+
-      data.v1Completed+'/'+data.v1Count+'. **Private-app PR #5:** '+data.pr5+'.','',
+      data.v1Completed+'/'+data.v1Count+'.','',
     'This page is generated from issues #20–#27. Checkboxes are evidence-tracking controls, not proof of a live app.','',
     '## Roadmap','',
     '| Milestone | Horizon | Criteria | Recorded status |','| --- | --- | ---: | --- |',table(data),'',
@@ -90,7 +87,7 @@ export function renderDetails(data){
       '- **M1 (development):** Two-member shared records, immutable booking/history, original media and encrypted independent recovery passed fictional emulator/browser tests. '+ 
         '[Merged PR #29]('+gh+'/pull/29) · [Passing CI]('+gh+'/actions/runs/39061319556). This is not hosted or production evidence.':
       '- **M1:** New authenticated plan/booking history and independently restorable record types still need qualification.',
-    '- **M2–M3:** The complete journey-first visual experience and bounded AI assistance remain future acceptance work; the M1 planner is a small functional slice.',
+    '- **M2–M3:** Read [M2]('+gh+'/issues/22) and [M3]('+gh+'/issues/23) for current verified planner and bounded-AI progress. Partial source work does not complete a milestone.',
     '- **M4:** Real Firebase environments, protected original media, cloud B2 restoration, physical iPhone Home Screen, '+
       'production access and tested rollback must pass before the app is called live.',
     '- **M5–M7:** Today/offline/research, Windows/OneDrive permanent archives and mature usability follow the first launch. '+
@@ -104,8 +101,8 @@ export function renderDetails(data){
     'A closed issue with unchecked criteria appears as **Review needed**, while an all-checked open issue appears '+
       'as **Ready for review**. If the update workflow fails, the displayed page may be stale: '+
       '[check its runs]('+gh+'/actions/workflows/project-status.yml) and read the issues directly.','',
-    '**Related:** [Issue #4]('+gh+'/issues/4) · [PR #5]('+gh+'/pull/5) · '+
-      '[Archive implementation #19]('+gh+'/issues/19) · [Product vision](PRODUCT-VISION.md).',''].join('\n');
+    '**Related:** [Issue #4]('+gh+'/issues/4) · [Current source](../README.md) · '+
+      '[Archive implementation M6]('+gh+'/issues/26) · [Product vision](PRODUCT-VISION.md).',''].join('\n');
 }
 
 export function replaceReadmeStatus(readme,block){
@@ -131,10 +128,8 @@ export async function run(){
   if(repo!=='justinpfisher/justelle')throw Error('Unexpected repository: refusing status update');
   if(!token)throw Error('GH_TOKEN required; no silent unauthenticated fallback');
   const config=JSON.parse(await readFile(new URL('../.github/justelle-milestones.json',import.meta.url),'utf8'));
-  const [list,pr]=await Promise.all([
-    Promise.all(config.milestones.map(m=>getApi('issues/'+m.issue,repo,token))),
-    getApi('pulls/5',repo,token)]);
-  const data=calculateMilestones(config,new Map(list.map(i=>[i.number,i])),pr);
+  const list=await Promise.all(config.milestones.map(m=>getApi('issues/'+m.issue,repo,token)));
+  const data=calculateMilestones(config,new Map(list.map(i=>[i.number,i])));
   const readmePath=new URL('../README.md',import.meta.url),docPath=new URL('../docs/WHERE-WE-ARE.md',import.meta.url);
   const original=await readFile(readmePath,'utf8'),readme=replaceReadmeStatus(original,renderFrontPage(data));
   if(original!==readme)await writeFile(readmePath,readme);

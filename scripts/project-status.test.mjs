@@ -24,7 +24,7 @@ test('development foundation is complete but source PR cannot assert live deploy
   assert.equal(s.rows[0].status,'Complete');assert.equal(s.rows[1].status,'Current');
   assert.match(renderFrontPage(s),/NOT VERIFIED LIVE/);
   assert.match(renderDetails(s),/not a qualified public-facing private planner/);
-  assert.match(renderFrontPage(s),/Draft development PR/);
+  assert.doesNotMatch(renderFrontPage(s),/Private-app PR #5|Draft development PR/);
 });
 test('closing an issue with unchecked criteria never counts as accepted',()=>{
   const m=issues();m.set(21,issue(21,'M1 — Storage',[false,true],'closed'));
@@ -53,7 +53,7 @@ test('README insertion and repeated automatic updates are idempotent',()=>{
   assert.throws(()=>replaceReadmeStatus('# Title\n<!-- JUSTELLE_MILESTONE_STATUS_END -->',block),/Malformed/);
 });
 
-test('accepted M1 keeps production warning while crediting passing shared-planner evidence',()=>{
+test('accepted M1 keeps production warning while crediting passing shared-planner evidence without a retired PR dependency',()=>{
   const m=issues();m.set(21,issue(21,'M1 — Storage',[true,true],'closed'));
   const result=calculateMilestones(def,m,{state:'open',draft:true});
   const details=renderDetails(result);
@@ -63,4 +63,6 @@ test('accepted M1 keeps production warning while crediting passing shared-planne
   assert.match(details,/M2–M3/);
   assert.doesNotMatch(details,/M1–M3/);
   assert.equal(result.completed,2);
+  assert.doesNotMatch(details,/Private-app PR #5|Archive implementation #19/);
+  assert.match(details,/issues\/26/);
 });
