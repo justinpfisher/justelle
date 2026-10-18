@@ -145,7 +145,7 @@
             <div id="planner-days-view" class="planner-day-grid"></div>
             <div id="planner-day-detail" aria-live="polite"></div>
           </details>
-          <details><summary>Booking anchors</summary>
+          <details id="planner-bookings-panel"><summary>Booking anchors</summary>
             <ul id="planner-bookings"></ul>
             <form id="planner-add-booking" class="planner-form soft-card">
               <p class="meta">Copy details from your original confirmation. This records information in Justelle; it does not change the supplier booking.</p>
@@ -156,6 +156,7 @@
                   <option value="stay">Accommodation</option><option value="flight">Flight</option>
                   <option value="transport">Other transfer</option><option value="activity">Activity</option>
                 </select></label>
+                <label for="planner-booking-stop">Related place (optional)<select id="planner-booking-stop"><option value="">No specific place</option></select></label>
                 <label for="planner-booking-start">Starts<input type="date" id="planner-booking-start" required></label>
                 <label for="planner-booking-end">Ends<input type="date" id="planner-booking-end" required></label>
               </div>
@@ -177,6 +178,21 @@
           <section id="planner-feedback-results" role="status" aria-label="On-demand planning feedback" hidden></section>
           <section id="planner-today-result" role="status" aria-label="Travel-day essentials" hidden></section>
           <ul id="planner-stays" class="planner-stays"></ul>
+          <form id="planner-edit-stay" class="planner-form soft-card" hidden>
+            <h4>Edit place</h4>
+            <p id="planner-edit-status" class="meta" role="status" aria-live="polite"></p>
+            <label for="planner-edit-title">Place name</label>
+            <input id="planner-edit-title" maxlength="200" required>
+            <div class="planner-fields">
+              <label for="planner-edit-from">From day<input id="planner-edit-from" type="number" min="1" max="90" required></label>
+              <label for="planner-edit-nights">Nights<input id="planner-edit-nights" type="number" min="1" max="90" required></label>
+              <label for="planner-edit-state">Planning status<select id="planner-edit-state"><option value="possible">Possible</option><option value="planned">Planned</option></select></label>
+            </div>
+            <p class="meta">This changes the shared itinerary, not any supplier booking. Booking mismatches will be flagged.</p>
+            <button type="submit" class="secondary">Save place changes</button>
+            <button type="button" id="planner-edit-refresh" class="text-button">Review latest version</button>
+            <button type="button" id="planner-edit-cancel" class="text-button">Cancel</button>
+          </form>
           <form id="planner-add-stay" class="planner-form">
             <label for="planner-stay-title">A place to stay or consider</label>
             <input id="planner-stay-title" maxlength="200" placeholder="A city or place" required>
