@@ -101,6 +101,11 @@ export function validatePortablePlannerRecords(records){
     let previous=null;
     for(let index=0;index<chain.length;index++){
       const e=chain[index];seen.add(e.id);
+      if((e.instruction_text!==undefined || e.instruction_format!==undefined) &&
+         (typeof e.instruction_text!=='string'||!e.instruction_text.trim()||
+          e.instruction_text.length>300||
+          e.instruction_format!=='justelle-member-instruction-v1'))
+        fail('Invalid original member instruction provenance');
       if(e.revision!==index||e.previous_event_id!==(previous?.id||null)||
          e.after_state?.revision!==index||e.after_state?.last_event_id!==e.id||
          !eq(e.before_state,previous?.after_state||null)||
