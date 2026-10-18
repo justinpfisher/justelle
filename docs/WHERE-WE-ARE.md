@@ -2,7 +2,7 @@
 
 **Private application:** NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; hosted qualification and real-member production remain unverified.
 
-**Accepted milestones:** 2/8. **V1 release milestones:** 1/4. **Private-app PR #5:** Draft development PR.
+**Accepted milestones:** 2/8. **V1 release milestones:** 1/4. **Private-app PR #5:** Merged source (not proof of deployment).
 
 This page is generated from issues #20–#27. Checkboxes are evidence-tracking controls, not proof of a live app.
 
@@ -37,7 +37,7 @@ Only check this when verified. See [implementation Issue #4](https://github.com/
 
 ## Keeping this view current
 
-Each milestone has one issue with an **Acceptance checklist**. Developers and AI agents must link verified evidence and check off criteria as they are met; close the issue only when every criterion passes. [The status workflow](../.github/workflows/project-status.yml) reads checklist and issue open/closed state and regenerates the repository README and this document on changes and daily fallback. It never triggers a deployment, expands access or spends money.
+Each milestone has one issue with an **Acceptance checklist**. Developers and AI agents must link verified evidence and check off criteria as they are met; close the issue only when every criterion passes. [The status workflow](../.github/workflows/project-status.yml) reads checklist and issue open/closed state and regenerates the repository README and this document on acceptance/PR-state changes and daily recovery fallback. It never triggers a deployment, expands access or spends money.
 
 A closed issue with unchecked criteria appears as **Review needed**, while an all-checked open issue appears as **Ready for review**. If the update workflow fails, the displayed page may be stale: [check its runs](https://github.com/justinpfisher/justelle/actions/workflows/project-status.yml) and read the issues directly.
 

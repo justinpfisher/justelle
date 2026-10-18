@@ -19,7 +19,7 @@
 | [M6 — OneDrive archives and efficient backups](https://github.com/justinpfisher/justelle/issues/26) | Later | 0/6 | Upcoming |
 | [M7 — Mature usability and sustainability](https://github.com/justinpfisher/justelle/issues/27) | Later | 0/5 | Upcoming |
 
-**[Detailed status and verification boundaries](docs/WHERE-WE-ARE.md)** · [Release issue #4](https://github.com/justinpfisher/justelle/issues/4) · [Private-app PR #5](https://github.com/justinpfisher/justelle/pull/5) (Draft development PR)
+**[Detailed status and verification boundaries](docs/WHERE-WE-ARE.md)** · [Release issue #4](https://github.com/justinpfisher/justelle/issues/4) · [Private-app PR #5](https://github.com/justinpfisher/justelle/pull/5) (Merged source (not proof of deployment))
 
 Updated automatically from evidence checklists and milestone issue state. Recorded acceptance is not a separate live-system test. The public [justelle.life](https://justelle.life/) homepage is unchanged.
 
