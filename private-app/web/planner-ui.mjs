@@ -9,7 +9,7 @@ const el=(tag,className='',content='')=>{
   if(content)node.textContent=content;return node;
 };
 export function mountPlannerUI({planner,user,membership,onError,announce}){
-  let plans=[],selected=null,stopped=false;
+  let plans=[],selected=null,selectedDay=null,stopped=false;
   const name=id=>{
     const uid=membership.uids.find(uid=>membership.people[uid]===id);
     return uid===user.uid?'You':membership.labels?.[uid]||'The other member';
@@ -37,13 +37,13 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       const planned=p.stops.filter(s=>s.status==='planned').length,possible=p.stops.length-planned;
       card.append(el('p','meta',planned+' planned places · '+possible+' possibilities'));
       const open=el('button','secondary','Open plan');open.type='button';
-      open.onclick=()=>{selected=p.id;render();void renderHistory();};
+      open.onclick=()=>{if(selected!==p.id){selectedDay=null;closeStayEditor();}selected=p.id;render();void renderHistory();};
       card.append(open);list.append(card);
       }
     }
     const p=plans.find(p=>p.id===selected);
     $('planner-detail').hidden=!p;
-    if(!p){void bookingUI.render(null);return;}
+    if(!p){closeStayEditor();selectedDay=null;void bookingUI.render(null);return;}
     void bookingUI.render(p);
     $('planner-detail-title').textContent=p.title;
     const tripForm=$('planner-trip-form');
@@ -60,6 +60,13 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-summary').textContent=(p.starts_on||'Undated')+' · '+p.duration_days+
       ' days · Revision '+p.revision+' · Shared changes save immediately';
     $('planner-undo').disabled=p.revision===0;
+    const stayForm=$('planner-edit-stay');
+    if(!stayForm.hidden){
+      if(stayForm.dataset.planId!==p.id||!p.stops.some(s=>s.id===stayForm.dataset.stopId))closeStayEditor();
+      else $('planner-edit-status').textContent=Number(stayForm.dataset.baseRevision)!==p.revision?
+        'The shared plan changed. Review the latest version before saving your draft.':
+        'Editing the shared plan · Booking confirmations stay unchanged.';
+    }
     $('planner-feedback-results').hidden=true;
     $('planner-today-result').hidden=true;
     const journey=journeyOverview(p),overview=$('planner-journey');
@@ -71,24 +78,22 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       alerts.append(el('p','planner-warning',signal.code.replaceAll('_',' ')+' · This has not changed an external reservation.'));
     const days=$('planner-days-view');days.replaceChildren();
     for(const week of journeyWeeks(p)){
-      const panel=el('details','planner-week');panel.open=week.number===1;
+      const panel=el('details','planner-week');
+      panel.dataset.fromDay=String(week.from_day);panel.dataset.toDay=String(week.to_day);
+      panel.open=week.number===1||(selectedDay!==null&&week.from_day<=selectedDay&&selectedDay<=week.to_day);
       panel.append(el('summary','', 'Week '+week.number+' · Days '+week.from_day+'–'+week.to_day));
       const weekDays=el('div','planner-day-grid');
       for(const day of week.days){
       const button=el('button','secondary','Day '+day.day+(day.date?' · '+day.date:''));
-      button.type='button';
-      button.onclick=()=>{
-        const detail=dayDetail(p,day.day),out=$('planner-day-detail');
-        out.replaceChildren(el('h4','',button.textContent),
-          el('p','',detail.planned.map(x=>x.title).join(', ')||'No planned overnight base'),
-          el('p','meta',detail.possibilities.map(x=>x.title).join(', ')||'No alternative stops'));
-        for(const booking of detail.bookings)
-          out.append(el('p','meta',booking.status+' · '+booking.summary));
-      };
+      button.type='button';button.dataset.day=String(day.day);
+      button.setAttribute('aria-pressed',String(selectedDay===day.day));
+      button.onclick=()=>showDay(p,day.day);
       weekDays.append(button);
       }
       panel.append(weekDays);days.append(panel);
     }
+    if(selectedDay!==null&&selectedDay<=p.duration_days)showDay(p,selectedDay);
+    else $('planner-day-detail').replaceChildren(el('p','meta','Select a day to see planned places, possibilities and bookings.'));
     const stays=$('planner-stays');stays.replaceChildren();
     for(const s of p.stops.slice().sort((a,b)=>a.from_day-b.from_day)){
       const row=el('li','planner-stay');
@@ -102,12 +107,85 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       move.type='button';move.disabled=s.through_day>p.duration_days;
       move.onclick=()=>void edit(p,{type:'edit_stop',id:s.id,
         patch:{from_day:s.from_day+1,through_day:s.through_day+1}});
-      row.append(toggle,move);stays.append(row);
+      const change=el('button','text-button','Edit details');
+      change.type='button';change.onclick=()=>openStayEditor(p,s);
+      const viewDay=el('button','text-button','Show day '+s.from_day);
+      viewDay.type='button';viewDay.onclick=()=>revealDay(p,s.from_day);
+      row.append(toggle,move,change,viewDay);
+      for(const booking of p.bookings.filter(b=>b.stop_id===s.id)){
+        const link=el('button','text-button','Booking: '+booking.summary);
+        link.type='button';link.onclick=()=>void bookingUI.openBooking(booking.id);
+        row.append(link);
+      }
+      stays.append(row);
     }
     if(p.stops.length===0)stays.append(el('li','empty','No places added. Start with a possibility.'));
     $('planner-from').max=String(p.duration_days);
     $('planner-nights').max=String(p.duration_days);
   }
+  function showDay(p,day){
+    const detail=dayDetail(p,day),out=$('planner-day-detail');
+    selectedDay=day;
+    for(const b of document.querySelectorAll('#planner-days-view button[data-day]'))
+      b.setAttribute('aria-pressed',String(Number(b.dataset.day)===day));
+    out.replaceChildren(el('h4','','Day '+day+(detail.date?' · '+detail.date:'')),
+      el('p','',detail.planned.map(x=>x.title).join(', ')||'No planned overnight base'),
+      el('p','meta',detail.possibilities.map(x=>x.title).join(', ')||'No alternative stops'));
+    for(const booking of detail.bookings){
+      const link=el('button','text-button','View booking · '+booking.summary);
+      link.type='button';link.onclick=()=>void bookingUI.openBooking(booking.id);
+      out.append(el('p','meta',booking.status+' · '+booking.summary),link);
+    }
+  }
+  function revealDay(p,day){
+    $('planner-days-view').closest('details').open=true;
+    for(const panel of document.querySelectorAll('#planner-days-view .planner-week'))
+      if(Number(panel.dataset.fromDay)<=day&&day<=Number(panel.dataset.toDay))panel.open=true;
+    showDay(p,day);
+    $('planner-day-detail').scrollIntoView({block:'nearest'});
+  }
+  function closeStayEditor(){
+    const form=$('planner-edit-stay');form.hidden=true;delete form.dataset.planId;
+    delete form.dataset.stopId;delete form.dataset.baseRevision;
+  }
+  function openStayEditor(p,stop){
+    const form=$('planner-edit-stay');
+    form.dataset.planId=p.id;form.dataset.stopId=stop.id;
+    form.dataset.baseRevision=String(p.revision);
+    $('planner-edit-title').value=stop.title;
+    $('planner-edit-from').value=String(stop.from_day);
+    $('planner-edit-nights').value=String(stop.through_day-stop.from_day);
+    $('planner-edit-state').value=stop.status;
+    $('planner-edit-from').max=String(p.duration_days);
+    $('planner-edit-nights').max=String(p.duration_days);
+    $('planner-edit-status').textContent='Editing '+stop.title+' · revision '+p.revision;
+    form.hidden=false;
+    form.scrollIntoView({block:'nearest'});
+  }
+  const refreshStay=()=>{
+    const form=$('planner-edit-stay'),p=plans.find(x=>x.id===selected);
+    const stop=p?.stops.find(s=>s.id===form.dataset.stopId);
+    if(!stop)return closeStayEditor();
+    openStayEditor(p,stop);
+  };
+  const saveStay=async event=>{
+    event.preventDefault();
+    const form=$('planner-edit-stay'),p=plans.find(x=>x.id===selected);
+    const stop=p?.stops.find(s=>s.id===form.dataset.stopId);
+    if(!stop||form.dataset.planId!==p.id)return onError(Error('Choose a current place to edit.'));
+    if(Number(form.dataset.baseRevision)!==p.revision)
+      return onError(Error('The shared plan changed while you were editing. Review the latest version before saving.'));
+    const from=Number($('planner-edit-from').value),nights=Number($('planner-edit-nights').value);
+    if(!Number.isInteger(from)||!Number.isInteger(nights)||from<1||nights<1||
+       from+nights>p.duration_days+1)
+      return onError(Error('The stay must fit within the current adventure days.'));
+    const patch={title:$('planner-edit-title').value.trim(),from_day:from,
+      through_day:from+nights,status:$('planner-edit-state').value};
+    const button=form.querySelector('[type=submit]');button.disabled=true;
+    try{
+      if(await edit(p,{type:'edit_stop',id:stop.id,patch}))closeStayEditor();
+    }finally{button.disabled=false;}
+  };
   async function renderHistory(){
     if(!selected||stopped)return;
     try{
@@ -126,7 +204,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       await planner.editPlan(user,p.id,change,p.revision);
       announce('Saved for both of you. Undo remains available.');
       await renderHistory();
-    }catch(error){onError(error);}
+      return true;
+    }catch(error){onError(error);return false;}
   }
   const created=async event=>{
     event.preventDefault();try{
@@ -201,13 +280,16 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     void edit(p,{type:'set_status',status:p.status==='archived'?'planning':'archived'});
   };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
-  const close=()=>{selected=null;render();};
+  const close=()=>{selected=null;selectedDay=null;closeStayEditor();render();};
   $('planner-create').addEventListener('submit',created);
   $('planner-trip-form').addEventListener('input',tripDirty);
   $('planner-trip-form').addEventListener('submit',saveTrip);
   $('planner-archive').addEventListener('click',archive);
   $('planner-trip-refresh').addEventListener('click',refreshTrip);
   $('planner-add-stay').addEventListener('submit',added);
+  $('planner-edit-stay').addEventListener('submit',saveStay);
+  $('planner-edit-refresh').addEventListener('click',refreshStay);
+  $('planner-edit-cancel').addEventListener('click',closeStayEditor);
   $('planner-undo').addEventListener('click',undo);
   $('planner-feedback').addEventListener('click',feedback);
   $('planner-today').addEventListener('click',showToday);
@@ -231,6 +313,9 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-archive').removeEventListener('click',archive);
     $('planner-trip-refresh').removeEventListener('click',refreshTrip);
     $('planner-add-stay').removeEventListener('submit',added);
+    $('planner-edit-stay').removeEventListener('submit',saveStay);
+    $('planner-edit-refresh').removeEventListener('click',refreshStay);
+    $('planner-edit-cancel').removeEventListener('click',closeStayEditor);
     $('planner-undo').removeEventListener('click',undo);
     $('planner-feedback').removeEventListener('click',feedback);
     $('planner-today').removeEventListener('click',showToday);
