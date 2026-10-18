@@ -19,7 +19,8 @@ const verifyPlan = plan => {
       !Number.isInteger(plan.duration_days) || plan.duration_days < 1 || plan.duration_days > 90 ||
       !Number.isSafeInteger(plan.revision) || plan.revision < 0 ||
       !['planning', 'archived'].includes(plan.status) ||
-      !Array.isArray(plan.stops) || !Array.isArray(plan.bookings) || !Array.isArray(plan.lessons))
+      !Array.isArray(plan.stops) || !Array.isArray(plan.bookings) || !Array.isArray(plan.lessons) ||
+      (plan.experiences !== undefined && !Array.isArray(plan.experiences)))
     throw Error('Unsupported adventure plan');
   return plan;
 };
@@ -44,6 +45,17 @@ function stop(value, plan) {
   span(s, plan);
   return s;
 }
+// Optional on legacy plan snapshots so existing adventures gain experiences on first edit.
+function experience(value, plan) {
+  if (!value || typeof value !== 'object') throw Error('Missing experience');
+  const e = {id:checkId(value.id),title:clean(value.title,200),day:value.day,
+    status:value.status || 'possible',notes:value.notes ?? ''};
+  if (!Number.isInteger(e.day) || e.day < 1 || e.day > plan.duration_days ||
+      !['possible','planned'].includes(e.status) ||
+      typeof e.notes !== 'string' || e.notes.length > 1000)
+    throw Error('Invalid experience day, status or notes');
+  return e;
+}
 function booking(value, plan) {
   if (!value || typeof value !== 'object') throw Error('Missing booking');
   const b = {
@@ -66,7 +78,7 @@ export function createItinerary({id, title, durationDays = 21, startsOn = null})
   if (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 90) throw Error('Invalid trip duration');
   if (startsOn !== null && !isoDate(startsOn)) throw Error('Invalid calendar date');
   return {schema: ITINERARY_SCHEMA, id, title: title.trim(), duration_days: durationDays,
-    starts_on: startsOn, status: 'planning', stops: [], bookings: [], lessons: [],
+    starts_on: startsOn, status: 'planning', stops: [], experiences: [], bookings: [], lessons: [],
     revision: 0, last_event_id: null};
 }
 function collectionUpdate(plan, key, id, nextRecord) {
@@ -78,7 +90,7 @@ function collectionUpdate(plan, key, id, nextRecord) {
   else plan[key][i] = nextRecord;
   return before;
 }
-function readRecord(plan, key, id) {return plan[key].find(item => item.id === id) || null;}
+function readRecord(plan, key, id) {return (plan[key] ?? []).find(item => item.id === id) || null;}
 export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEvent = null}) {
   const original = verifyPlan(input);
   checkId(eventId); checkId(actorId);
@@ -101,6 +113,23 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
       after = stop({...old, ...change.patch}, plan);
     }
     before = collectionUpdate(plan, collection, recordId, after);
+  } else if (change.type === 'add_experience') {
+    collection = 'experiences';plan.experiences ??= [];
+    after = experience(change.experience,plan);recordId = after.id;
+    if (readRecord(plan,collection,recordId)) throw Error('Experience already exists');
+    collectionUpdate(plan,collection,recordId,after);
+  } else if (change.type === 'edit_experience' || change.type === 'remove_experience') {
+    collection = 'experiences';recordId = checkId(change.id);
+    const old = readRecord(plan,collection,recordId);
+    if (!old) throw Error('Experience does not exist');
+    if (change.type === 'edit_experience') {
+      const allowed = ['title','day','status','notes'];
+      if (!change.patch || !Object.keys(change.patch).length ||
+          Object.keys(change.patch).some(k => !allowed.includes(k)))
+        throw Error('Invalid experience patch');
+      after = experience({...old,...change.patch},plan);
+    }
+    before = collectionUpdate(plan,collection,recordId,after);
   } else if (change.type === 'add_booking') {
     collection = 'bookings'; after = booking(change.booking, plan); recordId = after.id;
     if (readRecord(plan, collection, recordId)) throw Error('Booking already exists');
@@ -129,7 +158,8 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
     clean(after.title, 160);
     if (after.starts_on !== null && !isoDate(after.starts_on)) throw Error('Invalid calendar date');
     if (!Number.isInteger(after.duration_days) || after.duration_days < 1 || after.duration_days > 90 ||
-        plan.stops.some(s => s.through_day > after.duration_days + 1))
+        (plan.stops.some(s => s.through_day > after.duration_days + 1) ||
+         (plan.experiences ?? []).some(e => e.day > after.duration_days)))
       throw Error('Trip duration conflicts with current stops');
     Object.assign(plan, after);
   } else if (change.type === 'set_status') {
@@ -139,7 +169,7 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
   } else if (change.type === 'undo_last') {
     if (!lastEvent || lastEvent.id !== original.last_event_id ||
         lastEvent.revision !== original.revision ||
-        !['stops', 'bookings', 'lessons', 'status', 'trip'].includes(lastEvent.collection))
+        !['stops', 'experiences', 'bookings', 'lessons', 'status', 'trip'].includes(lastEvent.collection))
       throw Error('Latest event required for undo');
     collection = lastEvent.collection; recordId = lastEvent.record_id;
     if (collection === 'trip') {
@@ -176,6 +206,7 @@ export function itineraryDays(input) {
     const day = i + 1, date = dateAt(plan.starts_on, day);
     return {day, date,
       stops: plan.stops.filter(s => s.from_day <= day && day < s.through_day),
+      experiences: (plan.experiences ?? []).filter(e => e.day === day),
       bookings: date === null ? [] : plan.bookings.filter(b => b.kind === 'stay' ?
         (b.starts_on <= date && date < b.ends_on) : b.starts_on === date)};
   });
