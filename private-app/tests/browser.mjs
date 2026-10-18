@@ -115,7 +115,7 @@ try{
   await A.locator('#planner-edit-nights').fill('2');
   await A.locator('#planner-edit-stay button[type=submit]').click();
   await B.locator('#planner-stays').getByText('Fictional Harbour Revised').waitFor({timeout:15000});
-  assert.equal(await A.locator('#planner-edit-stay').isVisible(),false);
+  await A.locator('#planner-edit-stay').waitFor({state:'hidden',timeout:15000});
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show day 2'}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
   // Ordinary day activities/ideas are not booking confirmations. Members can
