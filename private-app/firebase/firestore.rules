@@ -216,13 +216,14 @@ service cloud.firestore {
     function planState(s, planId) {
       return s is map &&
         s.keys().hasAll(['schema','id','title','duration_days','starts_on','status','stops','bookings','lessons','revision','last_event_id']) &&
-        s.keys().hasOnly(['schema','id','title','duration_days','starts_on','status','stops','bookings','lessons','revision','last_event_id']) &&
+        s.keys().hasOnly(['schema','id','title','duration_days','starts_on','status','stops','experiences','bookings','lessons','revision','last_event_id']) &&
         s.schema == 'justelle-itinerary-v1' && s.id == planId &&
         s.title is string && s.title.size() > 0 && s.title.size() <= 160 &&
         s.duration_days is int && s.duration_days > 0 && s.duration_days <= 90 &&
         (s.starts_on == null || (s.starts_on is string && s.starts_on.size() == 10)) &&
         s.status in ['planning','archived'] &&
         s.stops is list && s.stops.size() <= 100 &&
+        s.get('experiences', []) is list && s.get('experiences', []).size() <= 150 &&
         s.bookings is list && s.bookings.size() <= 150 &&
         s.lessons is list && s.lessons.size() <= 100 &&
         s.revision is int && s.revision >= 0 &&
@@ -265,6 +266,7 @@ service cloud.firestore {
       let after = d.after_state;
       return (collectionName == 'stops' || before.stops == after.stops) &&
         (collectionName == 'bookings' || before.bookings == after.bookings) &&
+        (collectionName == 'experiences' || before.get('experiences',[]) == after.get('experiences',[])) &&
         (collectionName == 'lessons' || before.lessons == after.lessons) &&
         (collectionName == 'trip' || (
           before.title == after.title &&
@@ -277,11 +279,12 @@ service cloud.firestore {
         (d.before_state is map && d.after_state is map &&
           ((d.operation in ['add_stop','edit_stop','remove_stop'] && d.collection == 'stops') ||
            (d.operation in ['add_booking','correct_booking'] && d.collection == 'bookings') ||
+           (d.operation in ['add_experience','edit_experience','remove_experience'] && d.collection == 'experiences') ||
            (d.operation == 'add_lesson' && d.collection == 'lessons') ||
            (d.operation == 'edit_trip' && d.collection == 'trip') ||
            (d.operation == 'set_status' && d.collection == 'status') ||
            (d.operation == 'undo_last' &&
-             d.collection in ['stops','bookings','lessons','trip','status'])) &&
+             d.collection in ['stops','experiences','bookings','lessons','trip','status'])) &&
           planUnchangedExcept(d,d.collection));
     }
     function validPlanEvent(roomId, eventId) {

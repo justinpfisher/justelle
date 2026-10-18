@@ -144,6 +144,39 @@
           <details class="journey-days"><summary>Explore days</summary>
             <div id="planner-days-view" class="planner-day-grid"></div>
             <div id="planner-day-detail" aria-live="polite"></div>
+            <h4>Experiences and ideas</h4>
+            <ul id="planner-experiences" class="planner-stays"></ul>
+            <form id="planner-edit-experience" class="planner-form soft-card" hidden>
+              <h4>Edit experience</h4>
+              <p id="planner-experience-edit-status" class="meta" role="status" aria-live="polite"></p>
+              <label for="planner-experience-edit-title">Experience</label>
+              <input id="planner-experience-edit-title" maxlength="200" required>
+              <div class="planner-fields">
+                <label for="planner-experience-edit-day">Day<input id="planner-experience-edit-day" type="number" min="1" max="90" required></label>
+                <label for="planner-experience-edit-state">Status<select id="planner-experience-edit-state">
+                  <option value="possible">Possible</option><option value="planned">Planned</option>
+                </select></label>
+              </div>
+              <label for="planner-experience-edit-notes">Note (optional)</label>
+              <textarea id="planner-experience-edit-notes" maxlength="1000" rows="2"></textarea>
+              <button type="submit" class="secondary">Save experience changes</button>
+              <button type="button" id="planner-experience-refresh" class="text-button">Review latest version</button>
+              <button type="button" id="planner-experience-cancel" class="text-button">Cancel</button>
+            </form>
+            <form id="planner-add-experience" class="planner-form">
+              <label for="planner-experience-title">Add an experience or possibility</label>
+              <input id="planner-experience-title" maxlength="200" required placeholder="A visit, activity or something to try">
+              <div class="planner-fields">
+                <label for="planner-experience-day">Day<input id="planner-experience-day" type="number" min="1" value="1" max="90" required></label>
+                <label for="planner-experience-state">Status<select id="planner-experience-state">
+                  <option value="possible">Possible</option><option value="planned">Planned</option>
+                </select></label>
+              </div>
+              <label for="planner-experience-notes">Note (optional)</label>
+              <textarea id="planner-experience-notes" maxlength="1000" rows="2"></textarea>
+              <button type="submit" class="secondary">Add experience</button>
+              <p class="meta">An experience here is a plan or idea, not a supplier booking.</p>
+            </form>
           </details>
           <details id="planner-bookings-panel"><summary>Booking anchors</summary>
             <ul id="planner-bookings"></ul>

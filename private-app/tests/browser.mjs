@@ -118,6 +118,22 @@ try{
   assert.equal(await A.locator('#planner-edit-stay').isVisible(),false);
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show day 2'}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
+  // Ordinary day activities/ideas are not booking confirmations. Members can
+  // edit them immediately, with the other member seeing the same day entry.
+  await A.locator('#planner-experience-title').fill('Fictional museum');
+  assert.equal(await A.locator('#planner-experience-day').inputValue(),'2');
+  await A.locator('#planner-experience-notes').fill('Flexible afternoon');
+  await A.locator('#planner-add-experience button[type=submit]').click();
+  await B.getByText('Explore days',{exact:true}).click();
+  await B.locator('#planner-experiences').getByText('Fictional museum').waitFor({timeout:15000});
+  await B.locator('#planner-experiences .planner-stay').getByRole('button',{name:'Edit experience'}).click();
+  await B.locator('#planner-experience-edit-title').fill('Fictional gallery');
+  await B.locator('#planner-experience-edit-state').selectOption('planned');
+  await B.locator('#planner-edit-experience button[type=submit]').click();
+  await A.locator('#planner-experiences').getByText('Fictional gallery').waitFor({timeout:15000});
+  await A.locator('#planner-experiences .planner-stay').getByRole('button',{name:'Show day 2'}).click();
+  await A.locator('#planner-day-detail').getByText('Planned experience · Fictional gallery',{exact:false}).waitFor();
+  assert.equal((await A.locator('#planner-day-detail').textContent()).includes('booking confirmation'),false);
   assert.equal(await A.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,
     'The journey must not require horizontal scrolling on a 390px phone');
 
@@ -148,7 +164,8 @@ try{
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:/Booking: Fictional inn confirmation/}).click();
   await A.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
-  await B.getByText('Explore days',{exact:true}).click();
+  if(!(await B.locator('.journey-days').evaluate(n=>n.open)))
+    await B.getByText('Explore days',{exact:true}).click();
   await B.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
   await B.locator('#planner-day-detail').getByRole('button',{name:/View booking · Fictional inn confirmation/}).click();
   await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();

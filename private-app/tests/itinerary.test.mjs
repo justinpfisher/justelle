@@ -120,3 +120,52 @@ test('a confirmed hotel extending beyond departure is flagged without deleting i
   const p=edit(make({startsOn:'2026-10-25'}),{type:'add_booking',booking:booking({stop_id:null,starts_on:'2026-11-13',ends_on:'2026-11-18'})},'hotel-overrun').plan;
   assert.deepEqual(itinerarySignals(p),[{code:'booking_outside_trip',booking_id:'booking-1'}]);
 });
+
+test('Unbooked day experiences remain distinct from supplier bookings and preserve Undo history',()=>{
+  const original=make({startsOn:'2026-10-25'});
+  const added=edit(original,{type:'add_experience',experience:{
+    id:'visit-a',title:'Fictional museum',day:8,status:'possible',notes:'Flexible afternoon'
+  }},'experience-1');
+  assert.equal(added.plan.bookings.length,0);
+  assert.equal(itineraryDays(added.plan)[7].experiences[0].title,'Fictional museum');
+  assert.equal(itineraryDays(added.plan)[7].date,'2026-11-01','Local DST transition does not shift experience day');
+  const moved=edit(added.plan,{type:'edit_experience',id:'visit-a',patch:{
+    day:9,status:'planned',title:'Fictional gallery'
+  }},'experience-2');
+  assert.equal(itineraryDays(moved.plan)[7].experiences.length,0);
+  assert.equal(itineraryDays(moved.plan)[8].experiences[0].status,'planned');
+  assert.equal(moved.event.collection,'experiences');
+  const undone=edit(moved.plan,{type:'undo_last'},'experience-3',moved.event);
+  assert.deepEqual(undone.plan.experiences,added.plan.experiences);
+  assert.equal(undone.plan.revision,3);
+  assert.deepEqual(original.experiences,[]);
+});
+
+test('Experience edits reject invalid dates, fields, lost history and silent trip shortening',()=>{
+  const first=edit(make(),{type:'add_experience',experience:{
+    id:'visit-a',title:'Optional visit',day:20,status:'possible',notes:''
+  }},'experience-1').plan;
+  assert.throws(()=>edit(first,{type:'edit_trip',patch:{duration_days:10}},'experience-2'),
+    /duration conflicts/);
+  assert.throws(()=>edit(first,{type:'edit_experience',id:'visit-a',patch:{day:22}},'experience-3'),
+    /experience day/);
+  assert.throws(()=>edit(first,{type:'edit_experience',id:'visit-a',patch:{supplier_confirmed:true}},'experience-4'),
+    /experience patch/);
+  assert.throws(()=>edit(first,{type:'add_experience',experience:{
+    id:'visit-a',title:'Duplicate',day:1,status:'planned',notes:''
+  }},'experience-5'),/already exists/);
+  const removed=edit(first,{type:'remove_experience',id:'visit-a'},'experience-6');
+  assert.deepEqual(removed.plan.experiences,[]);
+  assert.equal(removed.event.before.title,'Optional visit');
+  assert.equal(removed.event.after,null);
+});
+
+test('Legacy snapshot without experiences stays editable and retains its original history shape',()=>{
+  const old=make();delete old.experiences;
+  const editOnLegacy=edit(old,{type:'add_experience',experience:{
+    id:'new-item',title:'Flexible scenic walk',day:1,status:'possible',notes:''
+  }},'experience-legacy');
+  assert.equal(old.experiences,undefined);
+  assert.equal(editOnLegacy.plan.experiences.length,1);
+  assert.equal(editOnLegacy.event.before,null,'The new entry has no prior version');
+});

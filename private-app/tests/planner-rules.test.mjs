@@ -141,13 +141,16 @@ test('Protected source PDF and complete plan/event/history restore work without 
     await two.editPlan({uid:b},planId,{type:'add_booking',booking:booking()},1);
     await two.editPlan({uid:b},planId,{type:'correct_booking',id:bookingId,
       patch:{summary:'Clearly identified correction'}},2);
+    await one.editPlan({uid:a},planId,{type:'add_experience',experience:{
+      id:'walk-activity',title:'Unbooked harbour walk',day:5,status:'possible',notes:'Weather permitting'
+    }},3);
     await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',documentId)));
     await assertFails(getBytes(ref(X.storage('gs://'+projectId+'.firebasestorage.app'),
       'rooms/'+roomId+'/documents/'+documentId)));
     await assertFails(updateDoc(doc(B.firestore(),'rooms',roomId,'plan_documents',documentId),{name:'New original'}));
     const snapshot=await firebaseBackupSource({db,bucket:getStorage(admin).bucket(),pageSize:1});
     assert.equal(snapshot.records.adventure_plans.length,1);
-    assert.equal(snapshot.records.plan_events.length,4);
+    assert.equal(snapshot.records.plan_events.length,5);
     assert.equal(snapshot.records.plan_sources.length,1);
     assert.equal(snapshot.records.plan_documents.length,1);
     validatePortablePlannerRecords(snapshot.records);
@@ -158,6 +161,8 @@ test('Protected source PDF and complete plan/event/history restore work without 
     const recovered=JSON.parse(await readFile(join(output,'records.json'),'utf8'));
     assert.equal(recovered.adventure_plans[0].state.bookings[0].summary,
       'Clearly identified correction');
+    assert.equal(recovered.adventure_plans[0].state.experiences[0].title,'Unbooked harbour walk');
+    assert.ok(recovered.plan_events.some(e=>e.operation==='add_experience'&&e.collection==='experiences'));
     assert.equal(recovered.plan_events.find(e=>e.revision===2).after_state.bookings[0].summary,'Synthetic hotel booking');
     assert.equal(recovered.plan_sources[0].reference,'');
     assert.equal(recovered.plan_documents[0].storage_path,'documents/'+documentId);
@@ -167,6 +172,9 @@ test('Protected source PDF and complete plan/event/history restore work without 
     const damaged=structuredClone(recovered);
     damaged.plan_events.find(e=>e.revision===1).after_state.stops[0].title='Altered historical stop';
     assert.throws(()=>validatePortablePlannerRecords(damaged),/integrity/);
+    const corruptExperience=structuredClone(recovered);
+    corruptExperience.adventure_plans[0].state.experiences[0].day=99;
+    assert.throws(()=>validatePortablePlannerRecords(corruptExperience),/integrity/);
     const orphan=structuredClone(recovered);orphan.plan_sources=[];
     assert.throws(()=>validatePortablePlannerRecords(orphan),/source|booking/);
     await assert.rejects(restoreEncryptedBackup(destination,generateRecoveryKey(),join(folder,'wrong-key')),/authentication/);
@@ -227,4 +235,30 @@ test('Fictional original PDF uploads are private, immutable and readable to the 
    await assertFails(getBytes(denied));
    await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',freshDocumentId)));
  }finally{await env.cleanup();}
+});
+
+test('Both members can revise day experiences; outsiders and forged revisions remain blocked',async()=>{
+  const {env,A,B,X,one,two}=await setup();
+  try{
+    await one.createPlan({uid:a},{id:planId,title:'Fictional shared day plan',
+      durationDays:10,startsOn:'2026-11-01'});
+    await one.editPlan({uid:a},planId,{type:'add_experience',experience:{
+      id:'fictional-visit',title:'Test museum',day:3,status:'possible',notes:''
+    }},0);
+    const latest=await two.readPlan(planId);
+    assert.equal(latest.experiences[0].title,'Test museum');
+    assert.equal(latest.bookings.length,0);
+    await two.editPlan({uid:b},planId,{type:'edit_experience',id:'fictional-visit',
+      patch:{title:'Test gallery',day:4,status:'planned'}},1);
+    await assert.rejects(one.editPlan({uid:a},planId,{type:'edit_experience',
+      id:'fictional-visit',patch:{day:5}},1),/changed/);
+    const history=await two.readHistory(planId);
+    assert.deepEqual(history.map(e=>e.collection),['trip','experiences','experiences']);
+    await one.editPlan({uid:a},planId,{type:'undo_last'},2);
+    assert.equal((await two.readPlan(planId)).experiences[0].day,3);
+    assert.equal((await one.readHistory(planId)).length,4);
+    await assertFails(getDoc(plan(X)));
+    await assertFails(updateDoc(event(A,history[1].id),{operation:'correct_booking'}));
+    await assertFails(updateDoc(plan(B),{'state.experiences':[]}));
+  }finally{await env.cleanup();}
 });
