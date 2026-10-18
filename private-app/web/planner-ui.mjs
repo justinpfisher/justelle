@@ -4,6 +4,7 @@ import {reviewAdventure} from './adventure-feedback.mjs';
 import {todayEssentials} from './today-essentials.mjs';
 import {mountBookingUI} from './booking-ui.mjs';
 import {interpretPlanInstruction} from './instruction-core.mjs';
+import {appleMapsUrl} from './map-links.mjs';
 const $=id=>document.getElementById(id);
 const el=(tag,className='',content='')=>{
   const node=document.createElement(tag);if(className)node.className=className;
@@ -149,7 +150,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       change.type='button';change.onclick=()=>openStayEditor(p,s);
       const viewDay=el('button','text-button','Show day '+s.from_day);
       viewDay.type='button';viewDay.onclick=()=>revealDay(p,s.from_day);
-      row.append(toggle,move,change,viewDay);
+      row.append(toggle,move,change,viewDay,mapLink(s));
       for(const booking of p.bookings.filter(b=>b.stop_id===s.id)){
         const link=el('button','text-button','Booking: '+booking.summary);
         link.type='button';link.onclick=()=>void bookingUI.openBooking(booking.id);
@@ -161,6 +162,15 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-from').max=String(p.duration_days);
     $('planner-nights').max=String(p.duration_days);
   }
+  function mapLink(place){
+    const target=appleMapsUrl(place),anchor=el('a','text-button',
+      target.verified_coordinates?'Show pin in Apple Maps':'Search in Apple Maps');
+    anchor.href=target.href;anchor.target='_blank';anchor.rel='noopener noreferrer';
+    anchor.title=target.verified_coordinates?
+      'Open saved coordinates in Apple Maps. The location is not independently verified.':
+      'Search for this place in Apple Maps. No location has been verified in Justelle.';
+    return anchor;
+  }
   function showDay(p,day){
     const detail=dayDetail(p,day),out=$('planner-day-detail');
     selectedDay=day;
@@ -170,6 +180,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     out.replaceChildren(el('h4','','Day '+day+(detail.date?' · '+detail.date:'')),
       el('p','',detail.planned.map(x=>x.title).join(', ')||'No planned overnight base'),
       el('p','meta',detail.possibilities.map(x=>x.title).join(', ')||'No alternative stops'));
+    for(const stop of detail.stops)
+      out.append(mapLink(stop));
     for(const experience of detail.experiences??[])
       out.append(el('p','meta',(experience.status==='planned'?'Planned':'Possible')+
         ' experience · '+experience.title+(experience.notes?' · '+experience.notes:'')));
