@@ -23,6 +23,12 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     const byType=Object.fromEntries(parts.map(p=>[p.type,p.value]));
     return byType.year+'-'+byType.month+'-'+byType.day;
   }
+  function deviceDate(){
+    // A traveller's iPhone usually follows the destination time zone.
+    // Avoid using the Toronto home sort's date for an abroad Today view.
+    const d=new Date(),pad=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  }
   function render(){
     if(stopped)return;
     const list=$('planner-list');list.replaceChildren();
@@ -395,16 +401,24 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   };
   const showToday=()=>{
     const p=plans.find(x=>x.id===selected);if(!p)return;
-    const d=todayEssentials(p,today()),out=$('planner-today-result');
+    const d=todayEssentials(p,deviceDate()),out=$('planner-today-result');
     out.replaceChildren(el('h4','',"Today's essentials"));
-    if(!d.in_trip)out.append(el('p','', 'No scheduled day in this adventure today.'));
+    if(!d.in_trip)out.append(el('p','', 'No scheduled day in this adventure on your device’s local date.'));
     else{
       out.append(el('p','', 'Day '+d.day+' · '+d.date));
       out.append(el('p','meta','Overnight base: '+(d.overnight?.title||'Not yet planned')));
+      for(const record of d.planned_experiences)
+        out.append(el('p','','Planned experience: '+record.title));
+      for(const record of d.possible_experiences)
+        out.append(el('p','meta','Possible experience: '+record.title));
       for(const record of d.bookings)out.append(el('p','', 'Recorded booking: '+record.summary));
       for(const record of d.uncertain)out.append(el('p','meta','Unverified: '+record.summary));
-      if(d.tomorrow)out.append(el('p','meta','Tomorrow: '+(d.tomorrow.planned_places.join(', ')||'No planned base')));
-      out.append(el('p','meta',d.limitations));
+      if(d.tomorrow){
+        out.append(el('p','meta','Tomorrow’s base: '+(d.tomorrow.planned_places.join(', ')||'No planned base')));
+        if(d.tomorrow.planned_experiences.length)
+          out.append(el('p','meta','Tomorrow’s ideas: '+d.tomorrow.planned_experiences.join(', ')));
+      }
+      out.append(el('p','meta','Today uses your device’s local date, not live location. '+d.limitations));
     }
     out.hidden=false;
   };
