@@ -10,6 +10,7 @@ import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
 import {getStorage} from 'firebase-admin/storage';
 import {plannerBackend} from '../web/planner-backend.mjs';
+import {interpretPlanInstruction} from '../web/instruction-core.mjs';
 import {firebaseBackupSource} from '../memory/firebase-backup-source.mjs';
 import {generateRecoveryKey,writeEncryptedBackup,restoreEncryptedBackup} from '../memory/encrypted-backup.mjs';
 import {validatePortablePlannerRecords} from '../web/plan-integrity.mjs';
@@ -144,13 +145,17 @@ test('Protected source PDF and complete plan/event/history restore work without 
     await one.editPlan({uid:a},planId,{type:'add_experience',experience:{
       id:'walk-activity',title:'Unbooked harbour walk',day:5,status:'possible',notes:'Weather permitting'
     }},3);
+    const instruction='Consider 2 nights in Synthetic Vale starting day 7';
+    const parsed=interpretPlanInstruction(await one.readPlan(planId),instruction);
+    assert.equal(parsed.kind,'ready');
+    await two.editPlan({uid:b},planId,parsed.change,4,{instructionText:instruction});
     await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',documentId)));
     await assertFails(getBytes(ref(X.storage('gs://'+projectId+'.firebasestorage.app'),
       'rooms/'+roomId+'/documents/'+documentId)));
     await assertFails(updateDoc(doc(B.firestore(),'rooms',roomId,'plan_documents',documentId),{name:'New original'}));
     const snapshot=await firebaseBackupSource({db,bucket:getStorage(admin).bucket(),pageSize:1});
     assert.equal(snapshot.records.adventure_plans.length,1);
-    assert.equal(snapshot.records.plan_events.length,5);
+    assert.equal(snapshot.records.plan_events.length,6);
     assert.equal(snapshot.records.plan_sources.length,1);
     assert.equal(snapshot.records.plan_documents.length,1);
     validatePortablePlannerRecords(snapshot.records);
@@ -163,6 +168,8 @@ test('Protected source PDF and complete plan/event/history restore work without 
       'Clearly identified correction');
     assert.equal(recovered.adventure_plans[0].state.experiences[0].title,'Unbooked harbour walk');
     assert.ok(recovered.plan_events.some(e=>e.operation==='add_experience'&&e.collection==='experiences'));
+    assert.equal(recovered.plan_events.find(e=>e.instruction_text)?.instruction_text,
+      'Consider 2 nights in Synthetic Vale starting day 7');
     assert.equal(recovered.plan_events.find(e=>e.revision===2).after_state.bookings[0].summary,'Synthetic hotel booking');
     assert.equal(recovered.plan_sources[0].reference,'');
     assert.equal(recovered.plan_documents[0].storage_path,'documents/'+documentId);
@@ -172,6 +179,9 @@ test('Protected source PDF and complete plan/event/history restore work without 
     const damaged=structuredClone(recovered);
     damaged.plan_events.find(e=>e.revision===1).after_state.stops[0].title='Altered historical stop';
     assert.throws(()=>validatePortablePlannerRecords(damaged),/integrity/);
+    const corruptInstruction=structuredClone(recovered);
+    corruptInstruction.plan_events.find(e=>e.instruction_text).instruction_format='untrusted';
+    assert.throws(()=>validatePortablePlannerRecords(corruptInstruction),/integrity/);
     const corruptExperience=structuredClone(recovered);
     corruptExperience.adventure_plans[0].state.experiences[0].day=99;
     assert.throws(()=>validatePortablePlannerRecords(corruptExperience),/integrity/);
@@ -260,5 +270,32 @@ test('Both members can revise day experiences; outsiders and forged revisions re
     await assertFails(getDoc(plan(X)));
     await assertFails(updateDoc(event(A,history[1].id),{operation:'correct_booking'}));
     await assertFails(updateDoc(plan(B),{'state.experiences':[]}));
+  }finally{await env.cleanup();}
+});
+
+test('Source-bound member instructions reject mismatched edits and preserve original text for History',async()=>{
+  const {env,A,B,one,two}=await setup();
+  try{
+    await one.createPlan({uid:a},{id:planId,title:'Fictional instructable plan',
+      durationDays:10,startsOn:'2026-11-01'});
+    const text='Consider 3 nights in Mirror Bay starting day 4';
+    const parsed=interpretPlanInstruction(await one.readPlan(planId),text);
+    assert.equal(parsed.kind,'ready');assert.equal(parsed.preview_required,false);
+    const saved=await one.editPlan({uid:a},planId,parsed.change,0,{instructionText:text});
+    assert.equal(saved.plan.stops[0].status,'possible');
+    const historical=await two.readHistory(planId);
+    assert.equal(historical[1].instruction_text,text);
+    assert.equal(historical[1].instruction_format,'justelle-member-instruction-v1');
+    await assert.rejects(two.editPlan({uid:b},planId,{type:'edit_stop',id:saved.plan.stops[0].id,
+      patch:{status:'planned'}},1,{instructionText:'Move Mirror Bay to day 7'}),
+      /no longer matches/);
+    assert.equal((await two.readPlan(planId)).revision,1);
+    await two.editPlan({uid:b},planId,{type:'undo_last'},1);
+    assert.deepEqual((await one.readPlan(planId)).stops,[]);
+    const events=await one.readHistory(planId);
+    assert.equal(events[1].instruction_text,text);
+    assert.equal(events[2].operation,'undo_last');
+    assert.equal(events[2].instruction_text,undefined);
+    await assertFails(updateDoc(event(A,events[1].id),{instruction_text:'Tampered original'}));
   }finally{await env.cleanup();}
 });
