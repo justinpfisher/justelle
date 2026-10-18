@@ -2,7 +2,7 @@
 
 **Private application:** NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; hosted qualification and real-member production remain unverified.
 
-**Accepted milestones:** 2/8. **V1 release milestones:** 1/4. **Private-app PR #5:** Merged source (not proof of deployment).
+**Accepted milestones:** 2/8. **V1 release milestones:** 1/4.
 
 This page is generated from issues #20–#27. Checkboxes are evidence-tracking controls, not proof of a live app.
 
@@ -31,7 +31,7 @@ Only check this when verified. See [implementation Issue #4](https://github.com/
 
 - **M0:** Fictional two-member browser/emulator checks, encrypted independent recovery, prepared hosting/AI source, and a pure itinerary model were exercised. This is a **development** milestone, not a hosted pass.
 - **M1 (development):** Two-member shared records, immutable booking/history, original media and encrypted independent recovery passed fictional emulator/browser tests. [Merged PR #29](https://github.com/justinpfisher/justelle/pull/29) · [Passing CI](https://github.com/justinpfisher/justelle/actions/runs/39061319556). This is not hosted or production evidence.
-- **M2–M3:** The complete journey-first visual experience and bounded AI assistance remain future acceptance work; the M1 planner is a small functional slice.
+- **M2–M3:** Read [M2](https://github.com/justinpfisher/justelle/issues/22) and [M3](https://github.com/justinpfisher/justelle/issues/23) for current verified planner and bounded-AI progress. Partial source work does not complete a milestone.
 - **M4:** Real Firebase environments, protected original media, cloud B2 restoration, physical iPhone Home Screen, production access and tested rollback must pass before the app is called live.
 - **M5–M7:** Today/offline/research, Windows/OneDrive permanent archives and mature usability follow the first launch. [The archive policy](BACKUP-ARCHIVE-POLICY.md) is approved, but its automation is not live.
 
@@ -41,4 +41,4 @@ Each milestone has one issue with an **Acceptance checklist**. Developers and AI
 
 A closed issue with unchecked criteria appears as **Review needed**, while an all-checked open issue appears as **Ready for review**. If the update workflow fails, the displayed page may be stale: [check its runs](https://github.com/justinpfisher/justelle/actions/workflows/project-status.yml) and read the issues directly.
 
-**Related:** [Issue #4](https://github.com/justinpfisher/justelle/issues/4) · [PR #5](https://github.com/justinpfisher/justelle/pull/5) · [Archive implementation #19](https://github.com/justinpfisher/justelle/issues/19) · [Product vision](PRODUCT-VISION.md).
+**Related:** [Issue #4](https://github.com/justinpfisher/justelle/issues/4) · [Current source](../README.md) · [Archive implementation M6](https://github.com/justinpfisher/justelle/issues/26) · [Product vision](PRODUCT-VISION.md).
