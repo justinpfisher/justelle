@@ -25,3 +25,29 @@ test('Tentative transfers are labelled as uncertain and do not imply an AI revie
    starts_on:'2026-11-01',ends_on:'2026-11-01',status:'unverified',source_id:null,summary:'Possibility'}},'e1');
  assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unconfirmed_transfer'),true);
 });
+
+test('Four planned experiences trigger a disclosed pacing heuristic, not a fabricated booking conflict',()=>{
+ let p=base();
+ for(let i=0;i<4;i++)p=edit(p,{type:'add_experience',experience:{
+   id:'visit-'+i,title:'Synthetic visit '+i,day:2,status:'planned',notes:''
+ }},'activity-'+i);
+ const snapshot=structuredClone(p);
+ const result=reviewAdventure(p);
+ const busy=result.notices.find(n=>n.code==='busy_day');
+ assert.equal(busy.description,'Day 2 has 4 intended experiences.');
+ assert.deepEqual(busy.evidence.experience_ids,['visit-0','visit-1','visit-2','visit-3']);
+ assert.match(busy.action,/not checked/);
+ assert.equal(busy.severity,'info');
+ assert.deepEqual(p,snapshot,'Checking the itinerary must never edit it');
+});
+
+test('Three planned plus any number of possible experiences produce no false busy-day warning',()=>{
+ let p=base();
+ for(let i=0;i<6;i++)p=edit(p,{type:'add_experience',experience:{
+   id:'stop-'+i,title:'Synthetic visit '+i,day:3,status:i<3?'planned':'possible',notes:''
+ }},'idea-'+i);
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='busy_day'),false);
+ const legacy=structuredClone(p);delete legacy.experiences;
+ assert.equal(reviewAdventure(legacy).notices.some(n=>n.code==='busy_day'),false,
+   'Old records without day experiences remain readable');
+});
