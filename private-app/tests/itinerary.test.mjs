@@ -167,5 +167,5 @@ test('Legacy snapshot without experiences stays editable and retains its origina
   }},'experience-legacy');
   assert.equal(old.experiences,undefined);
   assert.equal(editOnLegacy.plan.experiences.length,1);
-  assert.equal(editOnLegacy.event.before_state.experiences,undefined);
+  assert.equal(editOnLegacy.event.before,null,'The new entry has no prior version');
 });
