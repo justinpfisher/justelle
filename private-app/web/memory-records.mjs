@@ -40,7 +40,9 @@ export function canonicalRecords({membership,messages,decisions,adventures,attac
           previous_event_id:e.previous_event_id,actor_id:e.actor_id,author_id:e.author_id,
           at:asISO(e.created_at),created_at:asISO(e.created_at),operation:e.operation,
           collection:e.collection,record_id:e.record_id,before:e.before,after:e.after,
-          before_state:e.before_state,after_state:e.after_state
+          before_state:e.before_state,after_state:e.after_state,
+          ...(e.instruction_text===undefined?{}:{
+            instruction_text:e.instruction_text,instruction_format:e.instruction_format})
         })),
         plan_sources:planSources.map(a=>({
           id:a.id,adventure_id:a.adventure_id,kind:a.kind,title:a.title,notes:a.notes,
