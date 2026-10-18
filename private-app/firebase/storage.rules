@@ -1,0 +1,45 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function member(roomId) {
+      return request.auth != null &&
+        request.auth.token.justelle_member == true &&
+        request.auth.token.justelle_room == roomId &&
+        firestore.exists(/databases/(default)/documents/rooms/$(roomId)) &&
+        request.auth.uid in firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.uids &&
+        request.auth.uid in firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.people.keys();
+    }
+    match /rooms/{roomId}/media/{fileId} {
+      allow get: if member(roomId);
+      allow list: if false;
+      allow create: if resource == null && member(roomId) &&
+        fileId.matches('[a-f0-9-]{36}(-preview)?') &&
+        request.resource.size > 0 && request.resource.size <= 12582912 &&
+        request.resource.contentType.matches('image/(png|jpeg|heic|heif)') &&
+        request.resource.metadata.author_uid == request.auth.uid &&
+        request.resource.metadata.attachment_id is string &&
+        request.resource.metadata.attachment_id.matches('[a-f0-9-]{36}') &&
+        request.resource.metadata.keys().hasOnly(['author_uid','attachment_id','role']) &&
+        ((request.resource.metadata.role == 'original' && fileId == request.resource.metadata.attachment_id) ||
+         (request.resource.metadata.role == 'preview' && fileId == request.resource.metadata.attachment_id + '-preview' && request.resource.contentType == 'image/jpeg'));
+      allow update, delete: if false;
+    }
+    // Fictional emulator-only original documents; hosted service uses a
+    // separately authenticated gateway with all Storage SDK reads denied.
+    match /rooms/{roomId}/documents/{documentId} {
+      allow get: if member(roomId) && documentId.matches('[a-f0-9-]{36}');
+      allow list: if false;
+      allow create: if member(roomId) && resource == null &&
+        documentId.matches('[a-f0-9-]{36}') &&
+        request.resource.size > 0 && request.resource.size <= 12582912 &&
+        request.resource.contentType in ['application/pdf','image/png','image/jpeg','image/heic','image/heif'] &&
+        request.resource.metadata.keys().hasAll(['author_uid','document_id','sha256']) &&
+        request.resource.metadata.keys().hasOnly(['author_uid','document_id','sha256']) &&
+        request.resource.metadata.author_uid == request.auth.uid &&
+        request.resource.metadata.document_id == documentId &&
+        request.resource.metadata.sha256.matches('[a-f0-9]{64}');
+      allow update, delete: if false;
+    }
+    match /{other=**} {allow read, write: if false;}
+  }
+}

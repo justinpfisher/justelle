@@ -1,0 +1,10 @@
+{
+  "name": "Justelle. Still us.",
+  "short_name": "Justelle",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f9f7",
+  "theme_color": "#17696a",
+  "icons": [{"src": "/justelle-caricature.png", "sizes": "any", "type": "image/png", "purpose": "any"}]
+}
