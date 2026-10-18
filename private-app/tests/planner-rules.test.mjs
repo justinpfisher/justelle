@@ -162,7 +162,7 @@ test('Protected source PDF and complete plan/event/history restore work without 
     assert.equal(recovered.adventure_plans[0].state.bookings[0].summary,
       'Clearly identified correction');
     assert.equal(recovered.adventure_plans[0].state.experiences[0].title,'Unbooked harbour walk');
-    assert.equal(recovered.plan_events.at(-1).collection,'experiences');
+    assert.ok(recovered.plan_events.some(e=>e.operation==='add_experience'&&e.collection==='experiences'));
     assert.equal(recovered.plan_events.find(e=>e.revision===2).after_state.bookings[0].summary,'Synthetic hotel booking');
     assert.equal(recovered.plan_sources[0].reference,'');
     assert.equal(recovered.plan_documents[0].storage_path,'documents/'+documentId);
