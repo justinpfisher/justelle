@@ -1,0 +1,6 @@
+rules_version = '2';
+service firebase.storage {
+  // Hosted media is served only by the separately authenticated gateway.
+  // IAM must also deny public access; SDK-created reusable tokens are forbidden.
+  match /b/{bucket}/o { match /{path=**} { allow read, write: if false; } }
+}

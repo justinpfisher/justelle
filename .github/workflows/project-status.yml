@@ -2,9 +2,9 @@ name: Justelle project status (milestone evidence)
 
 on:
   issues:
-    types: [opened, edited, closed, reopened, labeled, unlabeled]
+    types: [opened, edited, closed, reopened]
   pull_request:
-    types: [closed, reopened, ready_for_review, converted_to_draft, synchronize]
+    types: [closed, reopened, ready_for_review, converted_to_draft]
   push:
     branches: [main]
     paths:

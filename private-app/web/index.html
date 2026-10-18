@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#17696a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="A private space for conversations, ideas and adventures.">
+  <link rel="apple-touch-icon" href="/justelle-caricature.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+  <title>Justelle. Still us.</title>
+</head>
+<body>
+<main class="shell">
+  <header class="masthead">
+    <img class="brand-art" src="/justelle-caricature.png" alt="The approved Justelle illustration">
+    <div class="brand">
+      <h1>Justelle<span class="period">.</span></h1>
+      <p>Still us.</p>
+    </div>
+    <button type="button" id="sign-out" class="text-button" hidden>Sign out</button>
+  </header>
+  <p class="pilot" role="note"><span class="pilot-dot"></span> Local fictional-data pilot · Not connected to the public website</p>
+  <p id="notice" role="status" aria-live="polite"></p>
+  <p id="error" role="alert" aria-live="assertive"></p>
+  <section class="login-card" id="login">
+    <h2>A place for two.</h2>
+    <p>Sign in with a fictional account created by the local emulator. This prototype is not authorised for personal content.</p>
+    <form id="login-form" method="post">
+      <label for="email">Test email</label>
+      <input id="email" type="email" autocomplete="username" required disabled>
+      <label for="password">Test password</label>
+      <input id="password" type="password" autocomplete="current-password" required disabled>
+      <button id="sign-in-button" type="submit" class="primary full" disabled>Sign in</button>
+    </form>
+  </section>
+
+  <div id="private-app" hidden>
+    <nav class="tabs" aria-label="Private areas">
+      <button type="button" class="selected" data-tab="conversation" aria-current="page">Chat</button>
+      <button type="button" data-tab="adventures">Adventures</button>
+    </nav>
+
+    <section id="conversation-tab" class="panel chat-panel" aria-label="Our shared conversations">
+      <div class="topic-header">
+        <p class="eyebrow">Pick up where we left off</p>
+        <div id="topic-list" class="topic-list" role="group" aria-label="Choose a discussion">
+          <button class="topic-chip selected" type="button" aria-pressed="true">Our chat</button>
+        </div>
+      </div>
+      <div class="section-header conversation-heading">
+        <div><p id="topic-eyebrow" class="eyebrow">Our shared space</p><h2 id="topic-title">Our chat</h2></div>
+        <button type="button" id="plans-toggle" class="secondary" aria-expanded="false" aria-controls="agreements-tab">Our plans</button>
+      </div>
+      <p id="topic-subtitle" class="conversation-subtitle">Everything that doesn't belong to a particular adventure.</p>
+      <p id="topic-source-note" class="source-note" hidden></p>
+      <div class="plans-preview" id="plans-preview" hidden></div>
+
+      <section id="agreements-tab" class="inline-plans" aria-label="Plans for this discussion" hidden>
+        <div class="section-header">
+          <div><p class="eyebrow">Things we're considering</p><h3>Our plans</h3></div>
+          <button type="button" id="close-plans" class="text-button">Close</button>
+        </div>
+        <p class="intro">It's just a suggestion until we both say yes. Saying no doesn't erase the idea.</p>
+        <form id="proposal-form" class="soft-card">
+          <label for="proposal-input">Suggest something</label>
+          <textarea id="proposal-input" rows="3" maxlength="4000" required placeholder="What could we do together?"></textarea>
+          <label for="reason-input" class="subtle-label">Anything else worth remembering? (optional)</label>
+          <textarea id="reason-input" rows="2" maxlength="2000" placeholder="Why this could work, or why we'd change it"></textarea>
+          <div id="revision-context" class="revision-context" hidden></div>
+          <button type="button" class="text-button" id="cancel-revision" hidden>Cancel change</button>
+          <button type="submit" class="primary">Share suggestion</button>
+        </form>
+        <div id="decisions" class="decision-list"></div>
+        <p id="decisions-empty" class="empty">No suggestions here yet. You can add one whenever you're ready.</p>
+      </section>
+
+      <div id="timeline-scroll" class="timeline-scroll" tabindex="0" role="region" aria-label="Messages in this discussion">
+        <button id="earlier-button" class="secondary earlier-button" type="button" hidden>Load earlier messages</button>
+        <ol id="messages" class="timeline" role="log" aria-label="Shared messages"></ol>
+        <p id="conversation-empty" class="empty">Start with a question, a thought or an image.</p>
+      </div>
+      <button id="jump-latest" type="button" class="text-button jump-latest" hidden>Jump to newest messages ↓</button>
+
+      <form id="message-form" class="composer">
+        <p id="correction-note" class="source-note" hidden>This adds a correction and keeps your original message. <button id="cancel-correction" class="text-button" type="button">Cancel correction</button></p>
+        <label for="message-input" class="sr-only">Write a message</label>
+        <textarea id="message-input" rows="2" maxlength="4000" aria-describedby="typing-help" placeholder="What are we thinking about?"></textarea>
+        <p class="typing-hint" id="typing-help">Enter sends · Alt+Enter starts a new line</p>
+        <div id="staged-images" class="staged" aria-live="polite"></div>
+        <div class="composer-actions">
+          <label for="image-input" class="attachment-button">+ Image<span class="sr-only"> (PNG, JPEG or HEIC)</span></label>
+          <input id="image-input" type="file" accept="image/*,.heic,.heif" multiple>
+          <button type="button" id="ask-ai-button" class="secondary">Ask AI</button>
+          <button class="primary" id="send-button" type="submit">Send</button>
+        </div>
+        <p class="fineprint">Images stay in this discussion. Up to three per message, 12 MB each.</p>
+      </form>
+    </section>
+
+    <section id="adventures-tab" class="panel" aria-label="Our adventures" hidden>
+      <div class="section-header">
+        <div><p class="eyebrow">Possibilities, plans and memories</p><h2>Adventures</h2></div>
+      </div>
+      <p class="intro">A place for restaurant ideas, outings and big trips. Each adventure has its own discussion, images and plans.</p>
+      <section class="planner-v1" aria-label="Our shared trip planner">
+        <div class="section-header">
+          <div><p class="eyebrow">Shared journey · Both can change it</p><h3>Our next adventures</h3></div>
+        </div>
+        <p class="intro">Build a route one place at a time. Ideas stay possible until you plan them; a plan is not a booking.</p>
+        <form id="planner-create" class="soft-card planner-form">
+          <label for="planner-title">New adventure</label>
+          <input id="planner-title" maxlength="160" required placeholder="Where might we go?">
+          <div class="planner-fields">
+            <label for="planner-date">Start date (optional)<input id="planner-date" type="date"></label>
+            <label for="planner-days">Days<input id="planner-days" type="number" min="1" max="90" value="21" required></label>
+          </div>
+          <button class="primary" type="submit">Start an adventure</button>
+        </form>
+        <div id="planner-list" class="adventure-list" aria-live="polite"></div>
+        <section id="planner-detail" class="soft-card planner-detail" hidden>
+          <div class="section-header"><div><p class="eyebrow">Our living plan</p><h3 id="planner-detail-title"></h3></div>
+            <button type="button" id="planner-close" class="text-button">Close</button></div>
+          <p id="planner-summary" class="meta"></p>
+          <details><summary>Dates and trip basics</summary>
+            <form id="planner-trip-form" class="planner-form soft-card">
+              <label for="planner-trip-title">Adventure name</label>
+              <input id="planner-trip-title" maxlength="160" required>
+              <div class="planner-fields">
+                <label for="planner-trip-date">Start date (optional)<input id="planner-trip-date" type="date"></label>
+                <label for="planner-trip-days">Number of days<input id="planner-trip-days" type="number" min="1" max="90" required></label>
+              </div>
+              <button type="submit" class="secondary">Save trip changes</button>
+              <button type="button" id="planner-trip-refresh" class="text-button">Review latest shared version</button>
+            </form>
+            <button id="planner-archive" class="text-button" type="button">Move to archive</button>
+            <p class="meta">Archiving keeps every original and revision; it does not delete records or automatically move backups.</p>
+          </details>
+
+          <section id="planner-journey" aria-label="Whole journey"></section>
+          <section id="planner-alerts" role="status" aria-label="Planning conflicts"></section>
+          <details class="journey-days"><summary>Explore days</summary>
+            <div id="planner-days-view" class="planner-day-grid"></div>
+            <div id="planner-day-detail" aria-live="polite"></div>
+          </details>
+          <details><summary>Booking anchors</summary>
+            <ul id="planner-bookings"></ul>
+            <form id="planner-add-booking" class="planner-form soft-card">
+              <p class="meta">Copy details from your original confirmation. This records information in Justelle; it does not change the supplier booking.</p>
+              <label for="planner-booking-title">Booking or transfer</label>
+              <input id="planner-booking-title" required maxlength="180" placeholder="Hotel, train, flight or activity">
+              <div class="planner-fields">
+                <label for="planner-booking-kind">Type<select id="planner-booking-kind">
+                  <option value="stay">Accommodation</option><option value="flight">Flight</option>
+                  <option value="transport">Other transfer</option><option value="activity">Activity</option>
+                </select></label>
+                <label for="planner-booking-start">Starts<input type="date" id="planner-booking-start" required></label>
+                <label for="planner-booking-end">Ends<input type="date" id="planner-booking-end" required></label>
+              </div>
+              <label for="planner-booking-supplier">Supplier (optional)</label><input id="planner-booking-supplier" maxlength="180">
+              <label for="planner-booking-reference">Reference (optional)</label><input id="planner-booking-reference" maxlength="180">
+              <label for="planner-booking-state">What do we know?</label>
+              <select id="planner-booking-state"><option value="unverified">Possible or unverified</option>
+                <option value="confirmed">I have a booking confirmation</option></select>
+              <label for="planner-booking-file">Original PDF or image (optional, private)</label>
+              <input type="file" id="planner-booking-file" accept="application/pdf,image/png,image/jpeg,image/heic,image/heif,.pdf,.heic,.heif">
+              <button type="submit" class="primary">Save booking details</button>
+            </form>
+            <section id="planner-booking-source" role="status" aria-live="polite"></section>
+          </details>
+          <div class="planner-actions">
+            <button type="button" id="planner-feedback" class="secondary">Check my plan</button>
+            <button type="button" id="planner-today" class="secondary">Today's essentials</button>
+          </div>
+          <section id="planner-feedback-results" role="status" aria-label="On-demand planning feedback" hidden></section>
+          <section id="planner-today-result" role="status" aria-label="Travel-day essentials" hidden></section>
+          <ul id="planner-stays" class="planner-stays"></ul>
+          <form id="planner-add-stay" class="planner-form">
+            <label for="planner-stay-title">A place to stay or consider</label>
+            <input id="planner-stay-title" maxlength="200" placeholder="A city or place" required>
+            <div class="planner-fields">
+              <label for="planner-from">From day<input id="planner-from" type="number" min="1" value="1" required></label>
+              <label for="planner-nights">Nights<input id="planner-nights" type="number" min="1" value="2" required></label>
+              <label for="planner-state">State<select id="planner-state"><option value="possible">Possible</option><option value="planned">Planned</option></select></label>
+            </div>
+            <button class="secondary" type="submit">Add place</button>
+          </form>
+          <div class="planner-actions">
+            <button type="button" id="planner-undo" class="secondary">Undo last edit</button>
+            <details><summary>Previous edits</summary><ol id="planner-history"></ol></details>
+          </div>
+        </section>
+      </section>
+      <div class="pilot-archive-divider"><p class="eyebrow">Previous pilot records · Preserved separately</p>
+        <p class="meta">Older discussions and mutual approvals are historical records, not how the new adventure planner works.</p></div>
+      <form id="idea-form" class="soft-card">
+        <label for="idea-input">An idea or a moment to remember</label>
+        <input type="text" id="idea-input" maxlength="160" required placeholder="A place, moment or possibility">
+        <label for="idea-kind">Keep this as</label>
+        <select id="idea-kind"><option value="idea">An idea to explore</option><option value="plan">Something we’re planning</option><option value="experience">Something that happened</option><option value="memory">A memory</option></select>
+        <button type="submit" class="primary">Save and discuss</button>
+      </form>
+      <div id="adventures" class="adventure-list"></div>
+      <p id="adventures-empty" class="empty">Nothing here yet. Save an idea or start one from a chat message.</p>
+      <div class="export-area">
+        <h3>Keep our history</h3>
+        <p>Export a fictional test archive with both people's contributions, decisions and original images. This local pilot export is not encrypted.</p>
+        <button id="export-button" class="secondary" type="button">Export fictional archive</button>
+      </div>
+    </section>
+  </div>
+  <footer>Local prototype · Fictional accounts and photographs only · No live AI or paid service</footer>
+</main>
+<dialog id="image-viewer" aria-label="Attached image"><div class="image-viewer-toolbar"><p id="image-caption"></p><button type="button" id="close-image" class="secondary">Close</button></div><img id="full-image" alt=""></dialog>
+<script type="module" src="/main.mjs"></script>
+</body>
+</html>

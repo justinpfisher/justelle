@@ -1,0 +1,15 @@
+node_modules
+dist/
+.env
+.env.*
+*.qualification.json
+*.key
+*.jmb
+*.sqlite
+*-debug.log
+screenshots/
+hosting/functions/lib/
+*.tgz
+*.release.json
+
+hosting/.firebaserc

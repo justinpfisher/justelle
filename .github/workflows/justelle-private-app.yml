@@ -1,0 +1,209 @@
+name: Justelle private application checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancel superseded PR checks, never an in-flight production release.
+concurrency:
+  group: justelle-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+      windows: ${{ steps.scope.outputs.windows }}
+      hosted: ${{ steps.scope.outputs.hosted }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/release-scope.test.mjs scripts/project-status.test.mjs
+      - id: scope
+        run: node scripts/release-scope.mjs
+
+  private-pilot:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: private-app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
+      - run: npm ci --prefix hosting/functions --no-audit --no-fund
+        working-directory: private-app
+      - run: node --check hosting/functions/index.mjs && node -e "JSON.parse(require('node:fs').readFileSync('hosting/firebase.json')); JSON.parse(require('node:fs').readFileSync('hosting/firebase.production.json'))"
+        working-directory: private-app
+      - run: npm run test:package
+        working-directory: private-app
+      - run: npm run build
+        working-directory: private-app
+      - run: npm run test:archive
+        working-directory: private-app
+      - run: npm run test:rules
+        working-directory: private-app
+      - run: npx playwright install --with-deps chromium
+        working-directory: private-app
+      - run: npm run test:browser
+        working-directory: private-app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fictional-ui-previews
+          path: private-app/screenshots/*.png
+          if-no-files-found: error
+          retention-days: 7
+      - run: npm run test:preview
+        working-directory: private-app
+
+  windows-preview:
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
+    name: Windows preview shutdown
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: private-app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm.cmd ci --no-audit --no-fund
+        working-directory: private-app
+      - run: npm.cmd run test:preview
+        working-directory: private-app
+
+  hosted-qualification:
+    name: Separate hosted fictional qualification
+    needs: [changes, private-pilot, windows-preview]
+    if: >-
+      always() && !cancelled() && github.event_name != 'pull_request' &&
+      needs.private-pilot.result == 'success' &&
+      (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped') &&
+      vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
+      (vars.JUSTELLE_INITIAL_ACCEPTANCE != 'verified' || needs.changes.outputs.hosted == 'true')
+    runs-on: ubuntu-latest
+    environment: justelle-qualification
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: justelle-hosted-qualification
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
+          service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Prepare private deployment configuration
+        env:
+          CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('/tmp/justelle-qa.release.json',process.env.CONFIG,{mode:0o600});"
+      - run: node hosting/deploy.mjs /tmp/justelle-qa.release.json qualification
+        working-directory: private-app
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
+          service_account: ${{ secrets.JUSTELLE_QUALIFICATION_SERVICE_ACCOUNT }}
+      - name: Load qualification backup secret without publishing it
+        env:
+          QA_PROJECT: ${{ secrets.JUSTELLE_PROJECT_ID }}
+        run: |
+          umask 077
+          gcloud secrets versions access latest --secret=JUSTELLE_BACKUP_CONFIG --project="$QA_PROJECT" > /tmp/justelle-qa-backup.release.json
+      - name: Hosted members, denial, live vision, integrity and B2 recovery
+        working-directory: private-app
+        run: |
+          if node hosting/accept-hosted.mjs /tmp/justelle-qa.release.json /tmp/justelle-qa-backup.release.json > /tmp/justelle-qa-private.log 2>&1; then
+            echo "Hosted fictional acceptance passed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Hosted fictional acceptance failed; private diagnostics are not published." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Remove ephemeral private files
+        if: always()
+        run: rm -f /tmp/justelle-qa.release.json /tmp/justelle-qa-backup.release.json /tmp/justelle-qa-private.log
+
+  production-release:
+    name: Automatic private application release
+    needs: [changes, private-pilot, windows-preview, hosted-qualification]
+    if: >-
+      always() && !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      vars.JUSTELLE_INITIAL_ACCEPTANCE == 'verified' && needs.private-pilot.result == 'success' &&
+      (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped') &&
+      (needs.hosted-qualification.result == 'success' ||
+        (needs.changes.outputs.hosted == 'false' && needs.hosted-qualification.result == 'skipped'))
+    runs-on: ubuntu-latest
+    environment: justelle-production
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: justelle-production-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
+          service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
+      - name: Prepare private release configuration
+        env:
+          CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('/tmp/justelle-production.release.json',process.env.CONFIG,{mode:0o600});"
+      - name: Deploy, check and recover automatically
+        working-directory: private-app
+        env:
+          JUSTELLE_INITIAL_ACCEPTANCE: verified
+          JUSTELLE_HOSTED_QUALIFIED: ${{ needs.hosted-qualification.result == 'success' }}
+        run: node hosting/deploy.mjs /tmp/justelle-production.release.json
+      - name: Report failed release
+        if: failure()
+        run: echo "Justelle production release failed. See the safe recovery status above and the private provider console. Actions failure notifications apply." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove ephemeral private configuration
+        if: always()
+        run: rm -f /tmp/justelle-production.release.json
