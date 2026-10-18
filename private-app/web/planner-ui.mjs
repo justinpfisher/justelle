@@ -152,6 +152,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   function showDay(p,day){
     const detail=dayDetail(p,day),out=$('planner-day-detail');
     selectedDay=day;
+    $('planner-experience-day').value=String(day);
     for(const b of document.querySelectorAll('#planner-days-view button[data-day]'))
       b.setAttribute('aria-pressed',String(Number(b.dataset.day)===day));
     out.replaceChildren(el('h4','','Day '+day+(detail.date?' · '+detail.date:'')),
