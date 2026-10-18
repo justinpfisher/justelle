@@ -142,7 +142,7 @@ test('Protected source PDF and complete plan/event/history restore work without 
     await two.editPlan({uid:b},planId,{type:'correct_booking',id:bookingId,
       patch:{summary:'Clearly identified correction'}},2);
     await one.editPlan({uid:a},planId,{type:'add_experience',experience:{
-      id:'fictional-activity',title:'Unbooked harbour walk',day:5,status:'possible',notes:'Weather permitting'
+      id:'walk-activity',title:'Unbooked harbour walk',day:5,status:'possible',notes:'Weather permitting'
     }},3);
     await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',documentId)));
     await assertFails(getBytes(ref(X.storage('gs://'+projectId+'.firebasestorage.app'),
