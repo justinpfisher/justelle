@@ -291,8 +291,13 @@ service cloud.firestore {
       let d = request.resource.data;
       let p = planPath(roomId, d.adventure_id);
       return d.keys().hasAll(['id','adventure_id','revision','previous_event_id','actor_id','author_uid','author_id','at','operation','collection','record_id','before','after','before_state','after_state','created_at']) &&
-        d.keys().hasOnly(['id','adventure_id','revision','previous_event_id','actor_id','author_uid','author_id','at','operation','collection','record_id','before','after','before_state','after_state','created_at']) &&
+        d.keys().hasOnly(['id','adventure_id','revision','previous_event_id','actor_id','author_uid','author_id','at','operation','collection','record_id','before','after','before_state','after_state','created_at','instruction_text','instruction_format']) &&
         authored(roomId) && nowCreated() && d.at == request.time &&
+        ((d.get('instruction_text', null) == null &&
+          d.get('instruction_format', null) == null) ||
+         (d.get('instruction_text', null) is string &&
+          d.instruction_text.size() > 0 && d.instruction_text.size() <= 300 &&
+          d.get('instruction_format', null) == 'justelle-member-instruction-v1')) &&
         d.id == eventId && d.actor_id == person(roomId) &&
         d.adventure_id is string && existsAfter(p) &&
         planState(d.after_state, d.adventure_id) &&
