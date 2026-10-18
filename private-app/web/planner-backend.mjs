@@ -2,6 +2,7 @@
 // into this collection, preventing historical rules from controlling live plans.
 import {collection,doc,getDoc,getDocs,onSnapshot,query,where,runTransaction,serverTimestamp} from 'firebase/firestore';
 import {createItinerary,applyItineraryEdit} from './itinerary-core.mjs';
+import {interpretPlanInstruction} from './instruction-core.mjs';
 import {sha256} from './media.mjs';
 import {ref,getBytes,uploadBytes} from 'firebase/storage';
 const ID=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
@@ -56,8 +57,12 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
       });
       return planId;
     },
-    async editPlan(user,planId,change,expectedRevision,{eventId=crypto.randomUUID()}={}){
+    async editPlan(user,planId,change,expectedRevision,
+      {eventId=crypto.randomUUID(),instructionText=null}={}){
       const author=actor(user);id(planId);id(eventId);
+      if(instructionText!==null&&(typeof instructionText!=='string'||!instructionText.trim()||
+          instructionText.length>300))
+        throw Error('Invalid original member instruction');
       if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)
         throw Error('Open the latest plan before editing');
       return runTransaction(db,async t=>{
@@ -66,6 +71,17 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
         const previous=saved.data().state;
         if(previous.id!==planId||previous.revision!==expectedRevision)
           throw Error('The adventure changed. Review the latest plan before trying again.');
+        if(instructionText!==null){
+          // Verify the original member text still means exactly the submitted
+          // typed edit at this revision. Generated IDs are caller-supplied for
+          // a new stop, rather than trusting a second random parse.
+          const ids=[change?.stop?.id??eventId,change?.stop?.place_id??eventId,eventId];
+          const interpretation=interpretPlanInstruction(previous,instructionText,
+            {idFactory:()=>ids.shift()??eventId});
+          if(interpretation.kind!=='ready' ||
+             JSON.stringify(interpretation.change)!==JSON.stringify(change))
+            throw Error('This instruction no longer matches the current shared plan.');
+        }
         let lastEvent=null,source=null;
         if(change?.type==='undo_last'){
           const prev=await t.get(at('plan_events',previous.last_event_id));
@@ -92,7 +108,11 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
         if((await t.get(eventRef)).exists())throw Error('This edit ID has already been used');
         // The event carries exact before/after state. Firestore Rules enforce both
         // directions of the atomic relationship even if a client is modified.
-        t.set(eventRef,{...event,...author,at:serverTimestamp(),created_at:serverTimestamp(),
+        const provenance=instructionText===null?{}:{
+          instruction_text:instructionText,
+          instruction_format:'justelle-member-instruction-v1'};
+        t.set(eventRef,{...event,...author,...provenance,
+          at:serverTimestamp(),created_at:serverTimestamp(),
           before_state:previous,after_state:plan});
         t.set(target,{...saved.data(),state:plan,last_modified_by:author.author_id,
           updated_at:serverTimestamp()});

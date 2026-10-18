@@ -139,6 +139,19 @@
             <p class="meta">Archiving keeps every original and revision; it does not delete records or automatically move backups.</p>
           </details>
 
+          <form id="planner-instruction-form" class="planner-form soft-card">
+            <label for="planner-instruction">Make a change in a sentence</label>
+            <input id="planner-instruction" maxlength="300" required
+              placeholder="Consider 2 nights in Kyoto starting day 4">
+            <button class="secondary" type="submit">Make this change</button>
+            <p class="meta">Precise changes save to our shared plan. If a change creates a conflict,
+              you'll see a preview first. This is not an external booking service.</p>
+          </form>
+          <section id="planner-instruction-result" class="soft-card" role="status" aria-live="polite" hidden>
+            <p id="planner-instruction-message"></p>
+            <button id="planner-instruction-apply" class="primary" type="button" hidden>Apply to shared plan</button>
+            <button id="planner-instruction-cancel" class="text-button" type="button" hidden>Discard preview</button>
+          </section>
           <section id="planner-journey" aria-label="Whole journey"></section>
           <section id="planner-alerts" role="status" aria-label="Planning conflicts"></section>
           <details class="journey-days"><summary>Explore days</summary>

@@ -3,13 +3,14 @@ import {nextAdventures,journeyOverview,dayDetail,journeyWeeks} from './journey-v
 import {reviewAdventure} from './adventure-feedback.mjs';
 import {todayEssentials} from './today-essentials.mjs';
 import {mountBookingUI} from './booking-ui.mjs';
+import {interpretPlanInstruction} from './instruction-core.mjs';
 const $=id=>document.getElementById(id);
 const el=(tag,className='',content='')=>{
   const node=document.createElement(tag);if(className)node.className=className;
   if(content)node.textContent=content;return node;
 };
 export function mountPlannerUI({planner,user,membership,onError,announce}){
-  let plans=[],selected=null,selectedDay=null,stopped=false;
+  let plans=[],selected=null,selectedDay=null,instructionPreview=null,stopped=false;
   const name=id=>{
     const uid=membership.uids.find(uid=>membership.people[uid]===id);
     return uid===user.uid?'You':membership.labels?.[uid]||'The other member';
@@ -37,13 +38,13 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       const planned=p.stops.filter(s=>s.status==='planned').length,possible=p.stops.length-planned;
       card.append(el('p','meta',planned+' planned places · '+possible+' possibilities'));
       const open=el('button','secondary','Open plan');open.type='button';
-      open.onclick=()=>{if(selected!==p.id){selectedDay=null;closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
+      open.onclick=()=>{if(selected!==p.id){selectedDay=null;clearInstruction();closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
       card.append(open);list.append(card);
       }
     }
     const p=plans.find(p=>p.id===selected);
     $('planner-detail').hidden=!p;
-    if(!p){closeStayEditor();closeExperienceEditor();selectedDay=null;void bookingUI.render(null);return;}
+    if(!p){clearInstruction();closeStayEditor();closeExperienceEditor();selectedDay=null;void bookingUI.render(null);return;}
     void bookingUI.render(p);
     $('planner-detail-title').textContent=p.title;
     const tripForm=$('planner-trip-form');
@@ -76,6 +77,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
         Number(experienceForm.dataset.baseRevision)!==p.revision?
           'The shared plan changed. Review the latest version before saving your draft.':
           'Changing a planned experience does not change a supplier booking.';
+    }
+    if(instructionPreview?.planId===p.id&&instructionPreview.revision!==p.revision){
+      $('planner-instruction-message').textContent=
+        'The shared plan changed since this preview. Enter your instruction again to check the new plan.';
+      $('planner-instruction-apply').disabled=true;
     }
     $('planner-feedback-results').hidden=true;
     $('planner-today-result').hidden=true;
@@ -279,18 +285,79 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       for(const e of events.slice().reverse()){
         const when=e.created_at?.toDate?.()?.toLocaleString('en-CA',
           {dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'})||'Saving…';
-        out.append(el('li','',e.operation.replaceAll('_',' ')+' · '+name(e.actor_id)+' · '+when));
+        const row=el('li','',e.operation.replaceAll('_',' ')+' · '+name(e.actor_id)+' · '+when);
+        if(e.instruction_text)row.append(el('p','meta','Original instruction: '+e.instruction_text));
+        out.append(row);
       }
     }catch(error){onError(error);}
   }
-  async function edit(p,change){
+  async function edit(p,change,options={}){
     try{
-      await planner.editPlan(user,p.id,change,p.revision);
+      await planner.editPlan(user,p.id,change,p.revision,options);
       announce('Saved for both of you. Undo remains available.');
       await renderHistory();
       return true;
     }catch(error){onError(error);return false;}
   }
+  function clearInstruction(){
+    instructionPreview=null;
+    $('planner-instruction-result').hidden=true;
+    $('planner-instruction-apply').hidden=true;
+    $('planner-instruction-apply').disabled=false;
+    $('planner-instruction-cancel').hidden=true;
+  }
+  function instructionMessage(message,{preview=false}={}){
+    $('planner-instruction-message').textContent=message;
+    $('planner-instruction-result').hidden=false;
+    $('planner-instruction-apply').hidden=!preview;
+    $('planner-instruction-cancel').hidden=!preview;
+    $('planner-instruction-apply').disabled=false;
+  }
+  const submitInstruction=async event=>{
+    event.preventDefault();
+    const p=plans.find(x=>x.id===selected);if(!p)return;
+    const text=$('planner-instruction').value.trim();
+    clearInstruction();
+    const interpreted=interpretPlanInstruction(p,text);
+    if(interpreted.kind!=='ready'){
+      instructionMessage(interpreted.message);
+      return;
+    }
+    if(interpreted.preview_required){
+      instructionPreview={planId:p.id,revision:p.revision,text,
+        change:interpreted.change,summary:interpreted.summary};
+      const risks=interpreted.introduced_signals.map(s=>s.code.replaceAll('_',' ')).join(', ');
+      instructionMessage(interpreted.summary+
+        (risks?' Review these possible conflicts: '+risks+'.':' Review the existing booking anchors.')+
+        ' Nothing has changed yet.',{preview:true});
+      return;
+    }
+    const button=$('planner-instruction-form').querySelector('[type=submit]');
+    button.disabled=true;
+    try{
+      if(await edit(p,interpreted.change,{instructionText:text})){
+        $('planner-instruction').value='';
+        instructionMessage('Saved: '+interpreted.summary+' Undo is available.');
+      }
+    }finally{button.disabled=false;}
+  };
+  const applyInstruction=async()=>{
+    const pending=instructionPreview,p=plans.find(x=>x.id===selected);
+    if(!pending||!p||pending.planId!==p.id)return;
+    if(pending.revision!==p.revision){
+      $('planner-instruction-apply').disabled=true;
+      return onError(Error('The shared plan changed. Review your instruction again.'));
+    }
+    const button=$('planner-instruction-apply');button.disabled=true;
+    try{
+      if(await edit(p,pending.change,{instructionText:pending.text})){
+        clearInstruction();
+        $('planner-instruction').value='';
+        instructionMessage('Saved: '+pending.summary+' Supplier reservations remain unchanged.');
+      }
+    }finally{button.disabled=false;}
+  };
+  const instructionInput=()=>{if(instructionPreview)clearInstruction();};
   const created=async event=>{
     event.preventDefault();try{
       const form=$('planner-create'),button=form.querySelector('button[type=submit]');
@@ -364,8 +431,12 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     void edit(p,{type:'set_status',status:p.status==='archived'?'planning':'archived'});
   };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
-  const close=()=>{selected=null;selectedDay=null;closeStayEditor();closeExperienceEditor();render();};
+  const close=()=>{selected=null;selectedDay=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
   $('planner-create').addEventListener('submit',created);
+  $('planner-instruction-form').addEventListener('submit',submitInstruction);
+  $('planner-instruction').addEventListener('input',instructionInput);
+  $('planner-instruction-apply').addEventListener('click',applyInstruction);
+  $('planner-instruction-cancel').addEventListener('click',clearInstruction);
   $('planner-trip-form').addEventListener('input',tripDirty);
   $('planner-trip-form').addEventListener('submit',saveTrip);
   $('planner-archive').addEventListener('click',archive);
@@ -396,6 +467,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   return ()=>{
     stopped=true;unsubscribe();bookingUI.dispose();
     $('planner-create').removeEventListener('submit',created);
+    $('planner-instruction-form').removeEventListener('submit',submitInstruction);
+    $('planner-instruction').removeEventListener('input',instructionInput);
+    $('planner-instruction-apply').removeEventListener('click',applyInstruction);
+    $('planner-instruction-cancel').removeEventListener('click',clearInstruction);
     $('planner-trip-form').removeEventListener('input',tripDirty);
     $('planner-trip-form').removeEventListener('submit',saveTrip);
     $('planner-archive').removeEventListener('click',archive);

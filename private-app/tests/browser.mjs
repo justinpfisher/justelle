@@ -193,6 +193,20 @@ try{
   await A.locator('#planner-edit-refresh').click();
   assert.equal(await A.locator('#planner-edit-title').inputValue(),'Fictional Coast Harbour');
   await A.locator('#planner-edit-cancel').click();
+  // A precise member instruction saves one attributable edit; an instruction
+  // affecting confirmed dates must show a preview without moving the booking.
+  await A.locator('#planner-instruction').fill('Change trip start to 2026-11-09');
+  await A.locator('#planner-instruction-form button[type=submit]').click();
+  await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
+  assert.match(await A.locator('#planner-instruction-message').textContent(),/Nothing has changed yet/);
+  assert.match(await A.locator('#planner-summary').textContent(),/2026-11-01/);
+  await A.locator('#planner-instruction-cancel').click();
+  await A.locator('#planner-instruction').fill('Consider 1 night in Mirror Bay starting day 7');
+  await A.locator('#planner-instruction-form button[type=submit]').click();
+  await B.locator('#planner-stays').getByText('Mirror Bay').waitFor({timeout:15000});
+  await poll(async()=>await A.locator('#planner-history').textContent()
+    .then(x=>x.includes('Original instruction: Consider 1 night in Mirror Bay starting day 7')));
+  assert.match(await A.locator('#planner-instruction-result').textContent(),/Saved/);
   // One member changing a trip must not silently overwrite another member's
   // unsaved draft, even if the live subscription receives a newer revision.
   await A.getByText('Dates and trip basics',{exact:true}).click();
