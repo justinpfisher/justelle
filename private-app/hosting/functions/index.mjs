@@ -10,6 +10,8 @@ import {createApiHandler} from '../api-handler.mjs';
 import {createResponseService} from '../../ai/response-service.mjs';
 import {deterministicProvider} from '../../ai/adapter.mjs';
 import {createVisionProvider} from '../../ai/vision-provider.mjs';
+import {createPlannerModelProvider} from '../../ai/planner-model-provider.mjs';
+import {createPlannerSuggestionService} from '../../ai/planner-suggestion-service.mjs';
 import {FirestoreBudgetLedger} from '../../ai/budget-ledger.mjs';
 import {runScheduledBackup} from '../scheduled-backup.mjs';
 
@@ -37,8 +39,7 @@ export const privateApi=onRequest({region:'northamerica-northeast1',memory:'512M
   const {roomId,siteOrigin,environment}=runtime(),db=getFirestore(),bucket=getStorage().bucket();
   const verifyIdentity=(token,options)=>getAuth().verifyIdToken(token,options.checkRevoked);
   const media=createMediaHandler({roomId,bucket,verifyIdentity,readMembership:async id=>(await db.doc('rooms/'+id).get()).data()});
-  const respond=createResponseService({db,bucket,roomId,verifyIdentity,serverTimestamp:()=>FieldValue.serverTimestamp(),
-    rateLimit:async uid=>{
+  const rateLimit=async uid=>{
       const ref=db.doc('rooms/'+roomId+'/ai_rate_limits/'+uid);
       await db.runTransaction(async t=>{
         const snap=await t.get(ref),now=Date.now(),r=snap.data();
@@ -46,14 +47,27 @@ export const privateApi=onRequest({region:'northamerica-northeast1',memory:'512M
         if(count>=12)throw Object.assign(Error('Rate limit'),{status:429});
         t.set(ref,{start:count?r.start:now,count:count+1});
       });
-    },provider:async()=>{
+  };
+  const provider=async()=>{
       const settings=(await db.doc('rooms/'+roomId+'/operations/runtime').get()).data();
       if(environment==='hosted-fictional'&&settings?.ai_provider==='deterministic-local')return deterministicProvider;
       if(settings?.ai_enabled!==true||settings.ai_model!=='gpt-5.6-luna')throw Error('AI is disabled');
       return createVisionProvider({approved:true,apiKey:apiKey.value(),model:settings.ai_model,pricing:settings.ai_pricing,
         budget:new FirestoreBudgetLedger({db,roomId,monthlyCadMicros:5000000,dailyCadMicros:1000000})});
-    }});
-  await createApiHandler({media,respond,origin:siteOrigin,version})(req,res);
+  };
+  const respond=createResponseService({db,bucket,roomId,verifyIdentity,
+    serverTimestamp:()=>FieldValue.serverTimestamp(),rateLimit,provider});
+  const plannerProvider=async()=>{
+    const settings=(await db.doc('rooms/'+roomId+'/operations/runtime').get()).data();
+    if(settings?.ai_enabled!==true||settings.ai_model!=='gpt-5.6-luna')
+      throw Error('AI planner is disabled');
+    return createPlannerModelProvider({approved:true,apiKey:apiKey.value(),
+      model:settings.ai_model,pricing:settings.ai_pricing,
+      budget:new FirestoreBudgetLedger({db,roomId,monthlyCadMicros:5000000,dailyCadMicros:1000000})});
+  };
+  const planSuggest=createPlannerSuggestionService({db,bucket,roomId,
+    verifyIdentity,provider:plannerProvider,rateLimit});
+  await createApiHandler({media,respond,planSuggest,origin:siteOrigin,version})(req,res);
 });
 // Separate identity and secrets: the image/AI gateway cannot access recovery keys.
 export const encryptedBackup=onSchedule({schedule:'15 3 * * *',timeZone:'America/Toronto',region:'northamerica-northeast1',
