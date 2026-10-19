@@ -113,11 +113,23 @@ try{
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
   await A.locator('#planner-edit-title').fill('Fictional Harbour Revised');
   await A.locator('#planner-edit-nights').fill('2');
+  await A.locator('#planner-edit-stay .planner-coordinates summary').click();
+  await A.locator('#planner-edit-latitude').fill('49.2827');
+  await A.locator('#planner-edit-longitude').fill('-123.1207');
   await A.locator('#planner-edit-stay button[type=submit]').click();
   await B.locator('#planner-stays').getByText('Fictional Harbour Revised').waitFor({timeout:15000});
   await A.locator('#planner-edit-stay').waitFor({state:'hidden',timeout:15000});
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show day 2'}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
+  await B.locator('#planner-map .planner-map-pin').waitFor({timeout:15000});
+  assert.equal(await B.locator('#planner-map .planner-map-pin').count(),1);
+  assert.match(await B.locator('#planner-map').textContent(),/not a navigational map or confirmed travel route/i);
+  await B.locator('#planner-map .planner-map-pin').click();
+  assert.equal(await B.locator('#planner-map .planner-map-pin').getAttribute('aria-pressed'),'true');
+  await B.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
+  await B.locator('.planner-week').first().getByRole('button',{name:/Day 4/}).click();
+  assert.equal(await B.locator('#planner-map .planner-map-pin').getAttribute('data-in-day'),'false',
+    'Selecting a different day must not imply an overnight stay at this pinned place');
   // Ordinary day activities/ideas are not booking confirmations. Members can
   // edit them immediately, with the other member seeing the same day entry.
   await A.locator('#planner-experience-title').fill('Fictional museum');
@@ -162,6 +174,11 @@ try{
   await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
     .getByRole('button',{name:'Show original details'}).click();
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
+  await B.locator('#planner-map .planner-map-places button').filter({hasText:'Fictional Harbour Revised'}).click();
+  await B.locator('#planner-map .planner-map-selected').getByText('Fictional inn confirmation').waitFor({timeout:15000});
+  assert.match(await B.locator('#planner-map .planner-map-selected').textContent(),/different dates/i);
+  await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details/}).click();
+  await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:/Booking: Fictional inn confirmation/}).click();
   await A.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   if(!(await B.locator('.journey-days').evaluate(n=>n.open)))
