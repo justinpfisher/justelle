@@ -93,12 +93,12 @@ test('Opt-in feedback finds unrecorded handovers without inventing bookings or j
  assert.match(warning.action,/No route, timing or supplier availability was checked/);
  assert.deepEqual(p,unchanged);
  p=edit(p,{type:'add_booking',booking:{id:'car',kind:'transport',stop_id:null,
-   starts_on:'2026-11-01',ends_on:'2026-11-01',status:'unverified',
+   starts_on:'2026-10-30',ends_on:'2026-10-30',status:'unverified',
    source_id:null,summary:'Maybe rent a car'}},'e3');
  assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unrecorded_transfer'),true,
    'A different-day transfer is not evidence for the day 3 handover');
  p=edit(p,{type:'correct_booking',id:'car',patch:{
-   starts_on:'2026-11-01',ends_on:'2026-11-03'}},'e4');
+   starts_on:'2026-10-30',ends_on:'2026-11-01'}},'e4');
  assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unrecorded_transfer'),false,
    'A recorded but unverified transfer is a distinct informational warning');
  assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unconfirmed_transfer'),true);
