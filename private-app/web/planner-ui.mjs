@@ -550,13 +550,41 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     if(!d.in_trip)out.append(el('p','', 'No scheduled day in this adventure on your device’s local date.'));
     else{
       out.append(el('p','', 'Day '+d.day+' · '+d.date));
-      out.append(el('p','meta','Overnight base: '+(d.overnight?.title||'Not yet planned')));
+      if(d.overnight_conflict.length){
+        out.append(el('p','planner-warning',
+          'More than one intended overnight base is recorded. Choose the right one before relying on this day.'));
+        for(const base of d.overnight_conflict){
+          const open=el('button','text-button','Review place · '+base.title);
+          open.type='button';open.onclick=()=>{
+            selectPlace(p,p.stops.find(s=>s.id===base.id));
+            $('planner-map').scrollIntoView({block:'nearest'});
+          };
+          out.append(open);
+        }
+      }else out.append(el('p','meta','Intended overnight base: '+(d.overnight?.title||'Not yet planned')));
+      if(d.bookings.length){
+        out.append(el('h4','','Recorded travel and booking essentials'));
+        out.append(el('p','meta',
+          'Travel records appear first, but these dates contain no departure times or live supplier updates.'));
+      }
+      for(const record of d.bookings){
+        const item=el('div','planner-today-booking');
+        item.append(el('strong','',record.kind+' · '+record.summary),
+          el('p','meta','Member-recorded, original-source linked · '+record.starts_on));
+        const open=el('button','text-button','Open private booking details · '+record.summary);
+        open.type='button';open.onclick=()=>void bookingUI.openBooking(record.id);
+        item.append(open);out.append(item);
+      }
       for(const record of d.planned_experiences)
         out.append(el('p','','Planned experience: '+record.title));
       for(const record of d.possible_experiences)
         out.append(el('p','meta','Possible experience: '+record.title));
-      for(const record of d.bookings)out.append(el('p','', 'Recorded booking: '+record.summary));
-      for(const record of d.uncertain)out.append(el('p','meta','Unverified: '+record.summary));
+      for(const record of d.uncertain)
+        out.append(el('p','planner-warning','Unverified booking — do not rely on this as confirmed: '+record.summary));
+      for(const record of d.cancelled)
+        out.append(el('p','planner-warning',
+          (record.status==='cancelled'?'Cancelled':'Voided')+
+          ' booking — not valid for travel: '+record.summary));
       if(d.tomorrow){
         out.append(el('p','meta','Tomorrow’s base: '+(d.tomorrow.planned_places.join(', ')||'No planned base')));
         if(d.tomorrow.planned_experiences.length)
