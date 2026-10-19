@@ -34,3 +34,39 @@ test('Date shifts with recorded confirmations require preview, not silent extern
  assert.equal(p.bookings[0].starts_on,'2026-10-29');
  assert.ok(i.introduced_signals.some(s=>s.code==='booking_outside_trip'));
 });
+
+test('Unambiguous day-experience instruction makes a reversible plan item, never a booking',()=>{
+ const p=base();
+ const instruction=interpretPlanInstruction(p,'Consider a visit to the fictional botanic garden on day 5',
+   {idFactory:()=> 'synthetic-experience'});
+ assert.equal(instruction.kind,'ready');
+ assert.equal(instruction.change.type,'add_experience');
+ assert.deepEqual(instruction.change.experience,{
+   id:'synthetic-experience',title:'the fictional botanic garden',day:5,status:'possible',notes:''});
+ assert.equal(instruction.preview_required,false);
+ assert.equal(instruction.source_kind,'member_text');
+ assert.match(instruction.summary,/does not book tickets/);
+ const created=applyItineraryEdit(p,instruction.change,{
+   eventId:'event-one',actorId:'person-a',at:'2026-10-19T12:00:00Z'});
+ assert.equal(created.plan.experiences[0].day,5);
+ assert.equal(created.plan.bookings.length,0);
+ const undone=applyItineraryEdit(created.plan,{type:'undo_last'},{
+   eventId:'event-two',actorId:'person-b',at:'2026-10-19T12:01:00Z',
+   lastEvent:created.event});
+ assert.equal(undone.plan.experiences.length,0);
+ assert.equal(undone.plan.revision,2);
+ assert.equal(undone.event.operation,'undo_last');
+});
+test('Day experience language is conservative about duplicates, invalid spans and confirmations',()=>{
+ const p=base();
+ const planned=interpretPlanInstruction(p,'Plan visiting a fictional aquarium on day 2',
+   {idFactory:()=> 'experience-id'});
+ assert.equal(planned.change.experience.status,'planned');
+ const existing=added(p,{type:'add_experience',experience:{
+   id:'experience-id',title:'a fictional aquarium',day:2,status:'planned',notes:''
+ }});
+ assert.equal(interpretPlanInstruction(existing,'Plan visiting a fictional aquarium on day 2').kind,'needs_detail');
+ assert.equal(interpretPlanInstruction(p,'Plan a visit to the fictional aquarium on day 99').kind,'needs_detail');
+ assert.equal(interpretPlanInstruction(p,'Reserve tickets to the fictional aquarium for day 2').kind,'unsupported');
+ assert.deepEqual(p.experiences,[]);
+});
