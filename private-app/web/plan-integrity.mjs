@@ -101,6 +101,11 @@ export function validatePortablePlannerRecords(records){
     let previous=null;
     for(let index=0;index<chain.length;index++){
       const e=chain[index];seen.add(e.id);
+      if(e.source_id!==undefined){
+        const origin=sourcesById.get(e.source_id);
+        if(!origin||origin.adventure_id!==p.id||origin.kind!=='note')
+          fail('Broken AI-assisted edit original source');
+      }
       if((e.instruction_text!==undefined || e.instruction_format!==undefined) &&
          (typeof e.instruction_text!=='string'||!e.instruction_text.trim()||
           e.instruction_text.length>300||
