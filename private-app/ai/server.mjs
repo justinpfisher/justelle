@@ -34,8 +34,12 @@ const syntheticBucket={file:path=>{
   return {
     async getMetadata(){
       const [m]=await entry.getMetadata();
-      return [{...m,metadata:{...m.metadata,
-        attachment_id:m.metadata?.document_id,role:'document'}}];
+      // Firebase's *local* Storage emulator can attach a download token to
+      // SDK-uploaded fixture files. Hosted Justelle forbids these entirely.
+      // Only normalize the fictional test metadata: never export this adapter.
+      const {firebaseStorageDownloadTokens:_emulatorToken,...safe}=m.metadata||{};
+      return [{...m,metadata:{...safe,
+        attachment_id:safe.document_id,role:'document'}}];
     },
     download:()=>entry.download()
   };
