@@ -97,11 +97,11 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
           if(!prev.exists())throw Error('Original edit missing; cannot Undo');
           lastEvent=prev.data();
         }
-        const sourceId=change?.type==='add_booking'?change.booking?.source_id:
+        const bookingSourceId=change?.type==='add_booking'?change.booking?.source_id:
           change?.type==='correct_booking'?(change.patch?.source_id ??
             previous.bookings.find(b=>b.id===change.id)?.source_id):null;
-        if(sourceId){
-          source=await t.get(at('plan_sources',id(sourceId)));
+        if(bookingSourceId){
+          source=await t.get(at('plan_sources',id(bookingSourceId)));
           if(!source.exists()||source.data().adventure_id!==planId)
             throw Error('Booking source is missing or belongs to another adventure');
         }
