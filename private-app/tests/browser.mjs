@@ -175,7 +175,7 @@ try{
     .getByRole('button',{name:'Show original details'}).click();
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
   await B.locator('#planner-map .planner-map-places button').filter({hasText:'Fictional Harbour Revised'}).click();
-  await B.locator('#planner-map .planner-map-selected').getByText('Fictional inn confirmation').waitFor({timeout:15000});
+  await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details · Fictional inn confirmation/}).waitFor({timeout:15000});
   assert.match(await B.locator('#planner-map .planner-map-selected').textContent(),/different dates/i);
   await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details/}).click();
   await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
