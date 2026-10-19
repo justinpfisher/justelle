@@ -121,6 +121,9 @@ try{
   await A.locator('#planner-edit-stay').waitFor({state:'hidden',timeout:15000});
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show day 2'}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show on map'}).click();
+  assert.equal(await A.locator('#planner-map .planner-map-pin').getAttribute('aria-pressed'),'true',
+    'The itinerary must be able to focus its saved map location');
   await B.locator('#planner-map .planner-map-pin').waitFor({timeout:15000});
   assert.equal(await B.locator('#planner-map .planner-map-pin').count(),1);
   assert.match(await B.locator('#planner-map').textContent(),/not a navigational map or confirmed travel route/i);
@@ -197,6 +200,14 @@ try{
     ' | browser: '+pageErrors.join('; '));}
   assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
+  // Check the same connected planner in a desktop viewport, not merely the
+  // previous pilot chat: the map, source and selected day remain available.
+  await B.setViewportSize({width:1280,height:900});
+  assert.equal(await B.locator('#planner-map .planner-map-pin').isVisible(),true);
+  assert.equal(await B.locator('#planner-map .planner-map-selected').isVisible(),true);
+  assert.equal(await B.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,
+    'The planner must not overflow a desktop viewport');
+  await B.setViewportSize({width:390,height:844});
   // A stay edit drafted before another member's save must not overwrite their
   // newer changes, even when live updates arrive during the draft.
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
