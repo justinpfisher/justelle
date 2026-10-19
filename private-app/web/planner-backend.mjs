@@ -77,7 +77,8 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
           // Verify the original member text still means exactly the submitted
           // typed edit at this revision. Generated IDs are caller-supplied for
           // a new stop, rather than trusting a second random parse.
-          const ids=[change?.stop?.id??eventId,change?.stop?.place_id??eventId,eventId];
+          const ids=[change?.stop?.id??change?.experience?.id??eventId,
+            change?.stop?.place_id??eventId,eventId];
           const interpretation=interpretPlanInstruction(previous,instructionText,
             {idFactory:()=>ids.shift()??eventId});
           if(interpretation.kind!=='ready' ||
