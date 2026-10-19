@@ -25,7 +25,7 @@ function setup({image=true,outsider=false,corrupt=false,stale=false,revoked=fals
      storage_path:root+'/documents/'+documentId}]
  ]);
  const db={doc(path){return {async get(){return {exists:documents.has(path),
-   data:()=>documents.get(path)};}}}};
+   data:()=>structuredClone(documents.get(path))};}}}};
  const bucket={file(path){assert.equal(path,root+'/documents/'+documentId);
    return {async getMetadata(){return [{contentType:'image/png',size:bytes.length,
      metadata:{attachment_id:documentId,role:'document',author_uid:'fictional-a',
