@@ -13,6 +13,16 @@ export function reviewAdventure(plan){
     notices.push({severity:'review',code:signal.code,description:descriptions[signal.code]||'Check a planning conflict.',
       evidence:signal,action:'Inspect the linked booking or stay before deciding what to change.'});
   }
+  // Member-recorded supplier confirmations and intended overnight bases are
+  // independent records. A stay is not accounted for merely because a dated
+  // booking exists; it must be linked to a currently planned base.
+  for(const booked of plan.bookings.filter(b=>b.kind==='stay'&&b.status==='confirmed')){
+    const base=plan.stops.find(s=>s.id===booked.stop_id&&s.status==='planned');
+    if(!base)notices.push({severity:'review',code:'confirmed_stay_without_planned_base',
+      description:'A member-recorded accommodation confirmation has no linked planned overnight base.',
+      evidence:{booking_id:booked.id,starts_on:booked.starts_on,ends_on:booked.ends_on},
+      action:'Check the original booking and link an intended place. Updating Justelle does not alter the reservation.'});
+  }
   const free=days.filter(d=>!d.stops.some(s=>s.status==='planned'));
   if(free.length)notices.push({severity:'info',code:'unassigned_overnights',
     description:free.length+' days have no planned overnight base.',
