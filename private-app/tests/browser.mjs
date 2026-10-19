@@ -108,6 +108,9 @@ try{
   assert.equal(await A.locator('.planner-week').first().evaluate(n=>n.open),true);
   await A.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour',{exact:true}).waitFor();
+  await A.locator('#planner-feedback').click();
+  await A.locator('#planner-feedback-results').getByRole('button',{name:'Open day 1'}).click();
+  await A.locator('#planner-day-detail h4').getByText('Day 1',{exact:false}).waitFor();
   // Stay details use the existing atomic revision chain, with touch/keyboard
   // controls and immediate subscription updates on the second member's phone.
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
@@ -182,6 +185,9 @@ try{
   await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details · Fictional inn confirmation/}).waitFor({timeout:15000});
   assert.match(await B.locator('#planner-map .planner-map-selected').textContent(),/different dates/i);
   await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details/}).click();
+  await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
+  await B.locator('#planner-feedback').click();
+  await B.locator('#planner-feedback-results').getByRole('button',{name:'View related booking'}).first().click();
   await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:/Booking: Fictional inn confirmation/}).click();
   await A.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
