@@ -20,6 +20,8 @@ export function createApiHandler({media,respond,planSuggest=null,origin,version=
       if(path==='/api/plan/suggest'){
         if(!input||Array.isArray(input)||
           Object.keys(input).sort().join(',')!=='plan_id,revision,source_id'||
+          typeof input.plan_id!=='string'||typeof input.source_id!=='string'||
+          !Number.isSafeInteger(input.revision)||input.revision<0||
           !planSuggest)return send(400,{error:'Invalid planner request'});
         return send(200,await planSuggest(token,input));
       }
