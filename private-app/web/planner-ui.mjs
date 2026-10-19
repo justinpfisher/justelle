@@ -517,6 +517,27 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     for(const note of result.notices){
       const item=el('div','planner-warning');
       item.append(el('strong','',note.description),el('p','meta',note.action));
+      const evidence=note.evidence||{};
+      const day=evidence.day??evidence.days?.[0]??null;
+      if(Number.isInteger(day)&&day>=1&&day<=p.duration_days){
+        const view=el('button','text-button','Open day '+day);
+        view.type='button';view.onclick=()=>revealDay(p,day);
+        item.append(view);
+      }
+      if(evidence.booking_id&&p.bookings.some(b=>b.id===evidence.booking_id)){
+        const open=el('button','text-button','View related booking');
+        open.type='button';open.onclick=()=>void bookingUI.openBooking(evidence.booking_id);
+        item.append(open);
+      }
+      const stopId=evidence.stop_id??evidence.stop_ids?.[0]??null;
+      if(stopId&&p.stops.some(s=>s.id===stopId)){
+        const focus=el('button','text-button','View related place');
+        focus.type='button';focus.onclick=()=>{
+          selectPlace(p,p.stops.find(s=>s.id===stopId));
+          $('planner-map').scrollIntoView({block:'nearest'});
+        };
+        item.append(focus);
+      }
       out.append(item);
     }
     if(!result.notices.length)out.append(el('p','', 'No saved-record conflicts detected; no live supplier or route checks were performed.'));

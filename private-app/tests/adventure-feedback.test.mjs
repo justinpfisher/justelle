@@ -78,3 +78,35 @@ test('Possible linked places and tentative bookings never count as planned confi
  const unverified=edit(p,{type:'correct_booking',id:'hotel',patch:{status:'unverified'}},'e3');
  assert.equal(reviewAdventure(unverified).notices.some(n=>n.code==='confirmed_stay_without_planned_base'),false);
 });
+
+test('Opt-in feedback finds unrecorded handovers without inventing bookings or journey times',()=>{
+ let p=edit(base(),{type:'add_stop',stop:{id:'a',place_id:'a',
+   title:'Fictional coast',from_day:1,through_day:3,status:'planned'}},'e1');
+ p=edit(p,{type:'add_stop',stop:{id:'b',place_id:'b',
+   title:'Fictional hills',from_day:3,through_day:6,status:'planned'}},'e2');
+ const unchanged=structuredClone(p),result=reviewAdventure(p);
+ const warning=result.notices.find(n=>n.code==='unrecorded_transfer');
+ assert.equal(warning.severity,'info');
+ assert.equal(warning.evidence.day,3);
+ assert.equal(warning.evidence.from_stop_id,'a');
+ assert.equal(warning.evidence.to_stop_id,'b');
+ assert.match(warning.action,/No route, timing or supplier availability was checked/);
+ assert.deepEqual(p,unchanged);
+ p=edit(p,{type:'add_booking',booking:{id:'car',kind:'transport',stop_id:null,
+   starts_on:'2026-10-30',ends_on:'2026-10-30',status:'unverified',
+   source_id:null,summary:'Maybe rent a car'}},'e3');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unrecorded_transfer'),true,
+   'A different-day transfer is not evidence for the day 3 handover');
+ p=edit(p,{type:'correct_booking',id:'car',patch:{
+   starts_on:'2026-10-30',ends_on:'2026-11-01'}},'e4');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unrecorded_transfer'),false,
+   'A recorded but unverified transfer is a distinct informational warning');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unconfirmed_transfer'),true);
+});
+test('Possible stops or ambiguous overlapping bases do not create imaginary transfers',()=>{
+ let p=edit(base(),{type:'add_stop',stop:{id:'a',place_id:'a',title:'Fictional home',
+   from_day:1,through_day:4,status:'planned'}},'e1');
+ p=edit(p,{type:'add_stop',stop:{id:'b',place_id:'b',title:'Tentative option',
+   from_day:3,through_day:6,status:'possible'}},'e2');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unrecorded_transfer'),false);
+});
