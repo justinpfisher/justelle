@@ -154,6 +154,7 @@
           </section>
           <section id="planner-journey" aria-label="Whole journey"></section>
           <section id="planner-alerts" role="status" aria-label="Planning conflicts"></section>
+          <section id="planner-map" class="planner-map" aria-label="Saved place locations"></section>
           <details class="journey-days"><summary>Explore days</summary>
             <div id="planner-days-view" class="planner-day-grid"></div>
             <div id="planner-day-detail" aria-live="polite"></div>
@@ -234,6 +235,13 @@
               <label for="planner-edit-nights">Nights<input id="planner-edit-nights" type="number" min="1" max="90" required></label>
               <label for="planner-edit-state">Planning status<select id="planner-edit-state"><option value="possible">Possible</option><option value="planned">Planned</option></select></label>
             </div>
+            <details class="planner-coordinates"><summary>Place on the map (optional)</summary>
+              <p class="meta">Enter known coordinates only. These locate a place, not a booked route.</p>
+              <div class="planner-fields">
+                <label for="planner-edit-latitude">Latitude<input id="planner-edit-latitude" type="number" min="-90" max="90" step="any" placeholder="49.2827"></label>
+                <label for="planner-edit-longitude">Longitude<input id="planner-edit-longitude" type="number" min="-180" max="180" step="any" placeholder="-123.1207"></label>
+              </div>
+            </details>
             <p class="meta">This changes the shared itinerary, not any supplier booking. Booking mismatches will be flagged.</p>
             <button type="submit" class="secondary">Save place changes</button>
             <button type="button" id="planner-edit-refresh" class="text-button">Review latest version</button>
@@ -247,6 +255,12 @@
               <label for="planner-nights">Nights<input id="planner-nights" type="number" min="1" value="2" required></label>
               <label for="planner-state">State<select id="planner-state"><option value="possible">Possible</option><option value="planned">Planned</option></select></label>
             </div>
+            <details class="planner-coordinates"><summary>Place on the map (optional)</summary>
+              <div class="planner-fields">
+                <label for="planner-stay-latitude">Latitude<input id="planner-stay-latitude" type="number" min="-90" max="90" step="any" placeholder="49.2827"></label>
+                <label for="planner-stay-longitude">Longitude<input id="planner-stay-longitude" type="number" min="-180" max="180" step="any" placeholder="-123.1207"></label>
+              </div>
+            </details>
             <button class="secondary" type="submit">Add place</button>
           </form>
           <div class="planner-actions">
