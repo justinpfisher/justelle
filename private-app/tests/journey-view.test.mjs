@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createItinerary,applyItineraryEdit} from '../web/itinerary-core.mjs';
 import {journeyOverview,dayDetail,nextAdventures,journeyWeeks} from '../web/journey-view.mjs';
+import {journeyMap} from '../web/journey-map.mjs';
 const make=(id='fictional')=>createItinerary({id,title:'Fictional journey',durationDays:6,startsOn:'2026-10-30'});
 function change(p,c,id){return applyItineraryEdit(p,c,{eventId:id,actorId:'member-a',at:'2026-10-17T14:00:00Z'}).plan;}
 test('Open nights and possible stops stay distinct across Toronto autumn DST transition',()=>{
@@ -39,4 +40,40 @@ test('A 21-day journey opens as three bounded week groups without losing date or
  assert.equal(weeks[0].from_date,'2026-10-25');
  assert.equal(weeks[2].to_date,'2026-11-14');
  assert.equal(weeks.flatMap(w=>w.days).length,21);
+});
+
+test('Map pins, booking context and day selections use one canonical itinerary',()=>{
+  let p=change(make(),{type:'add_stop',stop:{id:'harbour',place_id:'harbour-place',
+    title:'Fictional Harbour',from_day:2,through_day:4,status:'possible',
+    latitude:49.2827,longitude:-123.1207}},'e1');
+  p=change(p,{type:'add_stop',stop:{id:'inland',place_id:'inland-place',
+    title:'Fictional Inland',from_day:4,through_day:6,status:'planned',
+    latitude:50.1,longitude:-120.0}},'e2');
+  p=change(p,{type:'add_booking',booking:{id:'hotel',kind:'stay',stop_id:'harbour',
+    starts_on:'2026-10-31',ends_on:'2026-11-02',status:'confirmed',
+    source_id:'fictional-source',summary:'Recorded fictional hotel'}},'e3');
+  const map=journeyMap(p,2);
+  assert.equal(map.places.length,2);
+  assert.deepEqual(map.pins.map(v=>v.id),['harbour','inland']);
+  assert.equal(map.places[0].on_day,true);
+  assert.equal(map.places[1].on_day,false);
+  assert.equal(map.places[0].bookings[0].id,'hotel');
+  assert.equal(dayDetail(p,2).possibilities[0].id,map.places[0].id);
+  assert.ok(map.pins.every(v=>v.x_percent>=15&&v.x_percent<=85&&
+    v.y_percent>=15&&v.y_percent<=85),'Coordinate pins remain within view');
+  assert.equal(map.places[0].booking_mismatch,false);
+  assert.equal(journeyMap(p,4).places[1].on_day,true);
+  assert.equal(journeyMap(p,4).places[0].on_day,false);
+  assert.deepEqual(journeyMap(make()).pins,[]);
+});
+test('No guessed points, external data calls or invented transport lines',()=>{
+  let p=change(make(),{type:'add_stop',stop:{id:'unknown',place_id:'unknown',
+    title:'Fictional unspecified town',from_day:1,through_day:3,status:'planned'}},'e1');
+  p=change(p,{type:'add_booking',booking:{id:'possible-flight',kind:'flight',stop_id:null,
+    starts_on:'2026-10-31',ends_on:'2026-10-31',status:'unverified',
+    source_id:null,summary:'Unverified transport'}},'e2');
+  const map=journeyMap(p);
+  assert.deepEqual(map.pins,[],'No guessed location from a name or transport');
+  assert.equal(map.places[0].latitude,null);
+  assert.equal(Object.hasOwn(map,'routes'),false,'No speculative travel path');
 });
