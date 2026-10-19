@@ -182,8 +182,16 @@ try{
     buffer:await readFile(new URL('./fictional-landscape.png',import.meta.url))
   });
   await A.locator('#planner-ask-ai').click();
-  await A.locator('#planner-instruction-result').getByText(/fictional provider cannot interpret/i)
-    .waitFor({timeout:15000});
+  try{
+    await A.locator('#planner-instruction-result').getByText(/fictional provider cannot interpret/i)
+      .waitFor({timeout:10000});
+  }catch(failure){
+    throw Error('Private screenshot clarification failed: '+failure.message+
+      ' | error: '+(await A.locator('#error').textContent())+
+      ' | status: '+(await A.locator('#planner-instruction-result').textContent())+
+      ' | button disabled: '+await A.locator('#planner-ask-ai').isDisabled()+
+      ' | page: '+pageErrors.join(' / '));
+  }
   assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false);
   assert.equal((await B.locator('#planner-stays').textContent()).includes('Fictional lookout'),false);
 
