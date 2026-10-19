@@ -330,3 +330,22 @@ test('Member-applied AI preview retains immutable source, rejects cross-adventur
     assert.equal((await one.readPlan(planId)).revision,1);
   }finally{await env.cleanup();}
 });
+
+test('Clear typed day-activity instructions survive transactional ID revalidation and Undo',async()=>{
+  const {env,one,two}=await setup();
+  try{
+    await one.createPlan({uid:a},{id:planId,title:'Fictional day activity',
+      durationDays:7,startsOn:'2026-11-01'});
+    const instruction='Consider a visit to Fictional Lakeside on day 3';
+    const plan=await one.readPlan(planId);
+    const proposed=interpretPlanInstruction(plan,instruction);
+    assert.equal(proposed.kind,'ready');
+    assert.equal(proposed.change.type,'add_experience');
+    await one.editPlan({uid:a},planId,proposed.change,0,{instructionText:instruction});
+    assert.equal((await two.readPlan(planId)).experiences[0].title,'Fictional Lakeside');
+    const history=await two.readHistory(planId);
+    assert.equal(history[1].instruction_text,instruction);
+    await two.editPlan({uid:b},planId,{type:'undo_last'},1);
+    assert.equal((await one.readPlan(planId)).experiences.length,0);
+  }finally{await env.cleanup();}
+});
