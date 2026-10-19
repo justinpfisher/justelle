@@ -28,6 +28,24 @@ export function reviewAdventure(plan){
     description:free.length+' days have no planned overnight base.',
     evidence:{days:free.map(d=>d.day)},
     action:'Leave days open or add an intended stay; do not invent an accommodation booking.'});
+  // An intended overnight-base handover can be useful planning feedback,
+  // but travel may legitimately be by car/walk with no supplier confirmation.
+  // This never asserts an impossible connection, travel time or missing ticket.
+  for(let i=1;i<days.length;i++){
+    const previous=days[i-1].stops.filter(s=>s.status==='planned');
+    const next=days[i].stops.filter(s=>s.status==='planned');
+    if(previous.length!==1||next.length!==1||previous[0].id===next[0].id)continue;
+    const date=days[i].date;
+    const recorded=Boolean(date)&&plan.bookings.some(b=>
+      ['flight','transport'].includes(b.kind)&&
+      !['cancelled','voided'].includes(b.status)&&
+      b.starts_on<=date&&b.ends_on>=date);
+    if(!recorded)notices.push({severity:'info',code:'unrecorded_transfer',
+      description:'Day '+days[i].day+' changes overnight base from '+previous[0].title+
+        ' to '+next[0].title+' without a recorded transfer.',
+      evidence:{day:days[i].day,from_stop_id:previous[0].id,to_stop_id:next[0].id},
+      action:'If travel arrangements matter here, add an intended transfer. No route, timing or supplier availability was checked.'});
+  }
   // A heuristic prompt, not a claim that activities actually conflict: we
   // have neither timings nor route-duration evidence in these records.
   for(const day of days){
