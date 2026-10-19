@@ -175,7 +175,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       change.type='button';change.onclick=()=>openStayEditor(p,s);
       const viewDay=el('button','text-button','Show day '+s.from_day);
       viewDay.type='button';viewDay.onclick=()=>revealDay(p,s.from_day);
-      row.append(toggle,move,change,viewDay);
+      const viewMap=el('button','text-button','Show on map');
+      viewMap.type='button';viewMap.onclick=()=>{
+        selectPlace(p,s);$('planner-map').scrollIntoView({block:'nearest'});
+      };
+      row.append(toggle,move,change,viewDay,viewMap);
       for(const booking of p.bookings.filter(b=>b.stop_id===s.id)){
         const link=el('button','text-button','Booking: '+booking.summary);
         link.type='button';link.onclick=()=>void bookingUI.openBooking(booking.id);
@@ -198,6 +202,13 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     out.replaceChildren(el('h4','','Day '+day+(detail.date?' · '+detail.date:'')),
       el('p','',detail.planned.map(x=>x.title).join(', ')||'No planned overnight base'),
       el('p','meta',detail.possibilities.map(x=>x.title).join(', ')||'No alternative stops'));
+    for(const place of detail.stops){
+      const onMap=el('button','text-button','Show on map · '+place.title);
+      onMap.type='button';onMap.onclick=()=>{
+        selectedStopId=place.id;renderMap(p);$('planner-map').scrollIntoView({block:'nearest'});
+      };
+      out.append(onMap);
+    }
     for(const experience of detail.experiences??[])
       out.append(el('p','meta',(experience.status==='planned'?'Planned':'Possible')+
         ' experience · '+experience.title+(experience.notes?' · '+experience.notes:'')));
