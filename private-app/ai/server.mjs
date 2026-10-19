@@ -159,6 +159,9 @@ const server=createServer(async(req,res)=>{
     return respond(res,200,output);
   } catch(e) {
     const status=Number.isInteger(e.status)?e.status:(e.code==='auth/argument-error'||e.code==='auth/id-token-expired'?401:400);
+    if(req.url==='/plan/suggest'&&status>=500)
+      console.error('Fictional planner test error ('+status+'): '+
+        String(e.message||'Unknown').replace(/[^A-Za-z0-9 .,:/-]/g,'?').slice(0,160));
     return respond(res,status,{error:status>=500?'Gateway error':(status===400?'Request failed':e.message)});
   }
 });
