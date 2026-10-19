@@ -144,8 +144,14 @@
             <input id="planner-instruction" maxlength="300" required
               placeholder="Consider 2 nights in Kyoto starting day 4">
             <button class="secondary" type="submit">Make this change</button>
-            <p class="meta">Precise changes save to our shared plan. If a change creates a conflict,
-              you'll see a preview first. This is not an external booking service.</p>
+            <details class="planner-coordinates"><summary>Optional screenshot for AI interpretation</summary>
+              <label for="planner-ai-screenshot">Original PNG or JPEG screenshot (private, 12 MB maximum)</label>
+              <input id="planner-ai-screenshot" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg">
+            </details>
+            <button id="planner-ask-ai" class="secondary" type="button">Ask AI to suggest</button>
+            <p class="meta">Clear member instructions save directly with Undo. AI suggestions always
+              need your review and Apply; they cannot book, cancel or change suppliers.
+              The AI option is available only after private hosted setup.</p>
           </form>
           <section id="planner-instruction-result" class="soft-card" role="status" aria-live="polite" hidden>
             <p id="planner-instruction-message"></p>

@@ -591,7 +591,8 @@ onAuthStateChanged(auth,async user=>{
     if(!membership.exists()||!membership.data().uids.includes(user.uid))
       throw Error('Member access denied.');
     backend=firebaseBackend({db,storage,roomId,membership:membership.data(),mediaTransport:runtime.mode==='local'?null:protectedMediaTransport({baseUrl:runtime.mediaUrl,getToken:()=>auth.currentUser.getIdToken()})});
-    stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),onError:error,announce:setNotice});
+    stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),onError:error,announce:setNotice,
+      planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken()});
     $('private-app').hidden=false;tab(runtime.mode==='production'?'adventures':'conversation');
     setNotice('Signed in; your local session stays available when reopening.');
     let wanted=null;

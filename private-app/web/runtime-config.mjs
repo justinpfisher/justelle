@@ -22,6 +22,6 @@ export function resolveRuntime({hostname,origin,env={}}){
     throw Error('Production must be separate from fictional qualification');
   const authDomain=env.VITE_FIREBASE_AUTH_DOMAIN,bucket=env.VITE_FIREBASE_STORAGE_BUCKET;
   if(authDomain!==projectId+'.firebaseapp.com'||bucket!==projectId+'.firebasestorage.app')throw Error('Firebase configuration does not match the qualification project');
-  return {mode,projectId,roomId,aiUrl:origin+'/api/respond',mediaUrl:origin+'/api/media',
+  return {mode,projectId,roomId,aiUrl:origin+'/api/respond',planAiUrl:origin+'/api/plan/suggest',mediaUrl:origin+'/api/media',
     firebase:{apiKey:env.VITE_FIREBASE_API_KEY,projectId,authDomain,storageBucket:bucket}};
 }

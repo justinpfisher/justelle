@@ -5,13 +5,17 @@ import {todayEssentials} from './today-essentials.mjs';
 import {mountBookingUI} from './booking-ui.mjs';
 import {interpretPlanInstruction} from './instruction-core.mjs';
 import {paintJourneyMap} from './journey-map-ui.mjs';
+import {sha256} from './media.mjs';
 const $=id=>document.getElementById(id);
 const el=(tag,className='',content='')=>{
   const node=document.createElement(tag);if(className)node.className=className;
   if(content)node.textContent=content;return node;
 };
-export function mountPlannerUI({planner,user,membership,onError,announce}){
+export function mountPlannerUI({planner,user,membership,onError,announce,planAiUrl=null,getToken=null}){
   let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,stopped=false;
+  const aiAvailable=Boolean(planAiUrl&&getToken);
+  $('planner-ask-ai').hidden=!aiAvailable;
+  $('planner-ai-screenshot').closest('details').hidden=!aiAvailable;
   const name=id=>{
     const uid=membership.uids.find(uid=>membership.people[uid]===id);
     return uid===user.uid?'You':membership.labels?.[uid]||'The other member';
@@ -332,12 +336,39 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     try{
       const id=selected,events=await planner.readHistory(id);
       if(id!==selected||stopped)return;
+      const sources=events.some(e=>e.source_id)?await planner.readSources(id):[];
+      if(id!==selected||stopped)return;
+      const originals=new Map(sources.map(source=>[source.id,source]));
       const out=$('planner-history');out.replaceChildren();
       for(const e of events.slice().reverse()){
         const when=e.created_at?.toDate?.()?.toLocaleString('en-CA',
           {dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'})||'Saving…';
         const row=el('li','',e.operation.replaceAll('_',' ')+' · '+name(e.actor_id)+' · '+when);
         if(e.instruction_text)row.append(el('p','meta','Original instruction: '+e.instruction_text));
+        if(e.source_id){
+          const source=originals.get(e.source_id);
+          row.append(el('p','meta',source?'Original planning source retained':'Original source unavailable'));
+          if(source?.notes)row.append(el('p','meta','Member note: '+source.notes));
+          if(source?.document_id){
+            const open=el('button','text-button','Open protected source screenshot');
+            open.type='button';
+            open.onclick=async()=>{
+              open.disabled=true;
+              try{
+                const doc=(await planner.readDocuments(id)).find(d=>d.id===source.document_id);
+                if(!doc)throw Error('Original screenshot is missing');
+                const bytes=await planner.documentBytes(doc.id);
+                if(bytes.length!==doc.size||await sha256(bytes)!==doc.sha256)
+                  throw Error('Original screenshot failed integrity verification');
+                const url=URL.createObjectURL(new Blob([bytes],{type:doc.mime}));
+                const a=el('a');a.href=url;a.download=doc.name||'justelle-screenshot';
+                document.body.append(a);a.click();a.remove();
+                setTimeout(()=>URL.revokeObjectURL(url),15000);
+              }catch(error){onError(error);}finally{open.disabled=false;}
+            };
+            row.append(open);
+          }
+        }
         out.append(row);
       }
     }catch(error){onError(error);}
@@ -364,6 +395,47 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-instruction-cancel').hidden=!preview;
     $('planner-instruction-apply').disabled=false;
   }
+  const requestAiSuggestion=async()=>{
+    const p=plans.find(x=>x.id===selected);if(!p)return;
+    if(!aiAvailable)return instructionMessage('AI planning is not configured for this private app.');
+    const instruction=$('planner-instruction').value.trim();
+    const file=$('planner-ai-screenshot').files?.[0]||null;
+    if(!instruction&&!file)return instructionMessage('Enter a request or attach a PNG/JPEG screenshot.');
+    if(file&&(!['image/png','image/jpeg'].includes(file.type)||file.size>12*1024*1024||
+      file.size<=0))return instructionMessage('Use a PNG or JPEG screenshot under 12 MB.');
+    const button=$('planner-ask-ai');button.disabled=true;clearInstruction();
+    try{
+      // Originals are immutable private member records, not uploaded into the
+      // model directly from a public URL or used to change a supplier booking.
+      const documentId=file?await planner.addDocument(user,{adventureId:p.id,file}):null;
+      const sourceId=await planner.addSource(user,{adventureId:p.id,kind:'note',
+        title:'Original planning request',notes:instruction,documentId});
+      const response=await fetch(planAiUrl,{method:'POST',cache:'no-store',redirect:'error',
+        headers:{Authorization:'Bearer '+await getToken(),'Content-Type':'application/json'},
+        body:JSON.stringify({plan_id:p.id,revision:p.revision,source_id:sourceId})});
+      const result=await response.json();
+      if(!response.ok)throw Error(result?.error||'Justelle AI could not interpret this request.');
+      if(stopped||selected!==p.id)return;
+      if(result.plan_id!==p.id||result.revision!==p.revision||result.source_id!==sourceId)
+        throw Error('AI preview does not match the currently selected adventure.');
+      if(result.kind==='needs_detail'){
+        instructionMessage((result.message||'Please clarify the intended edit.')+
+          (result.uncertainty?' · '+result.uncertainty:'')+
+          ' Your original note or screenshot was retained privately.');
+        return;
+      }
+      if(result.kind!=='preview'||!['add_stop','add_experience'].includes(result.change?.type)||
+        typeof result.summary!=='string'||result.summary.length>500)
+        throw Error('Justelle refused an invalid AI suggestion.');
+      instructionPreview={planId:p.id,revision:p.revision,text:instruction,
+        sourceId,ai:true,change:result.change,summary:result.summary};
+      const warnings=(result.signals||[]).map(item=>item.code?.replaceAll('_',' ')).filter(Boolean);
+      instructionMessage('AI suggestion · '+result.summary+'. '+
+        (result.uncertainty?'Check: '+result.uncertainty+'. ':'')+
+        (warnings.length?'Potential conflicts: '+warnings.join(', ')+'. ':'')+
+        'Review before Apply. No booking or supplier has changed.',{preview:true});
+    }catch(error){onError(error);}finally{button.disabled=false;}
+  };
   const submitInstruction=async event=>{
     event.preventDefault();
     const p=plans.find(x=>x.id===selected);if(!p)return;
@@ -401,10 +473,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     }
     const button=$('planner-instruction-apply');button.disabled=true;
     try{
-      if(await edit(p,pending.change,{instructionText:pending.text})){
+      if(await edit(p,pending.change,pending.ai?
+        {sourceId:pending.sourceId}:{instructionText:pending.text})){
         clearInstruction();
-        $('planner-instruction').value='';
-        instructionMessage('Saved: '+pending.summary+' Supplier reservations remain unchanged.');
+        $('planner-instruction').value='';$('planner-ai-screenshot').value='';
+        instructionMessage('Saved: '+pending.summary+' Undo is available. Supplier reservations remain unchanged.');
       }
     }finally{button.disabled=false;}
   };
@@ -498,6 +571,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
   const close=()=>{selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
   $('planner-create').addEventListener('submit',created);
   $('planner-instruction-form').addEventListener('submit',submitInstruction);
+  $('planner-ask-ai').addEventListener('click',requestAiSuggestion);
+  $('planner-ai-screenshot').addEventListener('change',instructionInput);
   $('planner-instruction').addEventListener('input',instructionInput);
   $('planner-instruction-apply').addEventListener('click',applyInstruction);
   $('planner-instruction-cancel').addEventListener('click',clearInstruction);
@@ -532,6 +607,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     stopped=true;unsubscribe();bookingUI.dispose();
     $('planner-create').removeEventListener('submit',created);
     $('planner-instruction-form').removeEventListener('submit',submitInstruction);
+    $('planner-ask-ai').removeEventListener('click',requestAiSuggestion);
+    $('planner-ai-screenshot').removeEventListener('change',instructionInput);
     $('planner-instruction').removeEventListener('input',instructionInput);
     $('planner-instruction-apply').removeEventListener('click',applyInstruction);
     $('planner-instruction-cancel').removeEventListener('click',clearInstruction);

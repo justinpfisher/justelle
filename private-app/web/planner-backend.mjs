@@ -58,11 +58,13 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
       return planId;
     },
     async editPlan(user,planId,change,expectedRevision,
-      {eventId=crypto.randomUUID(),instructionText=null}={}){
+      {eventId=crypto.randomUUID(),instructionText=null,sourceId=null}={}){
       const author=actor(user);id(planId);id(eventId);
       if(instructionText!==null&&(typeof instructionText!=='string'||!instructionText.trim()||
           instructionText.length>300))
         throw Error('Invalid original member instruction');
+      if(sourceId!==null&&(!UUID.test(sourceId)||instructionText!==null))
+        throw Error('The original AI source must be a separate, valid planning note');
       if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)
         throw Error('Open the latest plan before editing');
       return runTransaction(db,async t=>{
@@ -75,7 +77,8 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
           // Verify the original member text still means exactly the submitted
           // typed edit at this revision. Generated IDs are caller-supplied for
           // a new stop, rather than trusting a second random parse.
-          const ids=[change?.stop?.id??eventId,change?.stop?.place_id??eventId,eventId];
+          const ids=[change?.stop?.id??change?.experience?.id??eventId,
+            change?.stop?.place_id??eventId,eventId];
           const interpretation=interpretPlanInstruction(previous,instructionText,
             {idFactory:()=>ids.shift()??eventId});
           if(interpretation.kind!=='ready' ||
@@ -83,16 +86,22 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
             throw Error('This instruction no longer matches the current shared plan.');
         }
         let lastEvent=null,source=null;
+        if(sourceId!==null){
+          const origin=await t.get(at('plan_sources',sourceId));
+          if(!origin.exists()||origin.data().adventure_id!==planId||
+            origin.data().kind!=='note')
+            throw Error('Original planning source is missing or belongs to another adventure');
+        }
         if(change?.type==='undo_last'){
           const prev=await t.get(at('plan_events',previous.last_event_id));
           if(!prev.exists())throw Error('Original edit missing; cannot Undo');
           lastEvent=prev.data();
         }
-        const sourceId=change?.type==='add_booking'?change.booking?.source_id:
+        const bookingSourceId=change?.type==='add_booking'?change.booking?.source_id:
           change?.type==='correct_booking'?(change.patch?.source_id ??
             previous.bookings.find(b=>b.id===change.id)?.source_id):null;
-        if(sourceId){
-          source=await t.get(at('plan_sources',id(sourceId)));
+        if(bookingSourceId){
+          source=await t.get(at('plan_sources',id(bookingSourceId)));
           if(!source.exists()||source.data().adventure_id!==planId)
             throw Error('Booking source is missing or belongs to another adventure');
         }
@@ -111,6 +120,7 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
         const provenance=instructionText===null?{}:{
           instruction_text:instructionText,
           instruction_format:'justelle-member-instruction-v1'};
+        if(sourceId!==null)provenance.source_id=sourceId;
         t.set(eventRef,{...event,...author,...provenance,
           at:serverTimestamp(),created_at:serverTimestamp(),
           before_state:previous,after_state:plan});

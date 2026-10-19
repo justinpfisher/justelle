@@ -109,3 +109,25 @@ test('Source PDFs use the protected immutable gateway; outsiders and altered rep
     headers:{authorization:'Bearer fictional-token','content-type':'application/pdf'}},changed);
   assert.equal(changed.status,409);
 });
+
+test('Typed planner route needs bearer, exact source/revision shape and trusted origin',async()=>{
+ const calls=[],handler=createApiHandler({origin:'https://fictional.web.app',
+   media:()=>{},respond:async()=>({message_id:id}),
+   planSuggest:async(token,body)=>{calls.push({token,body});return {
+     kind:'preview',revision:body.revision,source_id:body.source_id};}});
+ const input={plan_id:'fictional-trip',revision:0,source_id:id};
+ const request=(body=input,extra={})=>req(body,{url:'/api/plan/suggest',...extra});
+ const good=res();await handler(request(),good);
+ assert.equal(good.status,200);
+ assert.deepEqual(calls,[{token:'fictional-token',body:input}]);
+ for(const [item,code] of [
+   [request({...input,modify_booking:true}),400],
+   [request({...input,revision:'zero'}),400],
+   [request({}, {method:'GET'}),405],
+   [request({}, {headers:{'content-type':'application/json'}}),401],
+   [request({}, {headers:{origin:'https://outsider.invalid'}}),403]
+ ]){
+   const response=res();await handler(item,response);assert.equal(response.status,code);
+ }
+ assert.equal(calls.length,1,'Malformed requests never reach the service');
+});

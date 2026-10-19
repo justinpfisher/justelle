@@ -111,11 +111,46 @@ try{
     '/rooms/fictional-room/documents/'+documentId,{redirect:'error',cache:'no-store'});
   assert([401,403].includes(rawDocument.status));await rawDocument.body?.cancel();
   results.push('immediate_two_member_planner_edits_history_undo_and_protected_booking_original');
+  // Qualify the real on-demand planner model against the *private* original
+  // note and its current revision, not client-written JSON or a public image URL.
+  const planningSourceId=randomUUID();
+  await A.planner.addSource(A.user,{id:planningSourceId,adventureId:planId,kind:'note',
+    title:'Original fictional planning request',
+    notes:'Consider a visit to the fictional art gallery on day 3'});
+  const noteRequest={plan_id:planId,revision:4,source_id:planningSourceId};
+  const noteResponse=await http('/api/plan/suggest',{method:'POST',token:A.token,
+    contentType:'application/json',body:JSON.stringify(noteRequest)});
+  const suggestion=await noteResponse.json();
+  assert(suggestion.kind==='preview'&&suggestion.change?.type==='add_experience');
+  assert(suggestion.source_id===planningSourceId&&suggestion.revision===4);
+  assert((await A.planner.readPlan(planId)).revision===4);
+  await B.planner.editPlan(B.user,planId,suggestion.change,4,{sourceId:planningSourceId});
+  const attributed=(await B.planner.readHistory(planId)).at(-1);
+  assert(attributed.actor_id==='person-b'&&attributed.source_id===planningSourceId);
+  await A.planner.editPlan(A.user,planId,{type:'undo_last'},5);
+  assert((await A.planner.readPlan(planId)).bookings[0].starts_on==='2026-11-01');
+  const screenshotId=randomUUID(),screenshotSourceId=randomUUID();
+  await A.planner.addDocument(A.user,{id:screenshotId,adventureId:planId,
+    file:{type:'image/png',size:bytes.length,name:'synthetic-planning-screenshot.png',
+      arrayBuffer:async()=>bytes}});
+  await A.planner.addSource(A.user,{id:screenshotSourceId,adventureId:planId,kind:'note',
+    title:'Original fictional screenshot',documentId:screenshotId,
+    notes:'Suggest a possible day 4 activity only if the image supports it; otherwise ask for clarification.'});
+  const screenshotRequest={plan_id:planId,revision:6,source_id:screenshotSourceId};
+  const screenshotResponse=await http('/api/plan/suggest',{method:'POST',token:A.token,
+    contentType:'application/json',body:JSON.stringify(screenshotRequest)});
+  const screenshotIdea=await screenshotResponse.json();
+  assert(['preview','needs_detail'].includes(screenshotIdea.kind));
+  assert(screenshotIdea.revision===6&&screenshotIdea.source_id===screenshotSourceId);
+  assert((await B.planner.readPlan(planId)).revision===6);
+  results.push('protected_ai_plan_source_screenshot_preview_member_apply_and_undo');
   await denial(X.backend.messageById(original));
   for(const token of [undefined,X.token]){
     await http('/api/media/'+imageId+'/original',{token},[401,403]);
     await http('/api/media/documents/'+documentId,{token},[401,403]);
     await http('/api/respond',{method:'POST',token,contentType:'application/json',body:JSON.stringify({source_message_id:source})},[401,403]);
+    await http('/api/plan/suggest',{method:'POST',token,contentType:'application/json',
+      body:JSON.stringify(screenshotRequest)},[401,403]);
   }
   // Fence the old token in Rules and revoke refresh sessions; keep both canonical authors in memory.
   const fenced={...membership,revoked_auth_before:{'fictional-b':Math.floor(Date.now()/1000)}};
@@ -123,7 +158,10 @@ try{
   await http('/api/media/documents/'+documentId,{token:B.token},[401,403]);
   await qualify({origin:config.origin,room_id:'fictional-room',project_id:config.projectId,bucket:env.VITE_FIREBASE_STORAGE_BUCKET,
     record_id:original,image_id:imageId,member_token:A.token,outsider_token:X.token,revoked_token:B.token});
-  await http('/api/respond',{method:'POST',token:B.token,contentType:'application/json',body:JSON.stringify({source_message_id:source})},[401]);results.push('outsider_direct_file_and_revoked_session_denial');
+  await http('/api/respond',{method:'POST',token:B.token,contentType:'application/json',body:JSON.stringify({source_message_id:source})},[401]);
+  await http('/api/plan/suggest',{method:'POST',token:B.token,
+    contentType:'application/json',body:JSON.stringify(screenshotRequest)},[401]);
+  results.push('outsider_direct_file_and_revoked_session_denial');
   await db.doc('rooms/fictional-room/operations/runtime').set({ai_enabled:false});
   const failureSource=await A.backend.addMessage(A.user,{body:'Fictional failure test.'});
   await http('/api/respond',{method:'POST',token:A.token,contentType:'application/json',body:JSON.stringify({source_message_id:failureSource})},[503]);
