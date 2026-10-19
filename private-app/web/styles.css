@@ -168,3 +168,9 @@ select{font:inherit;width:100%;border:1px solid #adc5c4;border-radius:12px;paddi
 .planner-coordinates summary{font-size:.85rem;color:#23685e}
 .planner-coordinates .meta{margin:7px 0}
 @media (max-width:440px){.planner-map-field{height:205px}.planner-map-place button{width:100%}}
+
+/* Today records are member-copied evidence, not a live departure board. */
+.planner-today-booking{border:1px solid #d2e5dd;background:#f8fcf9;border-radius:12px;padding:11px;margin:10px 0}
+.planner-today-booking strong{display:block;overflow-wrap:anywhere;font-size:.92rem}
+.planner-today-booking .meta{margin:6px 0}
+.planner-today-booking button{min-height:44px;max-width:100%;text-align:left;white-space:normal}
