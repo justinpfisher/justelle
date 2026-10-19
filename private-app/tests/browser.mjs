@@ -107,24 +107,40 @@ try{
   assert.equal(await A.locator('.planner-week').count(),2,'Ten-day trip is displayed in two weeks');
   assert.equal(await A.locator('.planner-week').first().evaluate(n=>n.open),true);
   await A.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
-  await A.locator('#planner-day-detail').getByText('Fictional Harbour').waitFor();
+  await A.locator('#planner-day-detail').getByText('Fictional Harbour',{exact:true}).waitFor();
   // Stay details use the existing atomic revision chain, with touch/keyboard
   // controls and immediate subscription updates on the second member's phone.
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
   await A.locator('#planner-edit-title').fill('Fictional Harbour Revised');
   await A.locator('#planner-edit-nights').fill('2');
+  await A.locator('#planner-edit-stay .planner-coordinates summary').click();
+  await A.locator('#planner-edit-latitude').fill('49.2827');
+  await A.locator('#planner-edit-longitude').fill('-123.1207');
   await A.locator('#planner-edit-stay button[type=submit]').click();
   await B.locator('#planner-stays').getByText('Fictional Harbour Revised').waitFor({timeout:15000});
   await A.locator('#planner-edit-stay').waitFor({state:'hidden',timeout:15000});
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show day 2'}).click();
-  await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
+  await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised',{exact:true}).waitFor();
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show on map'}).click();
+  assert.equal(await A.locator('#planner-map .planner-map-pin').getAttribute('aria-pressed'),'true',
+    'The itinerary must be able to focus its saved map location');
+  await B.locator('#planner-map .planner-map-pin').waitFor({timeout:15000});
+  assert.equal(await B.locator('#planner-map .planner-map-pin').count(),1);
+  assert.match(await B.locator('#planner-map').textContent(),/not a navigational map or confirmed travel route/i);
+  await B.locator('#planner-map .planner-map-pin').click();
+  assert.equal(await B.locator('#planner-map .planner-map-pin').getAttribute('aria-pressed'),'true');
+  await B.locator('#planner-day-detail').getByText('Fictional Harbour Revised',{exact:true}).waitFor();
+  await B.locator('.planner-week').first().getByRole('button',{name:/Day 4/}).click();
+  assert.equal(await B.locator('#planner-map .planner-map-pin').getAttribute('data-in-day'),'false',
+    'Selecting a different day must not imply an overnight stay at this pinned place');
   // Ordinary day activities/ideas are not booking confirmations. Members can
   // edit them immediately, with the other member seeing the same day entry.
   await A.locator('#planner-experience-title').fill('Fictional museum');
   assert.equal(await A.locator('#planner-experience-day').inputValue(),'2');
   await A.locator('#planner-experience-notes').fill('Flexible afternoon');
   await A.locator('#planner-add-experience button[type=submit]').click();
-  await B.getByText('Explore days',{exact:true}).click();
+  if(!(await B.locator('.journey-days').evaluate(n=>n.open)))
+    await B.getByText('Explore days',{exact:true}).click();
   await B.locator('#planner-experiences').getByText('Fictional museum').waitFor({timeout:15000});
   await B.locator('#planner-experiences .planner-stay').getByRole('button',{name:'Edit experience'}).click();
   await B.locator('#planner-experience-edit-title').fill('Fictional gallery');
@@ -162,6 +178,11 @@ try{
   await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
     .getByRole('button',{name:'Show original details'}).click();
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
+  await B.locator('#planner-map .planner-map-places button').filter({hasText:'Fictional Harbour Revised'}).click();
+  await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details · Fictional inn confirmation/}).waitFor({timeout:15000});
+  assert.match(await B.locator('#planner-map .planner-map-selected').textContent(),/different dates/i);
+  await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details/}).click();
+  await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:/Booking: Fictional inn confirmation/}).click();
   await A.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   if(!(await B.locator('.journey-days').evaluate(n=>n.open)))
@@ -179,6 +200,14 @@ try{
     ' | browser: '+pageErrors.join('; '));}
   assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
+  // Check the same connected planner in a desktop viewport, not merely the
+  // previous pilot chat: the map, source and selected day remain available.
+  await B.setViewportSize({width:1280,height:900});
+  assert.equal(await B.locator('#planner-map .planner-map-pin').isVisible(),true);
+  assert.equal(await B.locator('#planner-map .planner-map-selected').isVisible(),true);
+  assert.equal(await B.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,
+    'The planner must not overflow a desktop viewport');
+  await B.setViewportSize({width:390,height:844});
   // A stay edit drafted before another member's save must not overwrite their
   // newer changes, even when live updates arrive during the draft.
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();

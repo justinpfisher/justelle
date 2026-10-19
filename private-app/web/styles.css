@@ -144,3 +144,27 @@ select{font:inherit;width:100%;border:1px solid #adc5c4;border-radius:12px;paddi
 #planner-day-detail button{min-height:44px;margin:4px 8px 6px 0}
 #planner-days-view button[aria-pressed="true"]{outline:2px solid #17696a;outline-offset:2px}
 #planner-edit-stay{margin:10px 0 18px}
+
+/* Saved coordinates only: no third-party tiles or speculative transport lines. */
+.planner-map{margin:18px 0;padding:14px 12px;background:#f4f9f7;border:1px solid #d6e8df;border-radius:15px}
+.planner-map h4{margin:0 0 7px}
+.planner-map .meta{font-size:.78rem;line-height:1.45}
+.planner-map-field{height:225px;position:relative;overflow:hidden;border:1px solid #bbd6cf;border-radius:13px;
+  background:linear-gradient(90deg,transparent 49.8%,#d5e8e0 50%,transparent 50.2%),
+  linear-gradient(transparent 49.8%,#d5e8e0 50%,transparent 50.2%),
+  repeating-linear-gradient(0deg,#e7f3ee 0px,#e7f3ee 38px,#d7e9e2 39px,#e7f3ee 40px)}
+.planner-map-north{position:absolute;top:9px;right:12px;font-size:.8rem;font-weight:700;color:#285e57}
+.planner-map-pin{position:absolute;transform:translate(-50%,-50%);width:44px;height:44px;border-radius:50%;
+  border:2px solid #17686b;background:#e8fbf3;color:#165c5b;font-weight:700;box-shadow:0 2px 6px #164d4a27}
+.planner-map-pin[data-state="possible"]{border-style:dashed;background:#fffaf0;color:#845b32;border-color:#986d3e}
+.planner-map-pin[data-in-day="true"]{box-shadow:0 0 0 4px #79b5aa99}
+.planner-map-places{padding:0;margin:10px 0;list-style:none;display:grid;gap:7px}
+.planner-map-place{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.planner-map-place button{text-align:left;justify-content:flex-start;max-width:100%;white-space:normal}
+.planner-map [aria-pressed="true"]{outline:3px solid #17686b;outline-offset:2px}
+.planner-map-selected{background:white;padding:11px;border-radius:12px;border:1px solid #d5e5dd;margin-top:10px}
+.planner-map-selected button{min-height:44px}
+.planner-map-selected a{display:inline-block;min-height:44px;padding:12px 3px}
+.planner-coordinates summary{font-size:.85rem;color:#23685e}
+.planner-coordinates .meta{margin:7px 0}
+@media (max-width:440px){.planner-map-field{height:205px}.planner-map-place button{width:100%}}
