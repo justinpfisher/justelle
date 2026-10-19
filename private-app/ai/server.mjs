@@ -9,6 +9,8 @@ import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {getStorage} from 'firebase-admin/storage';
 import {decisionView} from '../web/topics.mjs';
 import {chooseProvider} from './adapter.mjs';
+import {createPlannerSuggestionService} from './planner-suggestion-service.mjs';
+import {interpretPlanInstruction} from '../web/instruction-core.mjs';
 
 const projectId='demo-justelle-pilot';
 for(const [key,port] of [['FIREBASE_AUTH_EMULATOR_HOST',9099],['FIRESTORE_EMULATOR_HOST',8081],['FIREBASE_STORAGE_EMULATOR_HOST',9199]]) {
@@ -19,6 +21,44 @@ const auth=getAuth(admin),db=getFirestore(admin),storage=getStorage(admin);
 const ai=chooseProvider();
 const allowedOrigins=new Set(['http://127.0.0.1:5173','http://localhost:5173']);
 const requests=new Map();
+const limit=uid=>{
+  const now=Date.now(),recent=(requests.get(uid)||[]).filter(t=>now-t<60000);
+  if(recent.length>=12)throw Object.assign(Error('Fictional AI limit reached'),{status:429});
+  recent.push(now);requests.set(uid,recent);
+};
+// Emulator Storage Rules require document_id rather than the hosted private
+// gateway's attachment_id. Normalize *only* within this loopback-only test
+// adapter; production storage validation remains untouched.
+const syntheticBucket={file:path=>{
+  const entry=storage.bucket().file(path);
+  return {
+    async getMetadata(){
+      const [m]=await entry.getMetadata();
+      return [{...m,metadata:{...m.metadata,
+        attachment_id:m.metadata?.document_id,role:'document'}}];
+    },
+    download:()=>entry.download()
+  };
+}};
+const plannerProvider=async()=>({name:'fictional-parser-not-vision',async suggest({plan,text,images}){
+  const clarification=message=>({kind:'needs_detail',operation:'none',title:'',
+    day:0,nights:0,status:'possible',explanation:message,
+    uncertainty:'This local test does not use a real AI or interpret image pixels.'});
+  if(images.length)return clarification('A protected screenshot was saved, but the fictional provider cannot interpret its contents.');
+  const interpreted=interpretPlanInstruction(plan,text);
+  if(interpreted.kind!=='ready')return clarification(interpreted.message);
+  if(!['add_stop','add_experience'].includes(interpreted.change.type))
+    return clarification('Only a new intended place or day experience can be previewed.');
+  const change=interpreted.change,item=change.stop||change.experience;
+  return {kind:'suggestion',operation:change.type,title:item.title,
+    day:change.type==='add_stop'?item.from_day:item.day,
+    nights:change.type==='add_stop'?item.through_day-item.from_day:0,
+    status:item.status,explanation:'Fictional parse of the original member note.',
+    uncertainty:'No supplier booking or external travel facts were checked.'};
+}});
+const suggestPlan=createPlannerSuggestionService({db,bucket:syntheticBucket,
+  roomId:'fictional-room',verifyIdentity:token=>auth.verifyIdToken(token),
+  provider:plannerProvider,rateLimit:limit});
 const respond=(res,code,payload)=>{
   res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
   res.end(JSON.stringify(payload));
@@ -36,9 +76,7 @@ export async function createResponse(token,sourceMessageId) {
   const answerRef=db.doc('rooms/'+roomId+'/messages/ai-'+sourceMessageId);
   const existing=await answerRef.get();
   if(existing.exists) return {message_id:answerRef.id,replayed:true};
-  const now=Date.now(),recent=(requests.get(decoded.uid)||[]).filter(t=>now-t<60000);
-  if(recent.length>=12) throw Object.assign(Error('AI test limit: 12 requests per minute'),{status:429});
-  recent.push(now);requests.set(decoded.uid,recent);
+  limit(decoded.uid);
   const images=[];
   for(const id of (source.attachment_ids||[]).slice(0,3)) {
     const meta=(await db.doc('rooms/'+roomId+'/attachments/'+id).get()).data();
@@ -100,7 +138,7 @@ const server=createServer(async(req,res)=>{
     res.setHeader('Access-Control-Allow-Methods','POST, OPTIONS');
   }
   if(req.method==='OPTIONS') {res.writeHead(204);res.end();return;}
-  if(req.method!=='POST'||req.url!=='/respond') return respond(res,404,{error:'Not found'});
+  if(req.method!=='POST'||!['/respond','/plan/suggest'].includes(req.url)) return respond(res,404,{error:'Not found'});
   try {
     let raw='';
     for await(const chunk of req) {
@@ -110,6 +148,13 @@ const server=createServer(async(req,res)=>{
     const input=JSON.parse(raw);
     const bearer=/^Bearer (.+)$/.exec(req.headers.authorization||'');
     if(!bearer) return respond(res,401,{error:'Authentication required'});
+    if(req.url==='/plan/suggest'){
+      if(!input||Array.isArray(input)||Object.keys(input).sort().join(',')!=='plan_id,revision,source_id')
+        return respond(res,400,{error:'Invalid planner request'});
+      return respond(res,200,await suggestPlan(bearer[1],input));
+    }
+    if(!input||Object.keys(input).join(',')!=='source_message_id')
+      return respond(res,400,{error:'Invalid discussion request'});
     const output=await createResponse(bearer[1],input.source_message_id);
     return respond(res,200,output);
   } catch(e) {
