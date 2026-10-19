@@ -27,7 +27,7 @@ Updated automatically from evidence checklists and milestone issue state. Record
 
 A small personal page at [justelle.life](https://justelle.life/).
 
-Open `index.html` in a browser to preview. The page has no build step or external dependencies.
+Open `index.html` in a browser to preview. Development and affected private-app checks should run on the GMKtec first; the independent public-repository CI remains GitHub-hosted for security (see [AGENTS.md](AGENTS.md)). The page has no build step or external dependencies.
 
 The time together is calculated from August 11, 2006; the time married from June 24, 2011. Both use calendar dates in Toronto, including annual anniversary greetings. Dates remain readable if JavaScript is unavailable.
 

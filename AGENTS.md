@@ -14,6 +14,8 @@ This repository, branches, issues, logs and assets are public. Never put private
 
 ## Delivery
 
+Owner direction, 18 October 2026: default ordinary design, coding, npm builds, browser/emulator fixtures and affected checks to the GMKtec local Windows checkout before GitHub. Do not commission a cloud dev/agent machine for work the PC can do. **Keep independent PR CI, automatic project-status and Pages on standard GitHub-hosted runners:** the source repository is public, these standard runner minutes are free, and public fork pull requests must never be able to execute on the owner's personal computer. No runner/credential sharing with thefish, Stammtisch, Comparative or LCRS. Host-dependent acceptance and eventual secure deployment still require their actual authorised environment; never call an unrun local check or an undeployed change successful.
+
 Use one source baseline: `main`, focused branches and PRs. An ordinary owner change request includes implementation → appropriate checks/review → merge → established deployment → live verification. No second routine permission to merge or go live. Source may merge while initial private deployment is disabled; never equate source integration with production acceptance. Preserve separate fictional qualification and production environments, private configuration, short-lived deploy credentials, approved spending limits and independently restorable encrypted backups.
 
 Use the smallest checks that cover the actual change:
