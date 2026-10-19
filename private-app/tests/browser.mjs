@@ -156,6 +156,37 @@ try{
   assert.equal(await A.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,
     'The journey must not require horizontal scrolling on a 390px phone');
 
+  // Test the entire source-backed planner AI boundary on two fictional phones.
+  // This uses only a deterministic local interpreter; it never calls a model.
+  assert.equal(await A.locator('#planner-ask-ai').isVisible(),true);
+  await A.locator('#planner-instruction').fill('Consider a visit to Fictional lookout on day 6');
+  await A.locator('#planner-ask-ai').click();
+  await A.locator('#planner-instruction-apply').waitFor({state:'visible',timeout:15000});
+  assert.match(await A.locator('#planner-instruction-message').textContent(),/Review before Apply/);
+  assert.equal(await B.locator('#planner-experiences').getByText('Fictional lookout').count(),0,
+    'AI has no automatic record-writing authority');
+  await A.locator('#planner-instruction-apply').click();
+  await B.locator('#planner-experiences').getByText('Fictional lookout').waitFor({timeout:15000});
+  await poll(async()=>await A.locator('#planner-history').textContent()
+    .then(t=>t.includes('Member note: Consider a visit to Fictional lookout on day 6')));
+  await A.locator('#planner-undo').click();
+  await poll(async()=>await B.locator('#planner-experiences').getByText('Fictional lookout').count()===0);
+  assert.match(await A.locator('#planner-history').textContent(),/Original planning source retained/);
+
+  // A saved screenshot is protected and retained but the fictional interpreter
+  // explicitly declines to describe pixels or manufacture a booking.
+  await A.locator('#planner-instruction').fill('What can this fictional image tell us?');
+  await A.locator('#planner-instruction-form .planner-coordinates summary').click();
+  await A.locator('#planner-ai-screenshot').setInputFiles({
+    name:'synthetic-idea.png',mimeType:'image/png',
+    buffer:await readFile(new URL('./fictional-landscape.png',import.meta.url))
+  });
+  await A.locator('#planner-ask-ai').click();
+  await A.locator('#planner-instruction-result').getByText(/fictional provider cannot interpret/i)
+    .waitFor({timeout:15000});
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false);
+  assert.equal((await B.locator('#planner-stays').textContent()).includes('Fictional lookout'),false);
+
   // A records a fictional supplier anchor and PDF; B opens the exact protected
   // original through the shared itinerary. No supplier booking is amended.
   await A.getByText('Booking anchors',{exact:true}).click();
@@ -413,8 +444,10 @@ try{
   assert.equal(bundle.records.conversations.length,3);
   assert.ok(bundle.records.messages.length>=53);
   assert.equal(bundle.records.adventure_plans.length,1);
-  assert.equal(bundle.records.plan_documents.length,1);
-  assert.ok(bundle.media.some(f=>f.id==='doc-'+bundle.records.plan_documents[0].id&&f.mime==='application/pdf'));
+  assert.equal(bundle.records.plan_documents.length,2,
+    'Both protected supplier PDF and original AI screenshot remain in the portable archive');
+  assert.ok(bundle.media.some(f=>f.mime==='application/pdf'));
+  assert.ok(bundle.media.some(f=>f.mime==='image/png'));
 
   assert.ok(bundle.records.messages.some(m=>m.conversation_id===topic2));
   assert.ok(bundle.records.messages.some(m=>m.conversation_id===topic1));
