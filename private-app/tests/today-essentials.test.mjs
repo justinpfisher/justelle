@@ -47,3 +47,42 @@ test('Legacy adventure days have no fabricated activities',()=>{
  assert.deepEqual(d.possible_experiences,[]);
  assert.deepEqual(d.tomorrow.planned_experiences,[]);
 });
+
+test('Cancelled/voided supplier records never appear as active or merely unverified Today commitments',()=>{
+ let p=createItinerary({id:'today-cancel',title:'Fictional stay',startsOn:'2026-11-01',durationDays:4});
+ const b=(id,status)=>({id,kind:'stay',stop_id:null,starts_on:'2026-11-01',
+   ends_on:'2026-11-04',status,source_id:'fictional-source',summary:'Synthetic '+id});
+ p=edit(p,{type:'add_booking',booking:b('hotel','confirmed')},'one');
+ p=edit(p,{type:'add_booking',booking:b('old','cancelled')},'two');
+ p=edit(p,{type:'add_booking',booking:b('void','voided')},'three');
+ const before=structuredClone(p),d=todayEssentials(p,'2026-11-02');
+ assert.deepEqual(d.bookings.map(x=>x.id),['hotel']);
+ assert.deepEqual(d.uncertain,[]);
+ assert.deepEqual(d.cancelled.map(x=>x.id),['old','void']);
+ assert.deepEqual(p,before);
+ const cancelled=edit(p,{type:'correct_booking',id:'hotel',patch:{status:'cancelled'}},'four');
+ assert.deepEqual(todayEssentials(cancelled,'2026-11-02').bookings,[]);
+});
+test('Two overlapping planned overnight bases are reported as ambiguous, not arbitrarily chosen',()=>{
+ let p=createItinerary({id:'overnight',title:'Fictional route',startsOn:'2026-10-31',durationDays:5});
+ p=edit(p,{type:'add_stop',stop:{id:'east',place_id:'east',title:'Fictional East',
+   from_day:1,through_day:4,status:'planned'}},'one');
+ p=edit(p,{type:'add_stop',stop:{id:'west',place_id:'west',title:'Fictional West',
+   from_day:2,through_day:5,status:'planned'}},'two');
+ const x=todayEssentials(p,'2026-11-01');
+ assert.equal(x.overnight,null);
+ assert.deepEqual(x.overnight_conflict.map(c=>c.id),['east','west']);
+ assert.deepEqual(todayEssentials(p,'2026-10-30').overnight_conflict,[]);
+});
+test('Travel bookings precede accommodation in Today without inventing clock times',()=>{
+ let p=createItinerary({id:'order',title:'Fictional trip',startsOn:'2026-11-01',durationDays:3});
+ const booking=(id,kind,dates)=>({id,kind,stop_id:null,status:'confirmed',
+   source_id:'synthetic-source',summary:id,starts_on:dates[0],ends_on:dates[1]});
+ p=edit(p,{type:'add_booking',booking:booking('hotel','stay',['2026-11-01','2026-11-04'])},'one');
+ p=edit(p,{type:'add_booking',booking:booking('event','activity',['2026-11-02','2026-11-02'])},'two');
+ p=edit(p,{type:'add_booking',booking:booking('rail','transport',['2026-11-02','2026-11-02'])},'three');
+ const x=todayEssentials(p,'2026-11-02');
+ assert.deepEqual(x.bookings.map(b=>b.id),['rail','hotel','event']);
+ assert.equal(x.bookings[0].starts_on,'2026-11-02');
+ assert.equal(Object.hasOwn(x.bookings[0],'starts_at'),false,'No fabricated departure time');
+});
