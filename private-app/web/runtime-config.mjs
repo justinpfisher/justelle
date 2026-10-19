@@ -5,6 +5,7 @@ export function resolveRuntime({hostname,origin,env={}}){
     if(!['localhost','127.0.0.1'].includes(hostname))throw Error('This fictional pilot is available locally only.');
     const projectId='demo-justelle-pilot';
     return {mode,roomId:'fictional-room',projectId,aiUrl:'http://127.0.0.1:8787/respond',
+      planAiUrl:'http://127.0.0.1:8787/plan/suggest',
       firebase:{apiKey:'emulator-only',projectId,authDomain:projectId+'.firebaseapp.com',storageBucket:projectId+'.firebasestorage.app'}};
   }
   if(!['hosted-fictional','production'].includes(mode))throw Error('Unapproved application mode');
