@@ -136,7 +136,8 @@ try{
   assert.equal(await A.locator('#planner-experience-day').inputValue(),'2');
   await A.locator('#planner-experience-notes').fill('Flexible afternoon');
   await A.locator('#planner-add-experience button[type=submit]').click();
-  await B.getByText('Explore days',{exact:true}).click();
+  if(!(await B.locator('.journey-days').evaluate(n=>n.open)))
+    await B.getByText('Explore days',{exact:true}).click();
   await B.locator('#planner-experiences').getByText('Fictional museum').waitFor({timeout:15000});
   await B.locator('#planner-experiences .planner-stay').getByRole('button',{name:'Edit experience'}).click();
   await B.locator('#planner-experience-edit-title').fill('Fictional gallery');
