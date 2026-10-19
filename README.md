@@ -4,16 +4,16 @@
 
 ## Where we are — Justelle project
 
-**Private app: NOT VERIFIED LIVE.** Source and emulator tests do not constitute hosted/iPhone acceptance. **2/8 milestones accepted**, including a development-only foundation; **1/4 V1 delivery milestones accepted**.
+**Private app: NOT VERIFIED LIVE.** Source and emulator tests do not constitute hosted/iPhone acceptance. **3/8 milestones accepted**, including a development-only foundation; **2/4 V1 delivery milestones accepted**.
 
-**Now:** [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22). Next acceptance: Map/place/day selections agree with the same canonical itinerary; tentative routes are never portrayed as confirmed transport.
+**Now:** [M3 — Controlled AI planning](https://github.com/justinpfisher/justelle/issues/23). Next acceptance: Natural text and protected screenshots can be interpreted into typed proposed itinerary changes with traceable source and uncertainty.
 
 | Milestone | Horizon | Criteria | Status |
 | --- | --- | ---: | --- |
 | [M0 — Development foundation](https://github.com/justinpfisher/justelle/issues/20) | Foundation | 5/5 | Complete |
 | [M1 — Shared records and recovery](https://github.com/justinpfisher/justelle/issues/21) | V1 | 6/6 | Complete |
-| [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22) | V1 | 3/6 | Current |
-| [M3 — Controlled AI planning](https://github.com/justinpfisher/justelle/issues/23) | V1 | 0/5 | Upcoming |
+| [M2 — Journey-first iPhone planner](https://github.com/justinpfisher/justelle/issues/22) | V1 | 6/6 | Complete |
+| [M3 — Controlled AI planning](https://github.com/justinpfisher/justelle/issues/23) | V1 | 0/5 | Current |
 | [M4 — Secure iPhone production launch](https://github.com/justinpfisher/justelle/issues/24) | V1 | 0/6 | Upcoming |
 | [M5 — Travel-day essentials and discovery](https://github.com/justinpfisher/justelle/issues/25) | Later | 0/5 | Upcoming |
 | [M6 — OneDrive archives and efficient backups](https://github.com/justinpfisher/justelle/issues/26) | Later | 0/6 | Upcoming |
