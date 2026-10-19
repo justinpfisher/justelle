@@ -299,3 +299,34 @@ test('Source-bound member instructions reject mismatched edits and preserve orig
     await assertFails(updateDoc(event(A,events[1].id),{instruction_text:'Tampered original'}));
   }finally{await env.cleanup();}
 });
+
+test('Member-applied AI preview retains immutable source, rejects cross-adventure provenance',async()=>{
+  const {env,A,B,X,one,two}=await setup();
+  const source1='00000000-0000-4000-8000-000000000211';
+  const foreignSource='00000000-0000-4000-8000-000000000212';
+  try{
+    await one.createPlan({uid:a},{id:planId,title:'Fictional private planner',
+      durationDays:8,startsOn:'2026-11-01'});
+    await one.addSource({uid:a},{id:source1,adventureId:planId,kind:'note',
+      title:'Original planning request',notes:'Fictional museum visit, day two'});
+    await two.editPlan({uid:b},planId,{type:'add_experience',experience:{
+      id:'museum',title:'Fictional museum',day:2,status:'possible',notes:''
+    }},0,{sourceId:source1});
+    const history=await one.readHistory(planId);
+    assert.equal(history[1].source_id,source1);
+    assert.equal(history[1].actor_id,'person-b');
+    assert.equal((await getDoc(source(A,source1))).data().notes,'Fictional museum visit, day two');
+    await assertFails(getDoc(source(X,source1)));
+    await one.createPlan({uid:a},{id:'other-fictional',title:'Another adventure',
+      durationDays:3});
+    await one.addSource({uid:a},{id:foreignSource,adventureId:'other-fictional',
+      title:'Unrelated note',kind:'note',notes:'A separate adventure'});
+    await assert.rejects(two.editPlan({uid:b},planId,{type:'add_experience',experience:{
+      id:'forged',title:'Forged source',day:4,status:'possible',notes:''
+    }},1,{sourceId:foreignSource}),/source is missing or belongs/);
+    await assert.rejects(two.editPlan({uid:b},planId,{type:'add_experience',experience:{
+      id:'forged',title:'Forged source',day:4,status:'possible',notes:''
+    }},1,{sourceId:'../../foreign'}),/valid planning note/);
+    assert.equal((await one.readPlan(planId)).revision,1);
+  }finally{await env.cleanup();}
+});
