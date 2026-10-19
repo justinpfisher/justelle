@@ -122,12 +122,12 @@ test('Typed planner route needs bearer, exact source/revision shape and trusted 
  assert.deepEqual(calls,[{token:'fictional-token',body:input}]);
  for(const [item,code] of [
    [request({...input,modify_booking:true}),400],
-   [request({...input,revision:'zero'}),200],
+   [request({...input,revision:'zero'}),400],
    [request({}, {method:'GET'}),405],
    [request({}, {headers:{'content-type':'application/json'}}),401],
    [request({}, {headers:{origin:'https://outsider.invalid'}}),403]
  ]){
    const response=res();await handler(item,response);assert.equal(response.status,code);
  }
- assert.equal(calls.length,2,'Malformed extra fields never reach a provider; service validates revision type');
+ assert.equal(calls.length,1,'Malformed requests never reach the service');
 });
