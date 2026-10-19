@@ -1,16 +1,17 @@
-// Small V1 vertical slice. It deliberately excludes map/research and legacy approvals.
+// Shared adventure planner; map context uses existing protected itinerary records.
 import {nextAdventures,journeyOverview,dayDetail,journeyWeeks} from './journey-view.mjs';
 import {reviewAdventure} from './adventure-feedback.mjs';
 import {todayEssentials} from './today-essentials.mjs';
 import {mountBookingUI} from './booking-ui.mjs';
 import {interpretPlanInstruction} from './instruction-core.mjs';
+import {paintJourneyMap} from './journey-map-ui.mjs';
 const $=id=>document.getElementById(id);
 const el=(tag,className='',content='')=>{
   const node=document.createElement(tag);if(className)node.className=className;
   if(content)node.textContent=content;return node;
 };
 export function mountPlannerUI({planner,user,membership,onError,announce}){
-  let plans=[],selected=null,selectedDay=null,instructionPreview=null,stopped=false;
+  let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,stopped=false;
   const name=id=>{
     const uid=membership.uids.find(uid=>membership.people[uid]===id);
     return uid===user.uid?'You':membership.labels?.[uid]||'The other member';
@@ -29,6 +30,31 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     const d=new Date(),pad=n=>String(n).padStart(2,'0');
     return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
   }
+  function locationCoordinates(latitude,longitude){
+    const lat=latitude.trim(),lon=longitude.trim();
+    if(!lat&&!lon)return {latitude:null,longitude:null};
+    if(!lat||!lon)throw Error('Enter both latitude and longitude, or leave both blank.');
+    const a=Number(lat),b=Number(lon);
+    if(!Number.isFinite(a)||!Number.isFinite(b)||a < -90||a > 90||b < -180||b > 180)
+      throw Error('Map coordinates must be valid latitude and longitude.');
+    return {latitude:a,longitude:b};
+  }
+  function selectPlace(p,place){
+    selectedStopId=place.id;
+    const day=selectedDay!==null&&selectedDay>=place.from_day&&selectedDay<place.through_day?
+      selectedDay:place.from_day;
+    $('planner-days-view').closest('details').open=true;
+    for(const panel of document.querySelectorAll('#planner-days-view .planner-week'))
+      if(Number(panel.dataset.fromDay)<=day&&day<=Number(panel.dataset.toDay))panel.open=true;
+    showDay(p,day);
+  }
+  function renderMap(p){
+    if(selectedStopId&&!p.stops.some(s=>s.id===selectedStopId))selectedStopId=null;
+    paintJourneyMap($('planner-map'),p,selectedDay,selectedStopId,{
+      onSelect:place=>selectPlace(p,place),
+      onBooking:id=>void bookingUI.openBooking(id)
+    });
+  }
   function render(){
     if(stopped)return;
     const list=$('planner-list');list.replaceChildren();
@@ -44,13 +70,13 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       const planned=p.stops.filter(s=>s.status==='planned').length,possible=p.stops.length-planned;
       card.append(el('p','meta',planned+' planned places · '+possible+' possibilities'));
       const open=el('button','secondary','Open plan');open.type='button';
-      open.onclick=()=>{if(selected!==p.id){selectedDay=null;clearInstruction();closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
+      open.onclick=()=>{if(selected!==p.id){selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
       card.append(open);list.append(card);
       }
     }
     const p=plans.find(p=>p.id===selected);
     $('planner-detail').hidden=!p;
-    if(!p){clearInstruction();closeStayEditor();closeExperienceEditor();selectedDay=null;void bookingUI.render(null);return;}
+    if(!p){clearInstruction();closeStayEditor();closeExperienceEditor();selectedDay=null;selectedStopId=null;void bookingUI.render(null);return;}
     void bookingUI.render(p);
     $('planner-detail-title').textContent=p.title;
     const tripForm=$('planner-trip-form');
@@ -160,10 +186,12 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     if(p.stops.length===0)stays.append(el('li','empty','No places added. Start with a possibility.'));
     $('planner-from').max=String(p.duration_days);
     $('planner-nights').max=String(p.duration_days);
+    renderMap(p);
   }
   function showDay(p,day){
     const detail=dayDetail(p,day),out=$('planner-day-detail');
     selectedDay=day;
+    if(selectedStopId&&!detail.stops.some(s=>s.id===selectedStopId))selectedStopId=null;
     $('planner-experience-day').value=String(day);
     for(const b of document.querySelectorAll('#planner-days-view button[data-day]'))
       b.setAttribute('aria-pressed',String(Number(b.dataset.day)===day));
@@ -178,6 +206,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
       link.type='button';link.onclick=()=>void bookingUI.openBooking(booking.id);
       out.append(el('p','meta',booking.status+' · '+booking.summary),link);
     }
+    renderMap(p);
   }
   function revealDay(p,day){
     $('planner-days-view').closest('details').open=true;
@@ -199,6 +228,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     $('planner-edit-from').value=String(stop.from_day);
     $('planner-edit-nights').value=String(stop.through_day-stop.from_day);
     $('planner-edit-state').value=stop.status;
+    $('planner-edit-latitude').value=stop.latitude??'';
+    $('planner-edit-longitude').value=stop.longitude??'';
     $('planner-edit-from').max=String(p.duration_days);
     $('planner-edit-nights').max=String(p.duration_days);
     $('planner-edit-status').textContent='Editing '+stop.title+' · revision '+p.revision;
@@ -222,8 +253,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     if(!Number.isInteger(from)||!Number.isInteger(nights)||from<1||nights<1||
        from+nights>p.duration_days+1)
       return onError(Error('The stay must fit within the current adventure days.'));
+    let coordinates;
+    try{coordinates=locationCoordinates($('planner-edit-latitude').value,
+      $('planner-edit-longitude').value);}catch(error){return onError(error);}
     const patch={title:$('planner-edit-title').value.trim(),from_day:from,
-      through_day:from+nights,status:$('planner-edit-state').value};
+      through_day:from+nights,status:$('planner-edit-state').value,...coordinates};
     const button=form.querySelector('[type=submit]');button.disabled=true;
     try{
       if(await edit(p,{type:'edit_stop',id:stop.id,patch}))closeStayEditor();
@@ -383,9 +417,14 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     const start=Number($('planner-from').value),nights=Number($('planner-nights').value);
     const title=$('planner-stay-title').value.trim();
     if(!Number.isInteger(start)||!Number.isInteger(nights)||nights<1)return onError(Error('Check the days and nights.'));
-    await edit(p,{type:'add_stop',stop:{id:crypto.randomUUID(),place_id:crypto.randomUUID(),
-      title,from_day:start,through_day:start+nights,status:$('planner-state').value}});
-    $('planner-stay-title').value='';
+    let coordinates;
+    try{coordinates=locationCoordinates($('planner-stay-latitude').value,
+      $('planner-stay-longitude').value);}catch(error){return onError(error);}
+    if(await edit(p,{type:'add_stop',stop:{id:crypto.randomUUID(),place_id:crypto.randomUUID(),
+      title,from_day:start,through_day:start+nights,status:$('planner-state').value,...coordinates}})){
+      $('planner-stay-title').value='';
+      $('planner-stay-latitude').value='';$('planner-stay-longitude').value='';
+    }
   };
   const feedback=()=>{
     const p=plans.find(x=>x.id===selected);if(!p)return;
@@ -445,7 +484,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce}){
     void edit(p,{type:'set_status',status:p.status==='archived'?'planning':'archived'});
   };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
-  const close=()=>{selected=null;selectedDay=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
+  const close=()=>{selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
   $('planner-create').addEventListener('submit',created);
   $('planner-instruction-form').addEventListener('submit',submitInstruction);
   $('planner-instruction').addEventListener('input',instructionInput);
