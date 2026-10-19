@@ -107,7 +107,7 @@ try{
   assert.equal(await A.locator('.planner-week').count(),2,'Ten-day trip is displayed in two weeks');
   assert.equal(await A.locator('.planner-week').first().evaluate(n=>n.open),true);
   await A.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
-  await A.locator('#planner-day-detail').getByText('Fictional Harbour').waitFor();
+  await A.locator('#planner-day-detail').getByText('Fictional Harbour',{exact:true}).waitFor();
   // Stay details use the existing atomic revision chain, with touch/keyboard
   // controls and immediate subscription updates on the second member's phone.
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
@@ -120,7 +120,7 @@ try{
   await B.locator('#planner-stays').getByText('Fictional Harbour Revised').waitFor({timeout:15000});
   await A.locator('#planner-edit-stay').waitFor({state:'hidden',timeout:15000});
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show day 2'}).click();
-  await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
+  await A.locator('#planner-day-detail').getByText('Fictional Harbour Revised',{exact:true}).waitFor();
   await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Show on map'}).click();
   assert.equal(await A.locator('#planner-map .planner-map-pin').getAttribute('aria-pressed'),'true',
     'The itinerary must be able to focus its saved map location');
@@ -129,7 +129,7 @@ try{
   assert.match(await B.locator('#planner-map').textContent(),/not a navigational map or confirmed travel route/i);
   await B.locator('#planner-map .planner-map-pin').click();
   assert.equal(await B.locator('#planner-map .planner-map-pin').getAttribute('aria-pressed'),'true');
-  await B.locator('#planner-day-detail').getByText('Fictional Harbour Revised').waitFor();
+  await B.locator('#planner-day-detail').getByText('Fictional Harbour Revised',{exact:true}).waitFor();
   await B.locator('.planner-week').first().getByRole('button',{name:/Day 4/}).click();
   assert.equal(await B.locator('#planner-map .planner-map-pin').getAttribute('data-in-day'),'false',
     'Selecting a different day must not imply an overnight stay at this pinned place');
