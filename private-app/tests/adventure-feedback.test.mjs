@@ -51,3 +51,30 @@ test('Three planned plus any number of possible experiences produce no false bus
  assert.equal(reviewAdventure(legacy).notices.some(n=>n.code==='busy_day'),false,
    'Old records without day experiences remain readable');
 });
+
+test('Member-recorded accommodation without a linked planned base prompts review, not rebooking',()=>{
+ let p=edit(base(),{type:'add_booking',booking:{id:'hotel',kind:'stay',stop_id:null,
+   starts_on:'2026-10-31',ends_on:'2026-11-02',status:'confirmed',
+   source_id:'synthetic-source',summary:'Fictional hotel'}},'e1');
+ const unchanged=structuredClone(p);
+ const review=reviewAdventure(p);
+ const notice=review.notices.find(n=>n.code==='confirmed_stay_without_planned_base');
+ assert.equal(notice.severity,'review');
+ assert.deepEqual(notice.evidence,{booking_id:'hotel',starts_on:'2026-10-31',ends_on:'2026-11-02'});
+ assert.match(notice.action,/does not alter the reservation/);
+ assert.deepEqual(p,unchanged);
+ p=edit(p,{type:'add_stop',stop:{id:'town',place_id:'town',title:'Fictional town',
+   from_day:2,through_day:4,status:'planned'}},'e2');
+ const linked=edit(p,{type:'correct_booking',id:'hotel',patch:{stop_id:'town'}},'e3');
+ assert.equal(reviewAdventure(linked).notices.some(n=>n.code==='confirmed_stay_without_planned_base'),false);
+});
+test('Possible linked places and tentative bookings never count as planned confirmed overnights',()=>{
+ let p=edit(base(),{type:'add_stop',stop:{id:'town',place_id:'town',title:'Fictional town',
+   from_day:2,through_day:4,status:'possible'}},'e1');
+ p=edit(p,{type:'add_booking',booking:{id:'hotel',kind:'stay',stop_id:'town',
+   starts_on:'2026-10-31',ends_on:'2026-11-02',status:'confirmed',
+   source_id:'synthetic-source',summary:'Member-recorded booking'}},'e2');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='confirmed_stay_without_planned_base'),true);
+ const unverified=edit(p,{type:'correct_booking',id:'hotel',patch:{status:'unverified'}},'e3');
+ assert.equal(reviewAdventure(unverified).notices.some(n=>n.code==='confirmed_stay_without_planned_base'),false);
+});

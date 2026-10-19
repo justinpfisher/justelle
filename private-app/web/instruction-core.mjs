@@ -28,6 +28,16 @@ export function interpretPlanInstruction(plan,input,{idFactory=()=>crypto.random
     change={type:'add_stop',stop:{id:idFactory(),place_id:idFactory(),
       title,from_day:from,through_day:from+nights,status}};
     summary=(status==='possible'?'Consider ':'Plan ')+nights+' nights in '+title+', starting day '+from+'. This does not book accommodation.';
+  }else if(match=/^(consider|maybe|plan|add)\s+(?:(?:a|an)\s+)?(?:visit to|activity at|experience at|visiting)\s+(.+?)\s+on\s+day\s+(\d{1,2})[.!]?$/i.exec(text)){
+    const [,verb,rawTitle,rawDay]=match,title=rawTitle.trim(),day=asNumber(rawDay);
+    if(!title||title.length>200||!day)return clarify('Check the experience and day number.');
+    if((plan.experiences??[]).some(e=>e.day===day&&
+      e.title.toLocaleLowerCase('en-CA')===title.toLocaleLowerCase('en-CA')))
+      return clarify('That experience is already on this day. Edit its existing entry instead.');
+    const status=/^(consider|maybe)$/i.test(verb)?'possible':'planned';
+    change={type:'add_experience',experience:{id:idFactory(),title,day,status,notes:''}};
+    summary=(status==='possible'?'Consider ':'Plan ')+title+' on day '+day+
+      '. This does not book tickets or change an outside reservation.';
   }else if(match=/^move\s+(.+?)\s+to\s+day\s+(\d{1,2})[.!]?$/i.exec(text)){
     const old=findStop(plan,match[1]),from=asNumber(match[2]);
     if(!old||!from)return clarify('Which saved place should move, and to what day?');
@@ -41,7 +51,7 @@ export function interpretPlanInstruction(plan,input,{idFactory=()=>crypto.random
   }else if(match=/^change\s+trip\s+start\s+to\s+(\d{4}-\d{2}-\d{2})[.!]?$/i.exec(text)){
     change={type:'edit_trip',patch:{starts_on:match[1]}};
     summary='Move the intended adventure start to '+match[1]+'. Actual booking dates remain unchanged.';
-  }else return clarify('Try “Consider 2 nights in Kyoto starting day 4” or “Move Kyoto to day 6”.');
+  }else return clarify('Try “Consider 2 nights in Kyoto starting day 4”, “Plan a visit to the museum on day 5”, or “Move Kyoto to day 6”.');
   let changed;
   try{changed=applyItineraryEdit(plan,change,{eventId:idFactory(),actorId:'instruction-preview',
     at:'2026-10-17T12:00:00.000Z'}).plan;}
