@@ -124,3 +124,52 @@ test('Possible stops or ambiguous overlapping bases do not create imaginary tran
    from_day:3,through_day:6,status:'possible'}},'e2');
  assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unrecorded_transfer'),false);
 });
+
+test('Source-coordinate separation flags a long intended handover without inventing a route',()=>{
+ let p=edit(base(),{type:'add_stop',stop:{id:'near',place_id:'near',
+   title:'Fictional West',from_day:1,through_day:3,status:'planned',
+   latitude:0,longitude:0}},'near-stop');
+ p=edit(p,{type:'add_stop',stop:{id:'far',place_id:'far',
+   title:'Fictional East',from_day:3,through_day:6,status:'planned',
+   latitude:0,longitude:6}},'far-stop');
+ const unchanged=structuredClone(p),review=reviewAdventure(p);
+ const notice=review.notices.find(n=>n.code==='long_distance_handover');
+ assert.equal(notice.severity,'info');
+ assert.equal(notice.evidence.day,3);
+ assert.equal(notice.evidence.from_stop_id,'near');
+ assert.equal(notice.evidence.to_stop_id,'far');
+ assert.equal(notice.evidence.straight_line_km,670);
+ assert.match(notice.action,/not a route, travel duration, or supplier confirmation/);
+ assert.deepEqual(p,unchanged);
+ p=edit(p,{type:'add_booking',booking:{id:'tentative',kind:'transport',stop_id:null,
+   starts_on:'2026-11-01',ends_on:'2026-11-01',status:'unverified',
+   source_id:null,summary:'Maybe travel'}},'tentative');
+ assert.ok(reviewAdventure(p).notices.some(n=>n.code==='long_distance_handover'),
+   'An unverified plan is not a supplier-backed transfer');
+ p=edit(p,{type:'correct_booking',id:'tentative',patch:{
+   status:'confirmed',source_id:'synthetic-source'}},'confirmed');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='long_distance_handover'),false,
+   'A member-recorded source-backed transfer suppresses the notice, not the need for route verification');
+});
+test('Missing coordinates, undated trips and only possible places do not invent distance warnings',()=>{
+ let p=edit(base(),{type:'add_stop',stop:{id:'known',place_id:'known',
+   title:'Synthetic Known',from_day:1,through_day:3,status:'planned',
+   latitude:0,longitude:0}},'known');
+ p=edit(p,{type:'add_stop',stop:{id:'unknown',place_id:'unknown',
+   title:'Synthetic Unknown',from_day:3,through_day:6,status:'planned'}},'unknown');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='long_distance_handover'),false);
+ p=edit(p,{type:'edit_stop',id:'unknown',patch:{latitude:0,longitude:6}},'coordinate');
+ const undated=structuredClone(p);undated.starts_on=null;
+ assert.equal(reviewAdventure(undated).notices.some(n=>n.code==='long_distance_handover'),false);
+ const possible=edit(p,{type:'edit_stop',id:'unknown',patch:{status:'possible'}},'possible');
+ assert.equal(reviewAdventure(possible).notices.some(n=>n.code==='long_distance_handover'),false);
+});
+test('Antimeridian handovers use the shorter arc, not a fictional 358-degree journey',()=>{
+ let p=edit(base(),{type:'add_stop',stop:{id:'east',place_id:'east',
+   title:'Fictional East Island',from_day:1,through_day:3,status:'planned',
+   latitude:10,longitude:179}},'east');
+ p=edit(p,{type:'add_stop',stop:{id:'west',place_id:'west',
+   title:'Fictional West Island',from_day:3,through_day:6,status:'planned',
+   latitude:10,longitude:-179}},'west');
+ assert.equal(reviewAdventure(p).notices.some(n=>n.code==='long_distance_handover'),false);
+});
