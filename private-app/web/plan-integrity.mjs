@@ -43,7 +43,9 @@ function untouchedExcept(before,after,collection){
     field==='experiences'?(before[field]??[]):before[field],
     field==='experiences'?(after[field]??[]):after[field])))return false;
   return collection==='trip'||(before.title===after.title &&
-    before.starts_on===after.starts_on && before.duration_days===after.duration_days);
+    before.starts_on===after.starts_on &&
+    (before.starts_month??null)===(after.starts_month??null) &&
+    before.duration_days===after.duration_days);
 }
 const operations={
   add_stop:'stops',edit_stop:'stops',remove_stop:'stops',
@@ -56,7 +58,11 @@ function value(state,collection,id){
   if(['stops','experiences','bookings','lessons'].includes(collection))
     return (state[collection]??[]).find(x=>x.id===id)||null;
   if(collection==='status')return state.status;
-  if(collection==='trip')return {title:state.title,starts_on:state.starts_on,duration_days:state.duration_days};
+  if(collection==='trip'){
+    const trip={title:state.title,starts_on:state.starts_on,duration_days:state.duration_days};
+    if(Object.hasOwn(state,'starts_month'))trip.starts_month=state.starts_month;
+    return trip;
+  }
   fail('Unknown event collection');
 }
 export function validatePortablePlannerRecords(records){
