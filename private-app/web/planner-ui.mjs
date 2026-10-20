@@ -562,18 +562,55 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
           out.append(open);
         }
       }else out.append(el('p','meta','Intended overnight base: '+(d.overnight?.title||'Not yet planned')));
-      if(d.bookings.length){
-        out.append(el('h4','','Recorded travel and booking essentials'));
-        out.append(el('p','meta',
-          'Travel records appear first, but these dates contain no departure times or live supplier updates.'));
+      const bookingButton=(record,label)=>{
+        const open=el('button','text-button',label+' · '+record.summary);
+        open.type='button';open.onclick=()=>void bookingUI.openBooking(record.id);
+        return open;
+      };
+      if(d.stay_booking_conflict.length){
+        out.append(el('p','planner-warning',
+          'Several source-linked accommodation records cover tonight. No single hotel can be assumed.'));
+        for(const record of d.stay_booking_conflict)
+          out.append(bookingButton(record,'Review accommodation'));
+      }else if(d.stay_booking){
+        const hotel=d.stay_booking,item=el('div','planner-today-booking');
+        item.append(el('strong','','Tonight’s member-recorded accommodation'),
+          el('p','',hotel.summary),
+          el('p','meta','Original linked · Stay record, not a live supplier status'),
+          bookingButton(hotel,'Open protected hotel details'));
+        const place=p.stops.find(s=>s.id===hotel.stop_id);
+        if(place&&d.overnight&&place.id!==d.overnight.id)
+          item.append(el('p','planner-warning',
+            'The booked place and today’s intended overnight base differ. Check both records.'));
+        if(place&&Number.isFinite(place.latitude)&&Number.isFinite(place.longitude)){
+          const maps=el('a','text-button','Open saved place in Apple Maps');
+          maps.href='https://maps.apple.com/?ll='+place.latitude+','+place.longitude;
+          maps.target='_blank';maps.rel='noopener noreferrer';
+          item.append(maps,el('p','meta',
+            'This opens member-entered place coordinates and shares them with Apple; the hotel address was not independently verified.'));
+        }
+        out.append(item);
       }
-      for(const record of d.bookings){
+      if(d.next_booking){
+        const next=d.next_booking,item=el('div','planner-today-booking');
+        item.append(el('strong','','Next dated booking record · '+next.starts_on),
+          el('p','',next.kind+' · '+next.summary),
+          bookingButton(next,'Open protected booking details'),
+          el('p','meta','This is the earliest saved date, not a verified departure time, running order or supplier update.'));
+        out.append(item);
+      }
+      const remaining=d.bookings.filter(b=>b.id!==d.stay_booking?.id&&
+        b.id!==d.next_booking?.id);
+      if(remaining.length){
+        out.append(el('h4','','Other source-linked records for today'));
+        out.append(el('p','meta','Travel records are grouped by type, not by unrecorded departure times.'));
+      }
+      for(const record of remaining){
         const item=el('div','planner-today-booking');
         item.append(el('strong','',record.kind+' · '+record.summary),
-          el('p','meta','Member-recorded, original-source linked · '+record.starts_on));
-        const open=el('button','text-button','Open private booking details · '+record.summary);
-        open.type='button';open.onclick=()=>void bookingUI.openBooking(record.id);
-        item.append(open);out.append(item);
+          el('p','meta','Member-recorded, original-source linked · '+record.starts_on),
+          bookingButton(record,'Open private booking details'));
+        out.append(item);
       }
       for(const record of d.planned_experiences)
         out.append(el('p','','Planned experience: '+record.title));
@@ -589,6 +626,9 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         out.append(el('p','meta','Tomorrow’s base: '+(d.tomorrow.planned_places.join(', ')||'No planned base')));
         if(d.tomorrow.planned_experiences.length)
           out.append(el('p','meta','Tomorrow’s ideas: '+d.tomorrow.planned_experiences.join(', ')));
+        const additional=d.tomorrow.bookings.filter(b=>b.id!==d.next_booking?.id);
+        for(const record of additional)
+          out.append(bookingButton(record,'Tomorrow’s dated booking · '+record.starts_on));
       }
       out.append(el('p','meta','Today uses your device’s local date, not live location. '+d.limitations));
     }
