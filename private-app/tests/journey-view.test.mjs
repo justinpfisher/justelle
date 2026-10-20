@@ -33,6 +33,29 @@ test('Current, upcoming, past, undated and archived adventures remain distinct',
  assert.deepEqual(x.archived.map(z=>z.id),['archive']);
 });
 
+
+test('Approximate months are current/upcoming or earlier without invented daily dates',()=>{
+ const approximate=createItinerary({id:'month-plan',title:'Synthetic December adventure',
+   durationDays:21,startsMonth:'2027-12'});
+ const earlier=createItinerary({id:'past-month',title:'Synthetic earlier month',
+   startsMonth:'2026-09'});
+ const undated=createItinerary({id:'undated-month-test',title:'Flexible idea'});
+ const before=structuredClone(approximate);
+ const groups=nextAdventures([undated,earlier,approximate],'2026-10-19');
+ assert.deepEqual(groups.current_and_upcoming.map(x=>x.id),['month-plan']);
+ assert.deepEqual(groups.past.map(x=>x.id),['past-month']);
+ assert.deepEqual(groups.undated.map(x=>x.id),['undated-month-test']);
+ const journey=journeyOverview(approximate);
+ assert.equal(journey.starts_month,'2027-12');
+ assert.equal(journey.starts_on,null);
+ assert.ok(journey.days.every(d=>d.date===null));
+ assert.equal(journey.stays.length,0);
+ assert.deepEqual(approximate,before);
+ const inDecember=nextAdventures([approximate],'2027-12-31');
+ assert.deepEqual(inDecember.current_and_upcoming.map(x=>x.id),['month-plan']);
+ assert.deepEqual(nextAdventures([approximate],'2028-01-01').past.map(x=>x.id),
+   ['month-plan']);
+});
 test('A 21-day journey opens as three bounded week groups without losing date or day identity',()=>{
  const p=createItinerary({id:'three-weeks',title:'Fictional three-week adventure',durationDays:21,startsOn:'2026-10-25'});
  const weeks=journeyWeeks(p);
