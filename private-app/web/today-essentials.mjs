@@ -3,8 +3,8 @@
 import {itineraryDays} from './itinerary-core.mjs';
 const priority={flight:0,transport:1,stay:2,activity:3};
 const confirmed=b=>b.status==='confirmed'&&Boolean(b.source_id);
-const ordered=(a,b)=>a.starts_on.localeCompare(b.starts_on)||
-  priority[a.kind]-priority[b.kind]||a.id.localeCompare(b.id);
+const grouped=(a,b)=>priority[a.kind]-priority[b.kind]||a.id.localeCompare(b.id);
+const ordered=(a,b)=>a.starts_on.localeCompare(b.starts_on)||grouped(a,b);
 const brief=b=>({id:b.id,kind:b.kind,summary:b.summary,source_id:b.source_id,
   starts_on:b.starts_on,stop_id:b.stop_id});
 
@@ -19,7 +19,7 @@ export function todayEssentials(plan,localDate){
  // A cancelled/voided record cannot become the next travel commitment.
  const cancelled=today.bookings.filter(b=>['cancelled','voided'].includes(b.status));
  const active=today.bookings.filter(b=>!['cancelled','voided'].includes(b.status));
- const current=active.filter(confirmed).sort(ordered);
+ const current=active.filter(confirmed).sort(grouped);
  const uncertain=active.filter(b=>!confirmed(b));
  const currentHotels=current.filter(b=>b.kind==='stay');
  const intendedBases=today.stops.filter(s=>s.status==='planned');
