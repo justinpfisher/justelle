@@ -93,6 +93,19 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       tripForm.dataset.dirty='false';
     }
     $('planner-archive').textContent=p.status==='archived'?'Return to planning':'Move to archive';
+    const lessonsPanel=$('planner-lessons-panel'),lessonList=$('planner-lessons');
+    const previouslyArchived=lessonsPanel.dataset.planId===p.id&&
+      lessonsPanel.dataset.state==='archived';
+    lessonsPanel.hidden=p.status!=='archived'&&!(p.lessons??[]).length;
+    if(p.status==='archived'&&!previouslyArchived)lessonsPanel.open=true;
+    if(lessonsPanel.hidden)lessonsPanel.open=false;
+    lessonsPanel.dataset.planId=p.id;lessonsPanel.dataset.state=p.status;
+    $('planner-add-lesson').hidden=p.status!=='archived';
+    lessonList.replaceChildren();
+    for(const lesson of p.lessons??[])
+      lessonList.append(el('li','planner-stay',lesson.text));
+    if(!p.lessons?.length)
+      lessonList.append(el('li','empty','No lessons saved yet. Keep only what would be useful next time.'));
 
     $('planner-summary').textContent=(p.starts_on||'Undated')+' · '+p.duration_days+
       ' days · Revision '+p.revision+' · Shared changes save immediately';
@@ -656,6 +669,23 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     const p=plans.find(x=>x.id===selected);if(!p)return;
     void edit(p,{type:'set_status',status:p.status==='archived'?'planning':'archived'});
   };
+  const addLesson=async event=>{
+    event.preventDefault();
+    const p=plans.find(x=>x.id===selected);if(!p)return;
+    if(p.status!=='archived')
+      return onError(Error('Move this adventure to the archive before recording lessons.'));
+    const value=$('planner-lesson-text').value.trim();
+    if(!value||value.length>2000)return onError(Error('Enter a lesson of up to 2,000 characters.'));
+    if((p.lessons??[]).some(l=>l.text===value))
+      return onError(Error('This lesson is already recorded in this adventure.'));
+    const button=$('planner-add-lesson').querySelector('[type=submit]');button.disabled=true;
+    try{
+      if(await edit(p,{type:'add_lesson',id:crypto.randomUUID(),text:value})){
+        $('planner-lesson-text').value='';
+        $('planner-lessons-panel').open=true;
+      }
+    }finally{button.disabled=false;}
+  };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
   const close=()=>{selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
   $('planner-create').addEventListener('submit',created);
@@ -668,6 +698,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
   $('planner-trip-form').addEventListener('input',tripDirty);
   $('planner-trip-form').addEventListener('submit',saveTrip);
   $('planner-archive').addEventListener('click',archive);
+  $('planner-add-lesson').addEventListener('submit',addLesson);
   $('planner-trip-refresh').addEventListener('click',refreshTrip);
   $('planner-add-stay').addEventListener('submit',added);
   $('planner-edit-stay').addEventListener('submit',saveStay);
@@ -704,6 +735,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-trip-form').removeEventListener('input',tripDirty);
     $('planner-trip-form').removeEventListener('submit',saveTrip);
     $('planner-archive').removeEventListener('click',archive);
+    $('planner-add-lesson').removeEventListener('submit',addLesson);
     $('planner-trip-refresh').removeEventListener('click',refreshTrip);
     $('planner-add-stay').removeEventListener('submit',added);
     $('planner-edit-stay').removeEventListener('submit',saveStay);
