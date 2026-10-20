@@ -88,5 +88,5 @@ export function reviewAdventure(plan){
     description:'A possible transfer is not confirmed.',
     evidence:{booking_id:b.id},action:'Review the original supplier record before relying on it.'});
   return {adventure_id:plan.id,revision:plan.revision,notices,scope:'saved-itinerary-only',
-    limitations:'Only member-entered coordinates support straight-line distance notices. No route duration, supplier availability, geographic feasibility or actual reservation status was checked.'};
+    limitations:'Only member-entered coordinates support straight-line distance notices. No current route duration, supplier availability, geographic feasibility or actual reservation status was checked.'};
 }
