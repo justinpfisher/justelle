@@ -10,6 +10,7 @@ import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
 import {getStorage} from 'firebase-admin/storage';
 import {plannerBackend} from '../web/planner-backend.mjs';
+import {applyItineraryEdit} from '../web/itinerary-core.mjs';
 import {interpretPlanInstruction} from '../web/instruction-core.mjs';
 import {firebaseBackupSource} from '../memory/firebase-backup-source.mjs';
 import {generateRecoveryKey,writeEncryptedBackup,restoreEncryptedBackup} from '../memory/encrypted-backup.mjs';
@@ -359,6 +360,48 @@ test('Firestore refuses a forged second booking edit or backwards travel dates i
    const valid=await two.editPlan({uid:b},planId,{type:'correct_booking',id:'first',
      patch:{status:'cancelled'}},2);
    assert.equal(valid.plan.bookings[1].summary,second.summary);
+ }finally{await env.cleanup();}
+});
+
+test('A generated booking title alone cannot establish a confirmed supplier anchor',async()=>{
+ const {env,A,B,one,two}=await setup();
+ try{
+   await one.createPlan({uid:a},{id:planId,title:'Synthetic booking evidence',
+     durationDays:10,startsOn:'2026-11-01'});
+   await one.addSource({uid:a},{id:sourceId,adventureId:planId,kind:'booking',
+     title:'Fictional title without confirmation'});
+   const claim={id:'proofless-booking',kind:'stay',stop_id:null,
+     starts_on:'2026-11-02',ends_on:'2026-11-05',status:'confirmed',
+     source_id:sourceId,summary:'Synthetic proofless claim'};
+   await assert.rejects(two.editPlan({uid:b},planId,
+     {type:'add_booking',booking:claim},0),/original, pasted confirmation or booking reference/);
+   const before=await one.readPlan(planId);
+   assert.equal(before.revision,0);
+   // A modified client must not bypass the member-facing validation.
+   const eid='forged-proofless-source';
+   const {plan:after,event:change}=applyItineraryEdit(before,
+     {type:'add_booking',booking:claim},{eventId:eid,actorId:'person-a',
+       at:'2026-11-01T12:00:00.000Z'});
+   const forged=writeBatch(A.firestore());
+   forged.update(plan(A),{state:after,last_modified_by:'person-a',
+     updated_at:serverTimestamp()});
+   forged.set(event(A,eid),{...change,author_uid:a,author_id:'person-a',
+     at:serverTimestamp(),created_at:serverTimestamp(),
+     before_state:before,after_state:after});
+   await assertFails(forged.commit());
+   assert.equal((await one.readPlan(planId)).revision,0);
+   const reference='synthetic-reference-only';
+   await two.addSource({uid:b},{id:reference,adventureId:planId,
+     kind:'booking',title:'Manually copied fictional reference',
+     reference:'SYNTHETIC-ONLY-REF'});
+   await one.editPlan({uid:a},planId,{type:'add_booking',
+     booking:{...claim,source_id:reference}},0);
+   const saved=await two.readPlan(planId);
+   assert.equal(saved.bookings[0].status,'confirmed');
+   assert.equal(saved.bookings[0].source_id,reference);
+   assert.equal((await two.readHistory(planId)).length,2);
+   assert.ok((await one.readSources(planId)).some(s=>s.id===sourceId),
+     'Earlier original title remains preserved instead of overwritten');
  }finally{await env.cleanup();}
 });
 
