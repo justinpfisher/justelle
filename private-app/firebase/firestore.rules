@@ -213,6 +213,12 @@ service cloud.firestore {
     function planDocumentPath(roomId, documentId) {
       return /databases/$(database)/documents/rooms/$(roomId)/plan_documents/$(documentId);
     }
+    function validApproximateMonth(s) {
+      let month=s.get('starts_month',null);
+      return (month == null ||
+        month.matches('(19|20|21|22)[0-9]{2}-(0[1-9]|1[0-2])')) &&
+        (month == null || s.starts_on == null);
+    }
     function planState(s, planId) {
       return s is map &&
         s.keys().hasAll(['schema','id','title','duration_days','starts_on','status','stops','bookings','lessons','revision','last_event_id']) &&
@@ -221,10 +227,7 @@ service cloud.firestore {
         s.title is string && s.title.size() > 0 && s.title.size() <= 160 &&
         s.duration_days is int && s.duration_days > 0 && s.duration_days <= 90 &&
         (s.starts_on == null || (s.starts_on is string && s.starts_on.size() == 10)) &&
-        (s.get('starts_month',null) == null ||
-          (s.get('starts_month',null) is string &&
-           s.starts_month.matches('(19|20|21|22)[0-9]{2}-(0[1-9]|1[0-2])'))) &&
-        (s.starts_on == null || s.get('starts_month',null) == null) &&
+        validApproximateMonth(s) &&
         s.status in ['planning','archived'] &&
         s.stops is list && s.stops.size() <= 100 &&
         s.get('experiences', []) is list && s.get('experiences', []).size() <= 150 &&
@@ -237,13 +240,12 @@ service cloud.firestore {
       let e = getAfter(planEventPath(roomId, eventId)).data;
       return !exists(planEventPath(roomId, eventId)) &&
         existsAfter(planEventPath(roomId, eventId)) &&
+        // The event's create rule separately validates identity, authorship,
+        // timestamps, revision, previous ID and exact before/after state.
+        // Rechecking them here can exceed the Rules 1,000-expression budget
+        // for a normal multi-week itinerary.
         e.id == eventId && e.adventure_id == planId &&
-        e.author_uid == request.auth.uid && e.author_id == person(roomId) &&
-        // The event's own create rule separately verifies both complete
-        // state snapshots against get/getAfter(plan). Duplicating those deep
-        // comparisons here exhausts Firestore's 1,000-expression limit.
-        e.actor_id == person(roomId) && e.created_at == request.time &&
-        e.at == request.time && e.revision == newState.revision &&
+        e.revision == newState.revision &&
         e.previous_event_id == (oldState == null ? null : oldState.last_event_id);
     }
     function validPlanCreate(roomId, planId) {
