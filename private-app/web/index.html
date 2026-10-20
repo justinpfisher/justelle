@@ -114,9 +114,11 @@
           <label for="planner-title">New adventure</label>
           <input id="planner-title" maxlength="160" required placeholder="Where might we go?">
           <div class="planner-fields">
-            <label for="planner-date">Start date (optional)<input id="planner-date" type="date"></label>
+            <label for="planner-date">Exact start date (optional)<input id="planner-date" type="date"></label>
+            <label for="planner-month">Or approximate start month<input id="planner-month" type="month"></label>
             <label for="planner-days">Days<input id="planner-days" type="number" min="1" max="90" value="21" required></label>
           </div>
+          <p class="meta">Choose a date or a month, not both. A month never invents a day or confirms travel arrangements.</p>
           <button class="primary" type="submit">Start an adventure</button>
         </form>
         <div id="planner-list" class="adventure-list" aria-live="polite"></div>
@@ -129,9 +131,11 @@
               <label for="planner-trip-title">Adventure name</label>
               <input id="planner-trip-title" maxlength="160" required>
               <div class="planner-fields">
-                <label for="planner-trip-date">Start date (optional)<input id="planner-trip-date" type="date"></label>
+                <label for="planner-trip-date">Exact start date (optional)<input id="planner-trip-date" type="date"></label>
+                <label for="planner-trip-month">Or approximate start month<input id="planner-trip-month" type="month"></label>
                 <label for="planner-trip-days">Number of days<input id="planner-trip-days" type="number" min="1" max="90" required></label>
               </div>
+              <p class="meta">Only an exact date creates dated itinerary days. Supplier bookings remain separate.</p>
               <button type="submit" class="secondary">Save trip changes</button>
               <button type="button" id="planner-trip-refresh" class="text-button">Review latest shared version</button>
             </form>

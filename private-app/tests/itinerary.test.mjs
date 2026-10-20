@@ -15,6 +15,63 @@ test('blank day canvas respects dates and daylight saving boundaries',()=>{
   assert.equal(itineraryDays(make())[0].date,null);
   assert.throws(()=>make({startsOn:'2026-02-30'}),/calendar date/);
 });
+
+test('Month-only starts never invent a day, supplier date or confirmed reservation',()=>{
+ const p=make({startsOn:null,startsMonth:'2027-12',durationDays:21});
+ assert.equal(p.starts_on,null);
+ assert.equal(p.starts_month,'2027-12');
+ assert.equal(p.revision,0);
+ assert.equal(itineraryDays(p).length,21);
+ assert.ok(itineraryDays(p).every(d=>d.date===null&&d.bookings.length===0));
+ const x=edit(p,{type:'add_stop',stop:stop('month-only',
+   {from_day:1,through_day:4,status:'possible'})},'month-place');
+ assert.equal(itineraryDays(x.plan)[0].stops[0].id,'month-only');
+ assert.equal(itineraryDays(x.plan)[0].date,null);
+ assert.equal(x.plan.starts_month,'2027-12');
+ assert.deepEqual(itinerarySignals(x.plan),[]);
+ assert.throws(()=>make({startsMonth:'2027-13'}),/approximate month/);
+ assert.throws(()=>make({startsMonth:'2027-00'}),/approximate month/);
+ assert.throws(()=>make({startsOn:'2027-12-11',startsMonth:'2027-12'}),
+   /either a precise date or an approximate month/);
+});
+
+test('Month-only and exact date changes retain separate Undo events, including older snapshots',()=>{
+ let p=make({startsOn:'2027-11-20'});
+ const approximate=edit(p,{type:'edit_trip',patch:{starts_month:'2027-12'}},'approx');
+ assert.equal(approximate.plan.starts_on,null);
+ assert.equal(approximate.plan.starts_month,'2027-12');
+ assert.equal(approximate.event.before.starts_on,'2027-11-20');
+ assert.equal(approximate.event.after.starts_month,'2027-12');
+ assert.deepEqual(itineraryDays(approximate.plan).map(d=>d.date).filter(Boolean),[]);
+ const exact=edit(approximate.plan,{type:'edit_trip',patch:{starts_on:'2027-12-11'}},'exact');
+ assert.equal(exact.plan.starts_month,null);
+ assert.equal(exact.plan.starts_on,'2027-12-11');
+ assert.equal(itineraryDays(exact.plan)[0].date,'2027-12-11');
+ const restore=edit(exact.plan,{type:'undo_last'},'undo-exact',exact.event);
+ assert.equal(restore.plan.starts_on,null);
+ assert.equal(restore.plan.starts_month,'2027-12');
+ const restoredExact=edit(restore.plan,{type:'undo_last'},'undo-undo',restore.event);
+ assert.equal(restoredExact.plan.starts_on,'2027-12-11');
+ // Historical snapshots created before the optional starts_month field existed
+ // must not get an invented property after Undo.
+ const legacy=make({startsOn:'2026-11-01'});delete legacy.starts_month;
+ const changed=edit(legacy,{type:'edit_trip',patch:{starts_month:'2027-12'}},'legacy-month');
+ assert.equal(Object.hasOwn(changed.event.before,'starts_month'),false);
+ const undo=edit(changed.plan,{type:'undo_last'},'legacy-undo',changed.event);
+ assert.equal(Object.hasOwn(undo.plan,'starts_month'),false);
+ assert.equal(undo.plan.starts_on,'2026-11-01');
+});
+
+test('Approximate months sort by actual month without forcing day-one and become past only afterwards',()=>{
+ const future=make({id:'future-month',startsMonth:'2027-12',startsOn:null});
+ const current=make({id:'current-month',startsMonth:'2026-10',startsOn:null});
+ const past=make({id:'past-month',startsMonth:'2026-09',startsOn:null});
+ const exact=make({id:'exact-date',startsOn:'2026-10-25'});
+ const undated=make({id:'undated'});
+ assert.deepEqual(sortAdventurePlans([past,undated,future,current,exact],'2026-10-19')
+   .map(x=>x.id),['current-month','exact-date','future-month','past-month','undated']);
+ assert.equal(sortAdventurePlans([current],'2026-11-01')[0].starts_month,'2026-10');
+});
 test('city stays can be moved immediately without mutating an earlier revision',()=>{
   const original=make();
   const {plan:a,event:e1}=edit(original,{type:'add_stop',stop:stop()},'ev1');

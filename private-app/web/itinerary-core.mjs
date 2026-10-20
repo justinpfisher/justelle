@@ -12,12 +12,17 @@ const clean = (value, max = 200) => {
 const isoDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
   !Number.isNaN(Date.parse(value + 'T12:00:00Z')) &&
   new Date(value + 'T12:00:00Z').toISOString().slice(0, 10) === value;
+const isoMonth = value => typeof value === 'string' &&
+  /^(19|20|21|22)\d{2}-(0[1-9]|1[0-2])$/.test(value);
 const clone = value => structuredClone(value);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const verifyPlan = plan => {
   if (!plan || plan.schema !== ITINERARY_SCHEMA || !isId(plan.id) ||
       !Number.isInteger(plan.duration_days) || plan.duration_days < 1 || plan.duration_days > 90 ||
       !Number.isSafeInteger(plan.revision) || plan.revision < 0 ||
+      (plan.starts_on !== null && !isoDate(plan.starts_on)) ||
+      (plan.starts_month != null && !isoMonth(plan.starts_month)) ||
+      (plan.starts_on !== null && plan.starts_month != null) ||
       !['planning', 'archived'].includes(plan.status) ||
       !Array.isArray(plan.stops) || !Array.isArray(plan.bookings) || !Array.isArray(plan.lessons) ||
       (plan.experiences !== undefined && !Array.isArray(plan.experiences)))
@@ -74,12 +79,16 @@ function booking(value, plan) {
     throw Error('Invalid booking calendar dates');
   return b;
 }
-export function createItinerary({id, title, durationDays = 21, startsOn = null}) {
+export function createItinerary({id, title, durationDays = 21, startsOn = null, startsMonth = null}) {
   checkId(id); clean(title, 160);
   if (!Number.isInteger(durationDays) || durationDays < 1 || durationDays > 90) throw Error('Invalid trip duration');
   if (startsOn !== null && !isoDate(startsOn)) throw Error('Invalid calendar date');
+  if (startsMonth !== null && !isoMonth(startsMonth)) throw Error('Invalid approximate month');
+  if (startsOn !== null && startsMonth !== null)
+    throw Error('Choose either a precise date or an approximate month');
   return {schema: ITINERARY_SCHEMA, id, title: title.trim(), duration_days: durationDays,
-    starts_on: startsOn, status: 'planning', stops: [], experiences: [], bookings: [], lessons: [],
+    starts_on: startsOn, starts_month: startsMonth, status: 'planning',
+    stops: [], experiences: [], bookings: [], lessons: [],
     revision: 0, last_event_id: null};
 }
 function collectionUpdate(plan, key, id, nextRecord) {
@@ -151,13 +160,24 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
   } else if (change.type === 'edit_trip') {
     collection = 'trip'; recordId = original.id;
     const patch = change.patch;
-    const allowed = ['title', 'starts_on', 'duration_days'];
+    const allowed = ['title', 'starts_on', 'starts_month', 'duration_days'];
     if (!patch || !Object.keys(patch).length || Object.keys(patch).some(k => !allowed.includes(k)))
       throw Error('Invalid trip edit');
     before = {title: plan.title, starts_on: plan.starts_on, duration_days: plan.duration_days};
+    // Old events did not have starts_month. Their original before/after shape
+    // must be preserved for independent archive verification and Undo.
+    if (Object.hasOwn(plan,'starts_month')) before.starts_month=plan.starts_month;
     after = {...before, ...patch};
+    if (patch.starts_on != null && !Object.hasOwn(patch,'starts_month'))
+      after.starts_month = null;
+    if (patch.starts_month != null && !Object.hasOwn(patch,'starts_on'))
+      after.starts_on = null;
     clean(after.title, 160);
     if (after.starts_on !== null && !isoDate(after.starts_on)) throw Error('Invalid calendar date');
+    if (after.starts_month != null && !isoMonth(after.starts_month))
+      throw Error('Invalid approximate month');
+    if (after.starts_on !== null && after.starts_month != null)
+      throw Error('Choose either a precise date or an approximate month');
     if (!Number.isInteger(after.duration_days) || after.duration_days < 1 || after.duration_days > 90 ||
         (plan.stops.some(s => s.through_day > after.duration_days + 1) ||
          (plan.experiences ?? []).some(e => e.day > after.duration_days)))
@@ -175,8 +195,10 @@ export function applyItineraryEdit(input, change, {eventId, actorId, at, lastEve
     collection = lastEvent.collection; recordId = lastEvent.record_id;
     if (collection === 'trip') {
       const current = {title: plan.title, starts_on: plan.starts_on, duration_days: plan.duration_days};
+      if (Object.hasOwn(plan,'starts_month')) current.starts_month=plan.starts_month;
       if (!same(current, lastEvent.after)) throw Error('Trip changed since this event');
       before = current; after = clone(lastEvent.before); Object.assign(plan, after);
+      if (!Object.hasOwn(after,'starts_month')) delete plan.starts_month;
     } else if (collection === 'status') {
       if (plan.status !== lastEvent.after) throw Error('Current status has changed');
       before = plan.status; after = lastEvent.before; plan.status = after;
@@ -242,6 +264,12 @@ export function sortAdventurePlans(plans, today) {
   const key = p => {
     verifyPlan(p);
     if (p.status === 'archived') return [3, '9999-12-31'];
+    if (!p.starts_on && p.starts_month){
+      // Month-only is genuinely uncertain: no day can be inferred. Retain it
+      // among upcoming/current ideas until its entire named month has passed.
+      return p.starts_month >= today.slice(0,7) ?
+        [0,p.starts_month+'-00'] : [1,p.starts_month+'-99'];
+    }
     if (!p.starts_on) return [2, '9999-12-31'];
     const end = dateAt(p.starts_on, p.duration_days);
     return end >= today ? [0, p.starts_on <= today ? today : p.starts_on] : [1, p.starts_on];

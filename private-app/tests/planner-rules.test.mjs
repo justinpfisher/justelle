@@ -92,6 +92,67 @@ test('Atomic two-member edits reject stale revisions, preserve history and Undo 
     await assertFails(deleteDoc(event(B,history[1].id)));
   }finally{await env.cleanup();}
 });
+test('Approximate months share immediately, retain original precision in History and encrypted recovery',async()=>{
+ const {env,A,B,X,one,two}=await setup();
+ const admin=initializeApp({projectId,storageBucket:projectId+'.firebasestorage.app'},
+   'month-backup-'+Date.now()),db=getFirestore(admin);
+ try{
+   const id='synthetic-month-only';
+   await one.createPlan({uid:a},{id,title:'Synthetic December idea',durationDays:9,
+     startsMonth:'2027-12'});
+   let saved=await two.readPlan(id);
+   assert.equal(saved.starts_on,null);
+   assert.equal(saved.starts_month,'2027-12');
+   assert.equal(saved.revision,0);
+   await assertFails(getDoc(plan(X,id)));
+   // A client may never smuggle a month change into an unrelated stop edit.
+   const forged={...structuredClone(saved),starts_month:'2028-01',
+     revision:1,last_event_id:'forged-month-change'};
+   forged.stops=[{id:'hidden-stop',place_id:'hidden-stop',
+     title:'Fictional hidden place',from_day:1,through_day:2,status:'possible',
+     latitude:null,longitude:null}];
+   const hidden=writeBatch(A.firestore());
+   hidden.update(plan(A,id),{state:forged,last_modified_by:'person-a',
+     updated_at:serverTimestamp()});
+   hidden.set(event(A,'forged-month-change'),{id:'forged-month-change',
+     adventure_id:id,revision:1,previous_event_id:saved.last_event_id,
+     actor_id:'person-a',author_uid:a,author_id:'person-a',
+     at:serverTimestamp(),created_at:serverTimestamp(),operation:'add_stop',
+     collection:'stops',record_id:'hidden-stop',before:null,after:forged.stops[0],
+     before_state:saved,after_state:forged});
+   await assertFails(hidden.commit());
+   assert.equal((await two.readPlan(id)).starts_month,'2027-12');
+   await two.editPlan({uid:b},id,{type:'add_stop',stop:{
+     id:'month-place',place_id:'month-place',title:'Fictional Coast',
+     from_day:1,through_day:3,status:'possible'}},0);
+   await one.editPlan({uid:a},id,{type:'edit_trip',
+     patch:{starts_on:'2027-12-11'}},1);
+   saved=await two.readPlan(id);
+   assert.equal(saved.starts_month,null);
+   assert.equal(saved.starts_on,'2027-12-11');
+   await two.editPlan({uid:b},id,{type:'undo_last'},2);
+   saved=await one.readPlan(id);
+   assert.equal(saved.starts_month,'2027-12');
+   assert.equal(saved.starts_on,null);
+   assert.equal(saved.revision,3);
+   const history=await two.readHistory(id);
+   assert.deepEqual(history.map(e=>e.revision),[0,1,2,3]);
+   assert.equal(history[0].after_state.starts_month,'2027-12');
+   assert.equal(history[2].after_state.starts_on,'2027-12-11');
+   assert.equal(history[3].after_state.starts_month,'2027-12');
+   const snapshot=await firebaseBackupSource({db,bucket:getStorage(admin).bucket(),pageSize:1});
+   assert.equal(snapshot.records.adventure_plans[0].state.starts_month,'2027-12');
+   validatePortablePlannerRecords(snapshot.records);
+   const dir=await mkdtemp(join(tmpdir(),'justelle-month-only-')),key=generateRecoveryKey();
+   await writeEncryptedBackup({...snapshot,key},join(dir,'source.jmb'));
+   await restoreEncryptedBackup(join(dir,'source.jmb'),key,join(dir,'restored'));
+   const recovered=JSON.parse(await readFile(join(dir,'restored','records.json'),'utf8'));
+   assert.equal(recovered.adventure_plans[0].state.starts_on,null);
+   assert.equal(recovered.adventure_plans[0].state.starts_month,'2027-12');
+   assert.equal(recovered.plan_events.find(e=>e.revision===2).after_state.starts_on,'2027-12-11');
+ }finally{await db.terminate();await deleteApp(admin);await env.cleanup();}
+});
+
 test('External originals stay independent of intended booking edits, and legacy pilot documents are isolated',async()=>{
   const {env,A,B,X,one,two}=await setup();
   try{

@@ -28,6 +28,13 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     const byType=Object.fromEntries(parts.map(p=>[p.type,p.value]));
     return byType.year+'-'+byType.month+'-'+byType.day;
   }
+  const monthLabel=value=>{
+    const names=['January','February','March','April','May','June','July','August',
+      'September','October','November','December'];
+    return names[Number(value.slice(5,7))-1]+' '+value.slice(0,4);
+  };
+  const startDescription=p=>p.starts_on||(
+    p.starts_month?'Approximate '+monthLabel(p.starts_month)+' (no day chosen)':'Undated');
   function deviceDate(){
     // A traveller's iPhone usually follows the destination time zone.
     // Avoid using the Toronto home sort's date for an abroad Today view.
@@ -69,7 +76,9 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       list.append(el('h4','planner-group-heading',title));
       for(const p of items){
       const card=el('article','record-card planner-card');
-      const status=p.status==='archived'?'Archived':p.starts_on?p.starts_on+' · '+p.duration_days+' days':'Dates flexible';
+      const status=p.status==='archived'?'Archived':
+        (p.starts_on?p.starts_on:p.starts_month?'Around '+monthLabel(p.starts_month):'Dates flexible')+
+        ' · '+p.duration_days+' days';
       card.append(el('span','tag',status),el('h4','',p.title));
       const planned=p.stops.filter(s=>s.status==='planned').length,possible=p.stops.length-planned;
       card.append(el('p','meta',planned+' planned places · '+possible+' possibilities'));
@@ -87,6 +96,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     if(tripForm.dataset.planId!==p.id||tripForm.dataset.dirty!=='true'){
       $('planner-trip-title').value=p.title;
       $('planner-trip-date').value=p.starts_on||'';
+      $('planner-trip-month').value=p.starts_month||'';
       $('planner-trip-days').value=String(p.duration_days);
       tripForm.dataset.planId=p.id;
       tripForm.dataset.baseRevision=String(p.revision);
@@ -107,7 +117,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     if(!p.lessons?.length)
       lessonList.append(el('li','empty','No lessons saved yet. Keep only what would be useful next time.'));
 
-    $('planner-summary').textContent=(p.starts_on||'Undated')+' · '+p.duration_days+
+    $('planner-summary').textContent=startDescription(p)+' · '+p.duration_days+
       ' days · Revision '+p.revision+' · Shared changes save immediately';
     $('planner-undo').disabled=p.revision===0;
     const stayForm=$('planner-edit-stay');
@@ -501,8 +511,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       button.disabled=true;
       try{
         const id=await planner.createPlan(user,{title:$('planner-title').value,
-          durationDays:Number($('planner-days').value),startsOn:$('planner-date').value||null});
+          durationDays:Number($('planner-days').value),startsOn:$('planner-date').value||null,
+          startsMonth:$('planner-month').value||null});
         selected=id;$('planner-title').value='';$('planner-date').value='';
+        $('planner-month').value='';
         announce('Adventure added to our shared plans.');
       }finally{button.disabled=false;}
     }catch(error){onError(error);}
@@ -560,7 +572,9 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     const p=plans.find(x=>x.id===selected);if(!p)return;
     const d=todayEssentials(p,deviceDate()),out=$('planner-today-result');
     out.replaceChildren(el('h4','',"Today's essentials"));
-    if(!d.in_trip)out.append(el('p','', 'No scheduled day in this adventure on your device’s local date.'));
+    if(!d.in_trip)out.append(el('p','', p.starts_month&&!p.starts_on?
+      'An approximate month is not a travel date. Choose an exact starting day before relying on Today. Saved supplier bookings remain separate.':
+      'No scheduled day in this adventure on your device’s local date.'));
     else{
       out.append(el('p','', 'Day '+d.day+' · '+d.date));
       if(d.overnight_conflict.length){
@@ -648,6 +662,16 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     out.hidden=false;
   };
   const tripDirty=()=>{$('planner-trip-form').dataset.dirty='true';};
+  const createExactDate=()=>{if($('planner-date').value)$('planner-month').value='';};
+  const createApproxMonth=()=>{if($('planner-month').value)$('planner-date').value='';};
+  const editExactDate=()=>{
+    if($('planner-trip-date').value)$('planner-trip-month').value='';
+    tripDirty();
+  };
+  const editApproxMonth=()=>{
+    if($('planner-trip-month').value)$('planner-trip-date').value='';
+    tripDirty();
+  };
   const saveTrip=async event=>{
     event.preventDefault();
     const p=plans.find(x=>x.id===selected);if(!p)return;
@@ -656,6 +680,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       return onError(Error('Your shared plan changed while you were editing. Review the new version before saving.'));
     const patch={title:$('planner-trip-title').value.trim(),
       starts_on:$('planner-trip-date').value||null,
+      starts_month:$('planner-trip-month').value||null,
       duration_days:Number($('planner-trip-days').value)};
     const button=form.querySelector('[type=submit]');button.disabled=true;
     try{
@@ -688,6 +713,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
   };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
   const close=()=>{selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
+  $('planner-date').addEventListener('input',createExactDate);
+  $('planner-month').addEventListener('input',createApproxMonth);
+  $('planner-trip-date').addEventListener('input',editExactDate);
+  $('planner-trip-month').addEventListener('input',editApproxMonth);
   $('planner-create').addEventListener('submit',created);
   $('planner-instruction-form').addEventListener('submit',submitInstruction);
   $('planner-ask-ai').addEventListener('click',requestAiSuggestion);
@@ -725,6 +754,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
   },onError);
   return ()=>{
     stopped=true;unsubscribe();bookingUI.dispose();
+    $('planner-date').removeEventListener('input',createExactDate);
+    $('planner-month').removeEventListener('input',createApproxMonth);
+    $('planner-trip-date').removeEventListener('input',editExactDate);
+    $('planner-trip-month').removeEventListener('input',editApproxMonth);
     $('planner-create').removeEventListener('submit',created);
     $('planner-instruction-form').removeEventListener('submit',submitInstruction);
     $('planner-ask-ai').removeEventListener('click',requestAiSuggestion);

@@ -342,6 +342,43 @@ try{
     'Earlier lessons remain available for reference when an adventure returns to planning');
   await A.locator('#planner-bookings').getByText('Fictional inn confirmation',{exact:true}).waitFor({timeout:15000});
 
+  // Month-only adventures are first-class, explicitly uncertain records.
+  // The second member can choose a precise date and Undo without losing the
+  // original approximate month or inventing a calendar day.
+  await A.locator('#planner-title').fill('Fictional December possibility');
+  await A.locator('#planner-month').fill('2027-12');
+  assert.equal(await A.locator('#planner-date').inputValue(),'');
+  await A.locator('#planner-days').fill('8');
+  await A.locator('#planner-create button[type=submit]').click();
+  const monthCard=B.locator('#planner-list .planner-card')
+    .filter({hasText:'Fictional December possibility'});
+  await monthCard.waitFor({timeout:15000});
+  await monthCard.getByText('Around December 2027',{exact:false}).waitFor();
+  await monthCard.getByRole('button',{name:'Open plan'}).click();
+  await B.locator('#planner-summary')
+    .getByText('Approximate December 2027 (no day chosen)',{exact:false})
+    .waitFor({timeout:15000});
+  assert.equal((await B.locator('#planner-days-view').textContent()).includes('2027-12-01'),
+    false,'No invented first-of-month day may appear in an undated journey');
+  if(!(await B.locator('#planner-trip-form').isVisible()))
+    await B.getByText('Dates and trip basics',{exact:true}).click();
+  assert.equal(await B.locator('#planner-trip-month').inputValue(),'2027-12');
+  assert.equal(await B.locator('#planner-trip-date').inputValue(),'');
+  await B.locator('#planner-trip-date').fill('2027-12-11');
+  assert.equal(await B.locator('#planner-trip-month').inputValue(),'',
+    'Choosing a precise day must clear the approximate month');
+  await B.locator('#planner-trip-form button[type=submit]').click();
+  await poll(async()=>await A.locator('#planner-summary').textContent()
+    .then(v=>v.includes('2027-12-11')));
+  await B.locator('#planner-undo').click();
+  await poll(async()=>await A.locator('#planner-summary').textContent()
+    .then(v=>v.includes('Approximate December 2027 (no day chosen)')));
+  await B.locator('#planner-today').click();
+  await B.locator('#planner-today-result')
+    .getByText('An approximate month is not a travel date.',{exact:false}).waitFor();
+  assert.equal((await B.locator('#planner-today-result').textContent())
+    .includes('Recorded travel and booking essentials'),false,
+    'Month-only plans cannot manufacture dated travel commitments');
 
   await A.locator('[data-tab="conversation"]').click();
   await B.locator('[data-tab="conversation"]').click();
@@ -492,7 +529,14 @@ try{
   const bundle=JSON.parse(await readFile(await download.path(),'utf8'));
   assert.equal(bundle.records.conversations.length,3);
   assert.ok(bundle.records.messages.length>=53);
-  assert.equal(bundle.records.adventure_plans.length,1);
+  assert.equal(bundle.records.adventure_plans.length,2);
+  const roughMonth=bundle.records.adventure_plans.find(p=>
+    p.state.title==='Fictional December possibility');
+  assert.ok(roughMonth,'Month-only adventures remain in a portable export');
+  assert.equal(roughMonth.state.starts_month,'2027-12');
+  assert.equal(roughMonth.state.starts_on,null);
+  assert.ok(bundle.records.plan_events.some(e=>
+    e.adventure_id===roughMonth.id&&e.after_state.starts_month==='2027-12'));
   assert.equal(bundle.records.plan_documents.length,2,
     'Both protected supplier PDF and original AI screenshot remain in the portable archive');
   assert.ok(bundle.media.some(f=>f.mime==='application/pdf'));

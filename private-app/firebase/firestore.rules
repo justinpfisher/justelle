@@ -213,14 +213,21 @@ service cloud.firestore {
     function planDocumentPath(roomId, documentId) {
       return /databases/$(database)/documents/rooms/$(roomId)/plan_documents/$(documentId);
     }
+    function validApproximateMonth(s) {
+      let month=s.get('starts_month',null);
+      return (month == null ||
+        month.matches('(19|20|21|22)[0-9]{2}-(0[1-9]|1[0-2])')) &&
+        (month == null || s.starts_on == null);
+    }
     function planState(s, planId) {
       return s is map &&
         s.keys().hasAll(['schema','id','title','duration_days','starts_on','status','stops','bookings','lessons','revision','last_event_id']) &&
-        s.keys().hasOnly(['schema','id','title','duration_days','starts_on','status','stops','experiences','bookings','lessons','revision','last_event_id']) &&
+        s.keys().hasOnly(['schema','id','title','duration_days','starts_on','starts_month','status','stops','experiences','bookings','lessons','revision','last_event_id']) &&
         s.schema == 'justelle-itinerary-v1' && s.id == planId &&
         s.title is string && s.title.size() > 0 && s.title.size() <= 160 &&
         s.duration_days is int && s.duration_days > 0 && s.duration_days <= 90 &&
         (s.starts_on == null || (s.starts_on is string && s.starts_on.size() == 10)) &&
+        validApproximateMonth(s) &&
         s.status in ['planning','archived'] &&
         s.stops is list && s.stops.size() <= 100 &&
         s.get('experiences', []) is list && s.get('experiences', []).size() <= 150 &&
@@ -233,13 +240,12 @@ service cloud.firestore {
       let e = getAfter(planEventPath(roomId, eventId)).data;
       return !exists(planEventPath(roomId, eventId)) &&
         existsAfter(planEventPath(roomId, eventId)) &&
+        // The event's create rule separately validates identity, authorship,
+        // timestamps, revision, previous ID and exact before/after state.
+        // Rechecking them here can exceed the Rules 1,000-expression budget
+        // for a normal multi-week itinerary.
         e.id == eventId && e.adventure_id == planId &&
-        e.author_uid == request.auth.uid && e.author_id == person(roomId) &&
-        // The event's own create rule separately verifies both complete
-        // state snapshots against get/getAfter(plan). Duplicating those deep
-        // comparisons here exhausts Firestore's 1,000-expression limit.
-        e.actor_id == person(roomId) && e.created_at == request.time &&
-        e.at == request.time && e.revision == newState.revision &&
+        e.revision == newState.revision &&
         e.previous_event_id == (oldState == null ? null : oldState.last_event_id);
     }
     function validPlanCreate(roomId, planId) {
@@ -264,17 +270,16 @@ service cloud.firestore {
     // Only the record named by the event may change. In particular, moving
     // a tentative stay cannot silently re-date or confirm an external booking.
     function planUnchangedExcept(d,collectionName) {
-      let before = d.before_state;
-      let after = d.after_state;
-      return (collectionName == 'stops' || before.stops == after.stops) &&
-        (collectionName == 'bookings' || before.bookings == after.bookings) &&
-        (collectionName == 'experiences' || before.get('experiences',[]) == after.get('experiences',[])) &&
-        (collectionName == 'lessons' || before.lessons == after.lessons) &&
-        (collectionName == 'trip' || (
-          before.title == after.title &&
-          before.starts_on == after.starts_on &&
-          before.duration_days == after.duration_days)) &&
-        (collectionName == 'status' || before.status == after.status);
+      // A shallow changed-key check is enough to prevent collateral
+      // mutations, including an undisclosed change of date precision.
+      // The separate validNamedItemDelta rule checks the one named array item.
+      // Comparing every whole nested list here is redundant and can exceed
+      // Firestore's expression ceiling on ordinary multi-week adventures.
+      let changed=d.after_state.diff(d.before_state).affectedKeys();
+      return collectionName == 'trip' ?
+        changed.hasOnly(['title','starts_on','starts_month','duration_days',
+                         'revision','last_event_id']) :
+        changed.hasOnly([collectionName,'revision','last_event_id']);
     }
     // A mutually linked plan/event pair must describe one actual item edit.
     // Merely matching the event's collection would allow an extra booking or
