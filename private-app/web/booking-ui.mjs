@@ -1,5 +1,6 @@
 // Private booking UI: source records stay separate from mutable itinerary.
 import {sha256} from './media.mjs';
+import {extractBookingDraft} from './booking-extraction.mjs';
 const $=id=>document.getElementById(id);
 const node=(tag,cls='',value='')=>{
   const n=document.createElement(tag);if(cls)n.className=cls;if(value)n.textContent=value;return n;
@@ -71,6 +72,37 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       $('planner-booking-source').scrollIntoView({block:'nearest'});
     }catch(error){onError(error);}
   }
+  const extract=()=>{
+    const feedback=$('planner-booking-extraction-feedback');
+    try{
+      const result=extractBookingDraft($('planner-booking-paste').value);
+      const mapping={kind:'planner-booking-kind',summary:'planner-booking-title',
+        supplier:'planner-booking-supplier',reference:'planner-booking-reference',
+        starts_on:'planner-booking-start',ends_on:'planner-booking-end'};
+      const names={kind:'booking type',summary:'booking title',supplier:'supplier',
+        reference:'reference',starts_on:'start date',ends_on:'end date'};
+      const notes=[...result.warnings];
+      let filled=0;
+      for(const [field,id] of Object.entries(mapping)){
+        const value=result.fields[field];if(!value)continue;
+        const target=$(id);
+        // Preserve deliberate member-entered details unless the form is still
+        // at its untouched default kind; never overwrite an existing date.
+        if(field==='kind'){
+          if(target.value==='stay'||target.value===value){
+            target.value=value;filled++;
+          }else notes.push('Kept your chosen booking type; review the pasted wording.');
+        }else if(!target.value){
+          target.value=value;filled++;
+        }else if(target.value!==value){
+          notes.push('Kept your existing '+names[field]+'; check it against the original.');
+        }
+      }
+      feedback.textContent=filled+' field'+(filled===1?'':'s')+
+        ' filled for review. '+result.limitations+
+        (notes.length?' '+notes.join(' '):'');
+    }catch(error){feedback.textContent=error.message||'Could not read the pasted booking.';}
+  };
   const submit=async e=>{
     e.preventDefault();const p=getPlan();if(!p)return;
     const button=$('planner-add-booking').querySelector('[type=submit]');button.disabled=true;
@@ -81,8 +113,11 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       if(kind==='stay'&&starts>=ends)throw Error('Hotel checkout must follow check-in');
       if(starts>ends)throw Error('Booking end cannot precede start');
       const file=$('planner-booking-file').files?.[0]||null;
+      const originalText=$('planner-booking-paste').value;
+      if(originalText.length>4000)throw Error('Original booking text exceeds 4,000 characters');
       const documentId=file?await planner.addDocument(user,{adventureId:p.id,file}):null;
       const sourceId=await planner.addSource(user,{adventureId:p.id,kind:'booking',title,
+        notes:originalText,
         supplier:$('planner-booking-supplier').value,reference:$('planner-booking-reference').value,
         documentId});
       await planner.editPlan(user,p.id,{type:'add_booking',booking:{
@@ -91,10 +126,17 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
         status,source_id:sourceId,summary:title
       }},p.revision);
       $('planner-add-booking').reset();
-      announce('Booking details saved. The supplier reservation was not changed.');
+      $('planner-booking-extraction-feedback').textContent=
+        'You can also save the original text without extraction. Extracted fields are suggestions only; review before saving.';
+      announce('Booking details and original text saved privately. The supplier reservation was not changed.');
     }catch(error){onError(error);}
     finally{button.disabled=false;}
   };
+  $('planner-booking-extract').addEventListener('click',extract);
   $('planner-add-booking').addEventListener('submit',submit);
-  return {render,openBooking,dispose(){stopped=true;request++;$('planner-add-booking').removeEventListener('submit',submit);}};
+  return {render,openBooking,dispose(){
+    stopped=true;request++;
+    $('planner-booking-extract').removeEventListener('click',extract);
+    $('planner-add-booking').removeEventListener('submit',submit);
+  }};
 }
