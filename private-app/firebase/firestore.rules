@@ -281,15 +281,21 @@ service cloud.firestore {
       let before = d.before_state.get(d.collection, []);
       let after = d.after_state.get(d.collection, []);
       return before is list && after is list &&
-        ((d.before == null && d.after is map &&
+        (((d.operation in ['add_stop','add_experience','add_booking','add_lesson'] ||
+           d.operation == 'undo_last') &&
+          d.before == null && d.after is map &&
           d.after.id == d.record_id &&
           after == before.concat([d.after])) ||
-         (d.before is map && d.after == null &&
+         ((d.operation in ['remove_stop','remove_experience'] ||
+           d.operation == 'undo_last') &&
+          d.before is map && d.after == null &&
           d.before.id == d.record_id &&
           before.size() == after.size() + 1 &&
           before.hasAny([d.before]) &&
           after == before.removeAll([d.before])) ||
-         (d.before is map && d.after is map &&
+         ((d.operation in ['edit_stop','edit_experience','correct_booking'] ||
+           d.operation == 'undo_last') &&
+          d.before is map && d.after is map &&
           d.before.id == d.record_id && d.after.id == d.record_id &&
           before.size() == after.size() &&
           before.hasAny([d.before]) && after.hasAny([d.after]) &&
