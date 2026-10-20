@@ -465,3 +465,46 @@ test('Clear typed day-activity instructions survive transactional ID revalidatio
     assert.equal((await one.readPlan(planId)).experiences.length,0);
   }finally{await env.cleanup();}
 });
+
+test('A fictional three-week adventure remains editable through ordinary shared planning volume',async()=>{
+ const {env,one,two}=await setup();
+ try{
+   await one.createPlan({uid:a},{id:planId,title:'Synthetic three-week adventure',
+     durationDays:21,startsOn:'2026-11-01'});
+   let revision=0;
+   for(let i=0;i<6;i++){
+     const start=1+i*3;
+     const result=await one.editPlan({uid:a},planId,{type:'add_stop',stop:{
+       id:'base-'+i,place_id:'place-'+i,title:'Synthetic location '+i,
+       from_day:start,through_day:start+3,status:'planned'}},revision);
+     assert.equal(result.plan.revision,++revision);
+   }
+   for(let i=0;i<9;i++){
+     const result=await two.editPlan({uid:b},planId,{type:'add_experience',experience:{
+       id:'visit-'+i,title:'Synthetic visit '+i,day:i+1,status:'possible',
+       notes:'Unbooked synthetic activity'}},revision);
+     assert.equal(result.plan.revision,++revision);
+   }
+   for(let i=0;i<4;i++){
+     const date=new Date(Date.UTC(2026,10,2+i*3)).toISOString().slice(0,10);
+     const result=await one.editPlan({uid:a},planId,{type:'add_booking',booking:{
+       id:'transfer-'+i,kind:'transport',stop_id:null,
+       starts_on:date,ends_on:date,status:'unverified',source_id:null,
+       summary:'Unbooked synthetic transfer '+i}},revision);
+     assert.equal(result.plan.revision,++revision);
+   }
+   const shared=await two.readPlan(planId);
+   assert.equal(shared.revision,19);
+   assert.equal(shared.duration_days,21);
+   assert.equal(shared.stops.length,6);
+   assert.equal(shared.experiences.length,9);
+   assert.equal(shared.bookings.length,4);
+   assert.equal((await one.readHistory(planId)).length,20);
+   const updated=await two.editPlan({uid:b},planId,{type:'edit_experience',
+     id:'visit-0',patch:{status:'planned'}},19);
+   assert.equal(updated.plan.revision,20);
+   await one.editPlan({uid:a},planId,{type:'undo_last'},20);
+   assert.equal((await two.readPlan(planId)).experiences[0].status,'possible');
+   assert.equal((await one.readHistory(planId)).length,22);
+ }finally{await env.cleanup();}
+});
