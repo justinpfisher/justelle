@@ -215,7 +215,7 @@ test('Protected source PDF and complete plan/event/history restore work without 
     const orphan=structuredClone(recovered);orphan.plan_sources=[];
     assert.throws(()=>validatePortablePlannerRecords(orphan),/source|booking/);
     const covert=structuredClone(recovered);
-    const last=covert.plan_events.at(-1);
+    const last=covert.plan_events.find(e=>e.revision===covert.adventure_plans[0].state.revision);
     last.after_state.experiences.find(x=>x.id==='walk-activity').title=
       'Silently replaced while another experience was added';
     covert.adventure_plans[0].state=structuredClone(last.after_state);
