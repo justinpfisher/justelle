@@ -235,9 +235,11 @@ service cloud.firestore {
         existsAfter(planEventPath(roomId, eventId)) &&
         e.id == eventId && e.adventure_id == planId &&
         e.author_uid == request.auth.uid && e.author_id == person(roomId) &&
+        // The event's own create rule separately verifies both complete
+        // state snapshots against get/getAfter(plan). Duplicating those deep
+        // comparisons here exhausts Firestore's 1,000-expression limit.
         e.actor_id == person(roomId) && e.created_at == request.time &&
-        e.at == request.time && e.before_state == oldState &&
-        e.after_state == newState && e.revision == newState.revision &&
+        e.at == request.time && e.revision == newState.revision &&
         e.previous_event_id == (oldState == null ? null : oldState.last_event_id);
     }
     function validPlanCreate(roomId, planId) {
