@@ -1,5 +1,5 @@
 // Shared adventure planner; map context uses existing protected itinerary records.
-import {nextAdventures,journeyOverview,dayDetail,journeyWeeks} from './journey-view.mjs';
+import {nextAdventures,journeyOverview,dayDetail,journeyWeeks,bookingStatusText} from './journey-view.mjs';
 import {reviewAdventure} from './adventure-feedback.mjs';
 import {todayEssentials} from './today-essentials.mjs';
 import {mountBookingUI} from './booking-ui.mjs';
@@ -240,7 +240,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       out.append(el('p','meta',(experience.status==='planned'?'Planned':'Possible')+
         ' experience · '+experience.title+(experience.notes?' · '+experience.notes:'')));
     for(const booking of detail.bookings){
-      const link=el('button','text-button','View booking · '+booking.summary);
+      const link=el('button','text-button',bookingStatusText(booking.status)+' · View booking · '+booking.summary);
       link.type='button';link.onclick=()=>void bookingUI.openBooking(booking.id);
       out.append(el('p','meta',booking.status+' · '+booking.summary),link);
     }

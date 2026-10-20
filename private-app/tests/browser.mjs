@@ -271,7 +271,7 @@ try{
   const pastedCard=B.locator('#planner-bookings .planner-booking-entry')
     .filter({hasText:'Synthetic Bay Crossing'});
   await pastedCard.waitFor({timeout:15000});
-  assert.match(await pastedCard.textContent(),/Not confirmed/);
+  assert.match(await pastedCard.textContent(),/Possible or unverified/);
   await pastedCard.getByRole('button',{name:'Show original details'}).click();
   await B.locator('#planner-booking-source')
     .getByText('Booking reference: FICT-FERRY-47',{exact:false}).waitFor({timeout:15000});
