@@ -1,6 +1,17 @@
 // Pure, opt-in feedback. No scheduled AI, remote search or booking actions.
 // This is evidence from saved records, not a claim that travel is feasible.
 import {itineraryDays,itinerarySignals} from './itinerary-core.mjs';
+function straightLineKm(a,b){
+  const coords=[a.latitude,a.longitude,b.latitude,b.longitude];
+  if(!coords.every(Number.isFinite))return null;
+  const radians=n=>n*Math.PI/180;
+  const north=radians(b.latitude-a.latitude),east=radians(b.longitude-a.longitude);
+  const latitudeA=radians(a.latitude),latitudeB=radians(b.latitude);
+  const arc=Math.sin(north/2)**2+
+    Math.cos(latitudeA)*Math.cos(latitudeB)*Math.sin(east/2)**2;
+  // Earth's approximate mean radius. This is neither a travel route nor time.
+  return Math.round((2*6371*Math.asin(Math.min(1,Math.sqrt(arc))))/10)*10;
+}
 export function reviewAdventure(plan){
   const days=itineraryDays(plan),notices=[];
   for(const signal of itinerarySignals(plan)){
@@ -45,6 +56,20 @@ export function reviewAdventure(plan){
         ' to '+next[0].title+' without a recorded transfer.',
       evidence:{day:days[i].day,from_stop_id:previous[0].id,to_stop_id:next[0].id},
       action:'If travel arrangements matter here, add an intended transfer. No route, timing or supplier availability was checked.'});
+    const distance=straightLineKm(previous[0],next[0]);
+    const confirmed=Boolean(date)&&plan.bookings.some(b=>
+      ['flight','transport'].includes(b.kind)&&b.status==='confirmed'&&
+      Boolean(b.source_id)&&b.starts_on<=date&&b.ends_on>=date);
+    // Only flag a material geographical change when both places have
+    // member-entered coordinates. A source-linked transport anchor suppresses
+    // this particular notice; it does not prove the journey is feasible.
+    if(date&&distance!==null&&distance>=500&&!confirmed)
+      notices.push({severity:'info',code:'long_distance_handover',
+        description:'Day '+days[i].day+' changes overnight bases roughly '+
+          distance+' km apart in a straight line.',
+        evidence:{day:days[i].day,from_stop_id:previous[0].id,
+          to_stop_id:next[0].id,straight_line_km:distance},
+        action:'Check the intended travel mode and allow enough time. These are saved coordinates, not a route, travel duration, or supplier confirmation.'});
   }
   // A heuristic prompt, not a claim that activities actually conflict: we
   // have neither timings nor route-duration evidence in these records.
@@ -63,5 +88,5 @@ export function reviewAdventure(plan){
     description:'A possible transfer is not confirmed.',
     evidence:{booking_id:b.id},action:'Review the original supplier record before relying on it.'});
   return {adventure_id:plan.id,revision:plan.revision,notices,scope:'saved-itinerary-only',
-    limitations:'No current route duration, supplier availability, geographic feasibility or actual reservation status was checked.'};
+    limitations:'Only member-entered coordinates support straight-line distance notices. No route duration, supplier availability, geographic feasibility or actual reservation status was checked.'};
 }
