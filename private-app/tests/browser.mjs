@@ -360,7 +360,8 @@ try{
     .waitFor({timeout:15000});
   assert.equal((await B.locator('#planner-days-view').textContent()).includes('2027-12-01'),
     false,'No invented first-of-month day may appear in an undated journey');
-  await B.getByText('Dates and trip basics',{exact:true}).click();
+  if(!(await B.locator('#planner-trip-form').isVisible()))
+    await B.getByText('Dates and trip basics',{exact:true}).click();
   assert.equal(await B.locator('#planner-trip-month').inputValue(),'2027-12');
   assert.equal(await B.locator('#planner-trip-date').inputValue(),'');
   await B.locator('#planner-trip-date').fill('2027-12-11');
