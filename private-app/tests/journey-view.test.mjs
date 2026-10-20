@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createItinerary,applyItineraryEdit} from '../web/itinerary-core.mjs';
-import {journeyOverview,dayDetail,nextAdventures,journeyWeeks} from '../web/journey-view.mjs';
+import {journeyOverview,dayDetail,nextAdventures,journeyWeeks,bookingStatusText} from '../web/journey-view.mjs';
 import {journeyMap} from '../web/journey-map.mjs';
 const make=(id='fictional')=>createItinerary({id,title:'Fictional journey',durationDays:6,startsOn:'2026-10-30'});
 function change(p,c,id){return applyItineraryEdit(p,c,{eventId:id,actorId:'member-a',at:'2026-10-17T14:00:00Z'}).plan;}
@@ -21,6 +21,32 @@ test('Bookings remain separate anchors with no fictitious confirmed route',()=>{
  const j=journeyOverview(p);assert.equal(j.transfers[0].verified,false);
  assert.equal(j.bookings[0].is_external_confirmation,false);
  assert.equal(j.has_map_points,false);
+});
+
+test('Cancelled and voided supplier transfers remain in history, not the active journey',()=>{
+ let p=make(),i=0;
+ for(const [id,status] of [['confirmed-flight','confirmed'],['maybe-rail','unverified'],
+   ['cancelled-flight','cancelled'],['voided-ferry','voided']]){
+   p=change(p,{type:'add_booking',booking:{id,kind:id.includes('flight')?'flight':'transport',
+     stop_id:null,starts_on:'2026-10-31',ends_on:'2026-10-31',status,
+     source_id:status==='confirmed'?'synthetic-original':null,
+     summary:'Fictional '+id}},'status-'+(++i));
+ }
+ const source=structuredClone(p);
+ const overview=journeyOverview(p);
+ assert.deepEqual(overview.transfers.map(x=>x.id),['confirmed-flight','maybe-rail']);
+ assert.deepEqual(overview.bookings.map(x=>x.id),
+   ['confirmed-flight','maybe-rail','cancelled-flight','voided-ferry']);
+ assert.equal(overview.bookings.filter(x=>x.is_external_confirmation).length,1);
+ const onDay=dayDetail(p,2);
+ assert.deepEqual(onDay.bookings.map(x=>x.id),overview.bookings.map(x=>x.id),
+   'Original cancelled and voided booking records remain independently accessible');
+ for(const [status,label] of [['confirmed','Member-recorded confirmation'],
+   ['unverified','Possible or unverified'],
+   ['cancelled','Cancelled (recorded by a member)'],
+   ['voided','Voided (recorded by a member)']])
+   assert.equal(bookingStatusText(status),label);
+ assert.deepEqual(p,source,'Rendering does not silently rewrite supplier statuses');
 });
 test('Current, upcoming, past, undated and archived adventures remain distinct',()=>{
  const now=make('now'),past={...make('past'),starts_on:'2026-09-01'};
