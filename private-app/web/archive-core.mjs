@@ -157,5 +157,17 @@ export function verifyRecords(r) {
   }
   if(visited.size!==events.size)throw Error('Unreferenced adventure event');
   validatePortablePlannerRecords(r);
+  if(Object.hasOwn(r,'sealed_adventure')){
+    const seal=r.sealed_adventure,p=r.adventure_plans?.[0];
+    if(!seal||typeof seal!=='object'||Array.isArray(seal)||
+       Object.keys(seal).sort().join(',')!=='adventure_id,format,last_event_id,revision'||
+       seal.format!=='justelle-sealed-trip-v1'||
+       r.adventure_plans.length!==1||p.id!==seal.adventure_id||
+       p.state?.status!=='archived'||p.state?.revision!==seal.revision||
+       p.state?.last_event_id!==seal.last_event_id||
+       ['conversations','messages','decisions','adventures','attachments','adventure_events']
+         .some(kind=>(r[kind]||[]).length!==0))
+      throw Error('Invalid sealed adventure event boundary or unrelated records');
+  }
   return Object.fromEntries([...recordKinds,...optionalRecordKinds.filter(k=>r[k])].map(k=>[k,r[k].length]));
 }
