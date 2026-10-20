@@ -20,7 +20,8 @@ export function journeyOverview(plan){
     .map(b=>({...b,verified:b.status==='confirmed'&&Boolean(b.source_id)}));
   const bookings=plan.bookings.map(b=>({...b,is_external_confirmation:b.status==='confirmed'&&Boolean(b.source_id)}));
   return {id:plan.id,title:plan.title,status:plan.status,revision:plan.revision,
-    duration_days:plan.duration_days,starts_on:plan.starts_on,stays,days,open_nights:openNights,
+    duration_days:plan.duration_days,starts_on:plan.starts_on,
+    starts_month:plan.starts_month??null,stays,days,open_nights:openNights,
     transfers,bookings,signals,has_map_points:stays.some(s=>s.latitude!==null)};
 }
 export function dayDetail(plan,day){
@@ -33,10 +34,13 @@ export function dayDetail(plan,day){
 }
 export function nextAdventures(plans,today){
   const sorted=sortAdventurePlans(plans,today);
-  return {current_and_upcoming:sorted.filter(p=>p.status!=='archived'&&p.starts_on&&
-      dateAfter(p.starts_on,p.duration_days-1)>=today),
-    past:sorted.filter(p=>p.status!=='archived'&&p.starts_on&&dateAfter(p.starts_on,p.duration_days-1)<today),
-    undated:sorted.filter(p=>p.status!=='archived'&&!p.starts_on),
+  return {current_and_upcoming:sorted.filter(p=>p.status!=='archived'&&(
+      p.starts_on ? dateAfter(p.starts_on,p.duration_days-1)>=today :
+      p.starts_month ? p.starts_month>=today.slice(0,7) : false)),
+    past:sorted.filter(p=>p.status!=='archived'&&(
+      p.starts_on ? dateAfter(p.starts_on,p.duration_days-1)<today :
+      p.starts_month ? p.starts_month<today.slice(0,7) : false)),
+    undated:sorted.filter(p=>p.status!=='archived'&&!p.starts_on&&!p.starts_month),
     archived:sorted.filter(p=>p.status==='archived')};
 }
 
