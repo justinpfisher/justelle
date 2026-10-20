@@ -115,6 +115,9 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       const file=$('planner-booking-file').files?.[0]||null;
       const originalText=$('planner-booking-paste').value;
       if(originalText.length>4000)throw Error('Original booking text exceeds 4,000 characters');
+      if(status==='confirmed'&&!file&&!originalText.trim()&&
+         !$('planner-booking-reference').value.trim())
+        throw Error('Add an original document, pasted confirmation or booking reference before marking this as confirmed. Otherwise keep it possible or unverified.');
       const documentId=file?await planner.addDocument(user,{adventureId:p.id,file}):null;
       const sourceId=await planner.addSource(user,{adventureId:p.id,kind:'booking',title,
         notes:originalText,
