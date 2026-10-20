@@ -572,7 +572,9 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     const p=plans.find(x=>x.id===selected);if(!p)return;
     const d=todayEssentials(p,deviceDate()),out=$('planner-today-result');
     out.replaceChildren(el('h4','',"Today's essentials"));
-    if(!d.in_trip)out.append(el('p','', 'No scheduled day in this adventure on your device’s local date.'));
+    if(!d.in_trip)out.append(el('p','', p.starts_month&&!p.starts_on?
+      'An approximate month is not a travel date. Choose an exact starting day before relying on Today. Saved supplier bookings remain separate.':
+      'No scheduled day in this adventure on your device’s local date.'));
     else{
       out.append(el('p','', 'Day '+d.day+' · '+d.date));
       if(d.overnight_conflict.length){
