@@ -38,6 +38,18 @@ test('Protected provider uses bounded schema, scoped plan and verified screensho
  assert.equal(s.completed.length,1);
  assert.equal(JSON.stringify(request).includes('booking reference'),false);
 });
+test('Approximate month is passed as uncertainty, never a fabricated precise date',async()=>{
+ const s=setup(),item={...input(),plan:createItinerary({
+   id:'fictional-month',title:'Fictional winter idea',
+   durationDays:9,startsMonth:'2027-12'})};
+ await s.provider.suggest(item);
+ const request=s.calls[1].body,context=JSON.parse(request.input[0].content[0].text);
+ assert.equal(context.adventure.starts_on,null);
+ assert.equal(context.adventure.starts_month,'2027-12');
+ assert.match(request.instructions,/never invent an exact start or supplier date/);
+ assert.equal(context.adventure.places.length,0);
+});
+
 test('Denied budget and replay never initiate a second generation',async()=>{
  const stopped=setup({denyBudget:true});
  await assert.rejects(stopped.provider.suggest(input()),/Budget exhausted/);
