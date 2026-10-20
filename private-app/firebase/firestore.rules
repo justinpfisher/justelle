@@ -270,18 +270,16 @@ service cloud.firestore {
     // Only the record named by the event may change. In particular, moving
     // a tentative stay cannot silently re-date or confirm an external booking.
     function planUnchangedExcept(d,collectionName) {
-      let before = d.before_state;
-      let after = d.after_state;
-      return (collectionName == 'stops' || before.stops == after.stops) &&
-        (collectionName == 'bookings' || before.bookings == after.bookings) &&
-        (collectionName == 'experiences' || before.get('experiences',[]) == after.get('experiences',[])) &&
-        (collectionName == 'lessons' || before.lessons == after.lessons) &&
-        (collectionName == 'trip' || (
-          before.title == after.title &&
-          before.starts_on == after.starts_on &&
-          before.get('starts_month',null) == after.get('starts_month',null) &&
-          before.duration_days == after.duration_days)) &&
-        (collectionName == 'status' || before.status == after.status);
+      // A shallow changed-key check is enough to prevent collateral
+      // mutations, including an undisclosed change of date precision.
+      // The separate validNamedItemDelta rule checks the one named array item.
+      // Comparing every whole nested list here is redundant and can exceed
+      // Firestore's expression ceiling on ordinary multi-week adventures.
+      let changed=d.after_state.diff(d.before_state).affectedKeys();
+      return collectionName == 'trip' ?
+        changed.hasOnly(['title','starts_on','starts_month','duration_days',
+                         'revision','last_event_id']) :
+        changed.hasOnly([collectionName,'revision','last_event_id']);
     }
     // A mutually linked plan/event pair must describe one actual item edit.
     // Merely matching the event's collection would allow an extra booking or
