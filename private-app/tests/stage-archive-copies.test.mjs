@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,readdir,writeFile,stat} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,readdir,writeFile,stat,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {writeEncryptedBackup,generateRecoveryKey,restoreEncryptedBackup} from '../memory/encrypted-backup.mjs';
@@ -52,4 +52,23 @@ test('Corrupted staged copy cannot masquerade as independently recoverable archi
  await assert.rejects(restoreEncryptedBackup(result.synced_folder_copy,x.key,
    join(x.root,'corrupt-recovery')),/authentication|Incomplete|checksum/);
  assert.ok(await stat(x.src),'Staging and tampering never delete the source');
+});
+
+test('Resolved symlink and junction aliases cannot defeat independent archive folder checks',async()=>{
+ const x=await fixture(),alias=join(x.root,'alias');
+ // An alias of the OneDrive folder must not also be used as the non-sync copy.
+ await symlink(x.two,alias,process.platform==='win32'?'junction':'dir');
+ await assert.rejects(stageArchiveCopies({source:x.src,key:x.key,
+   archiveId:'alias-conflict',localDir:alias,oneDriveDir:x.two}),/independent paths/);
+ assert.deepEqual(await readdir(x.one),[]);
+ assert.deepEqual(await readdir(x.two),[]);
+});
+
+test('An aliased source directory never receives a supposedly separate archive',async()=>{
+ const x=await fixture(),alias=join(x.root,'outside-name');
+ await symlink(x.root,alias,process.platform==='win32'?'junction':'dir');
+ await assert.rejects(stageArchiveCopies({source:x.src,key:x.key,
+   archiveId:'source-alias',localDir:alias,oneDriveDir:x.two}),/independent paths/);
+ assert.deepEqual(await readdir(x.two),[]);
+ assert.ok(await stat(x.src),'The original ciphertext is never moved or deleted');
 });

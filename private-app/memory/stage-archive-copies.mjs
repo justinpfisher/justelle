@@ -21,11 +21,23 @@ export async function stageArchiveCopies({source,key,archiveId,localDir,oneDrive
     throw Error('Use a stable archive identifier');
   if(!(key instanceof Uint8Array)||key.byteLength!==32)
     throw Error('Separate 32-byte archive recovery key required');
-  const src=await realpath(source),local=resolve(localDir),sync=resolve(oneDriveDir);
-  if(inside(local,sync)||inside(sync,local)||inside(local,src)||inside(sync,src))
+  // Check both requested and resolved paths. A symlink/junction can make two
+  // apparently separate Windows folders point at the same directory, or into
+  // the source/OneDrive tree. Staging there is not independent preservation.
+  const requestedSource=resolve(source),requestedLocal=resolve(localDir),
+    requestedSync=resolve(oneDriveDir);
+  const [src,local,sync]=await Promise.all([
+    realpath(requestedSource),realpath(requestedLocal),realpath(requestedSync)
+  ]);
+  const overlaps=(a,b,c)=>inside(a,b)||inside(b,a)||inside(a,c);
+  if(overlaps(requestedLocal,requestedSync,requestedSource)||
+     inside(requestedSync,requestedSource)||
+     overlaps(local,sync,src)||inside(sync,src))
     throw Error('Archive source, non-sync copy and OneDrive destination must be independent paths');
   // Require existing owner-managed directories: do not invent/switch cloud accounts.
-  await Promise.all([stat(local),stat(sync)]);
+  const [localInfo,syncInfo]=await Promise.all([stat(local),stat(sync)]);
+  if(!localInfo.isDirectory()||!syncInfo.isDirectory())
+    throw Error('Archive destinations must be existing directories');
   const filename='justelle-'+archiveId+'.jmb',one=join(local,filename),two=join(sync,filename);
   await absent(one);await absent(two);
   const digest=await checksum(src);
