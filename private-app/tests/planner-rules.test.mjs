@@ -127,8 +127,12 @@ test('Protected source PDF and complete plan/event/history restore work without 
     await one.createPlan({uid:a},{id:planId,title:'Fictional portable voyage',
       durationDays:10,startsOn:'2026-11-01'});
     const pdf=Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
+    const aiDocumentId='00000000-0000-4000-8000-000000000098';
+    const aiSourceId='00000000-0000-4000-8000-000000000097';
+    const screenshot=await readFile(new URL('./fictional-landscape.png',import.meta.url));
     const transport={async uploadDocument(id,bytes,mime){
-      assert.equal(id,documentId);assert.equal(mime,'application/pdf');
+      assert.ok([documentId,aiDocumentId].includes(id));
+      assert.equal(mime,id===documentId?'application/pdf':'image/png');
       await env.withSecurityRulesDisabled(c=>uploadBytes(ref(c.storage('gs://'+projectId+'.firebasestorage.app'),
         'rooms/'+roomId+'/documents/'+id),bytes,{contentType:mime}));
     }};
@@ -149,15 +153,26 @@ test('Protected source PDF and complete plan/event/history restore work without 
     const parsed=interpretPlanInstruction(await one.readPlan(planId),instruction);
     assert.equal(parsed.kind,'ready');
     await two.editPlan({uid:b},planId,parsed.change,4,{instructionText:instruction});
+    // A second member Applies an AI-previewed suggestion linked to an
+    // original protected screenshot. That exact link must survive backup.
+    await documentPlanner.addDocument({uid:a},{id:aiDocumentId,adventureId:planId,
+      file:{type:'image/png',size:screenshot.length,name:'fictional-planning.png',
+        arrayBuffer:async()=>screenshot}});
+    await one.addSource({uid:a},{id:aiSourceId,adventureId:planId,kind:'note',
+      title:'Original AI planning request',
+      notes:'Maybe stop at a fictional lookout on day three',documentId:aiDocumentId});
+    await two.editPlan({uid:b},planId,{type:'add_experience',experience:{
+      id:'ai-lookout',title:'Fictional lookout',day:3,status:'possible',notes:''
+    }},5,{sourceId:aiSourceId});
     await assertFails(getDoc(doc(X.firestore(),'rooms',roomId,'plan_documents',documentId)));
     await assertFails(getBytes(ref(X.storage('gs://'+projectId+'.firebasestorage.app'),
       'rooms/'+roomId+'/documents/'+documentId)));
     await assertFails(updateDoc(doc(B.firestore(),'rooms',roomId,'plan_documents',documentId),{name:'New original'}));
     const snapshot=await firebaseBackupSource({db,bucket:getStorage(admin).bucket(),pageSize:1});
     assert.equal(snapshot.records.adventure_plans.length,1);
-    assert.equal(snapshot.records.plan_events.length,6);
-    assert.equal(snapshot.records.plan_sources.length,1);
-    assert.equal(snapshot.records.plan_documents.length,1);
+    assert.equal(snapshot.records.plan_events.length,7);
+    assert.equal(snapshot.records.plan_sources.length,2);
+    assert.equal(snapshot.records.plan_documents.length,2);
     validatePortablePlannerRecords(snapshot.records);
     const folder=await mkdtemp(join(tmpdir(),'justelle-planner-m1-')),destination=join(folder,'test.jmb');
     const key=generateRecoveryKey();
@@ -172,8 +187,17 @@ test('Protected source PDF and complete plan/event/history restore work without 
       'Consider 2 nights in Synthetic Vale starting day 7');
     assert.equal(recovered.plan_events.find(e=>e.revision===2).after_state.bookings[0].summary,'Synthetic hotel booking');
     assert.equal(recovered.plan_sources[0].reference,'');
-    assert.equal(recovered.plan_documents[0].storage_path,'documents/'+documentId);
+    assert.equal(recovered.plan_documents.find(d=>d.id===documentId).storage_path,
+      'documents/'+documentId);
+    const aiEvent=recovered.plan_events.find(e=>e.source_id===aiSourceId);
+    assert.equal(aiEvent.operation,'add_experience',
+      'Portable history must keep the AI-assisted change tied to its original');
+    assert.equal(aiEvent.actor_id,'person-b');
+    const aiSource=recovered.plan_sources.find(s=>s.id===aiEvent.source_id);
+    assert.equal(aiSource.document_id,aiDocumentId);
+    assert.match(aiSource.notes,/fictional lookout/);
     assert.deepEqual(await readFile(join(output,'media','doc-'+documentId)),pdf);
+    assert.deepEqual(await readFile(join(output,'media','doc-'+aiDocumentId)),screenshot);
     assert.equal(JSON.stringify(recovered).includes('fictional-a'),false,
       'Portable records must not contain Firebase account IDs');
     const damaged=structuredClone(recovered);
@@ -182,6 +206,9 @@ test('Protected source PDF and complete plan/event/history restore work without 
     const corruptInstruction=structuredClone(recovered);
     corruptInstruction.plan_events.find(e=>e.instruction_text).instruction_format='untrusted';
     assert.throws(()=>validatePortablePlannerRecords(corruptInstruction),/integrity/);
+    const brokenAiSource=structuredClone(recovered);
+    brokenAiSource.plan_events.find(e=>e.source_id===aiSourceId).source_id='forged-source';
+    assert.throws(()=>validatePortablePlannerRecords(brokenAiSource),/AI-assisted edit original source/);
     const corruptExperience=structuredClone(recovered);
     corruptExperience.adventure_plans[0].state.experiences[0].day=99;
     assert.throws(()=>validatePortablePlannerRecords(corruptExperience),/integrity/);
