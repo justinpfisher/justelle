@@ -56,7 +56,9 @@ export function paintJourneyMap(root,plan,day,selectedId,{onSelect,onBooking}){
     for(const b of place.bookings){
       const label=b.status==='confirmed'?
         (b.source_id?'Member-recorded confirmation · source linked':'Member-recorded confirmation · original missing'):
-        'Booking '+b.status+' · not supplier-confirmed';
+        b.status==='cancelled'?'Cancelled booking · retained for reference':
+        b.status==='voided'?'Voided booking · retained for reference':
+        'Possible or unverified booking';
       detail.append(element('p','meta',label+' · '+b.summary));
       const link=element('button','text-button','Booking details · '+b.summary);
       link.type='button';link.onclick=()=>onBooking(b.id);
