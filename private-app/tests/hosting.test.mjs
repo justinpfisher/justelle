@@ -57,3 +57,76 @@ test('Production uses its own project, protected routes and only the approved ap
     {...production,VITE_JUSTELLE_ORIGIN:'https://justelle.life'},
     {...production,VITE_JUSTELLE_ORIGIN:'https://fictional-production.web.app'}])assert.throws(()=>load(wrong));
 });
+
+import {smoke} from '../hosting/smoke.mjs';
+test('Production smoke covers both member planner reads, unauthenticated originals and no-cost source-missing AI paths',async()=>{
+  const sha='a'.repeat(40),origin='https://app.justelle.life';
+  const members=[{email:'fictional-a@example.invalid',password:'fictional-a-secret'},
+    {email:'fictional-b@example.invalid',password:'fictional-b-secret'}];
+  const calls=[];
+  async function fakeFetch(uri,options){
+    const url=new URL(uri),pathname=url.pathname;
+    const method=options.method||'GET',token=options.headers?.Authorization;
+    calls.push({pathname,method,authorized:Boolean(token)});
+    if(pathname==='/api/healthz')return Response.json({version:sha});
+    if(['/','/manifest.webmanifest','/justelle-caricature.png'].includes(pathname))
+      return new Response('fictional-content',{status:200});
+    if(pathname.startsWith('/v1/accounts:signInWithPassword')){
+      const input=JSON.parse(options.body);
+      assert.ok(members.some(m=>m.email===input.email));
+      return Response.json({idToken:'fictional-'+input.email,refreshToken:'never-printed'});
+    }
+    if(pathname.startsWith('/v1/projects/')){
+      assert.match(token,/^Bearer fictional-/);
+      assert.ok(pathname.endsWith('/rooms/fictional-room')||
+        pathname.endsWith('/rooms/fictional-room/adventure_plans'));
+      return Response.json({documents:[]});
+    }
+    if(pathname==='/api/respond'||pathname==='/api/plan/suggest'){
+      assert.equal(method,'POST');
+      if(!token)return new Response('Sign-in required',{status:401});
+      const body=JSON.parse(options.body);
+      if(pathname.endsWith('/plan/suggest')){
+        assert.equal(body.revision,0);
+        assert.equal(typeof body.source_id,'string');
+        assert.equal(typeof body.plan_id,'string');
+        return new Response('Adventure not found',{status:404});
+      }
+      assert.equal(typeof body.source_message_id,'string');
+      return new Response('Message not found',{status:404});
+    }
+    if(pathname.startsWith('/api/media/')){
+      assert.equal(token,undefined);
+      return new Response('Sign-in required',{status:401});
+    }
+    throw Error('Unexpected smoke request: '+pathname);
+  }
+  await smoke({origin,projectId:'fictional-project',roomId:'fictional-room',
+    apiKey:'fictional-public-key',members,sha},fakeFetch);
+  assert.equal(calls.filter(x=>x.pathname.endsWith('/adventure_plans')&&x.authorized).length,2);
+  assert.equal(calls.filter(x=>x.pathname==='/api/plan/suggest'&&x.authorized).length,2);
+  assert.equal(calls.filter(x=>x.pathname==='/api/media/documents/00000000-0000-4000-8000-000000000001'&&!x.authorized).length,1);
+  assert.equal(calls.filter(x=>x.pathname==='/api/plan/suggest'&&!x.authorized).length,1);
+});
+test('Production smoke fails closed when the signed planner API is absent',async()=>{
+ const origin='https://app.justelle.life';
+ let login=0;
+ const fetchImpl=async(uri,options)=>{
+   const path=new URL(uri).pathname;
+   if(path==='/api/healthz')return Response.json({version:'a'.repeat(40)});
+   if(['/','/manifest.webmanifest','/justelle-caricature.png'].includes(path))
+     return new Response('ok',{status:200});
+   if(path.startsWith('/api/media/')||path==='/api/respond'&&!options.headers?.Authorization||
+      path==='/api/plan/suggest'&&!options.headers?.Authorization)
+     return new Response('Anonymous denied',{status:401});
+   if(path==='/v1/accounts:signInWithPassword')return Response.json({idToken:'fictional-'+(++login)});
+   if(path.startsWith('/v1/projects/'))return Response.json({});
+   if(path==='/api/respond')return new Response('Missing message',{status:404});
+   if(path==='/api/plan/suggest')return new Response('Missing planner route',{status:503});
+   throw Error('Unexpected mock URL');
+ };
+ await assert.rejects(smoke({origin,projectId:'fictional-project',roomId:'fictional-room',
+   apiKey:'fictional-key',members:[{email:'a@example.invalid',password:'a'},
+     {email:'b@example.invalid',password:'b'}],sha:'a'.repeat(40)},fetchImpl),
+ /Release access check failed/);
+});
