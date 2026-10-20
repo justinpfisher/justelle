@@ -55,7 +55,10 @@ export function reviewAdventure(plan){
       evidence:{day:day.day,experience_ids:planned.map(e=>e.id)},
       action:'Consider the pace and leave room for travel or breaks; exact times and distances were not checked.'});
   }
-  const tentativeTransfers=plan.bookings.filter(b=>['flight','transport'].includes(b.kind)&&b.status!=='confirmed');
+  // Cancelled and voided supplier records are no longer travel options.
+  // Do not invite members to treat them as merely awaiting confirmation.
+  const tentativeTransfers=plan.bookings.filter(b=>['flight','transport'].includes(b.kind)&&
+    b.status==='unverified');
   for(const b of tentativeTransfers)notices.push({severity:'info',code:'unconfirmed_transfer',
     description:'A possible transfer is not confirmed.',
     evidence:{booking_id:b.id},action:'Review the original supplier record before relying on it.'});
