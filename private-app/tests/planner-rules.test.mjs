@@ -274,6 +274,45 @@ test('Fictional original PDF uploads are private, immutable and readable to the 
  }finally{await env.cleanup();}
 });
 
+test('iPhone-style HEIC and PDF originals with empty or generic MIME are retained byte-for-byte',async()=>{
+ const {env,A,B,X,one}=await setup();
+ try{
+   await one.createPlan({uid:a},{id:planId,title:'Synthetic iPhone booking originals',
+     durationDays:6,startsOn:'2026-11-01'});
+   const uploader=plannerBackend({db:A.firestore(),
+     storage:A.storage('gs://'+projectId+'.firebasestorage.app'),roomId,membership:members});
+   const reader=plannerBackend({db:B.firestore(),
+     storage:B.storage('gs://'+projectId+'.firebasestorage.app'),roomId,membership:members});
+   const files=[
+     {id:'00000000-0000-4000-8000-000000000972',
+       name:'fictional-original.HEIC',type:'',mime:'image/heic',
+       bytes:Buffer.from('synthetic HEIC-file bytes, not a decodable photograph')},
+     {id:'00000000-0000-4000-8000-000000000973',
+       name:'fictional-booking.PDF',type:'application/octet-stream',mime:'application/pdf',
+       bytes:Buffer.from('%PDF-1.4\\nSynthetic protected booking\\n%%EOF\\n')}
+   ];
+   for(const item of files){
+     await uploader.addDocument({uid:a},{id:item.id,adventureId:planId,file:{
+       name:item.name,type:item.type,size:item.bytes.length,arrayBuffer:async()=>item.bytes
+     }});
+     const meta=(await reader.readDocuments(planId)).find(d=>d.id===item.id);
+     assert.equal(meta.mime,item.mime);
+     assert.equal(meta.name,item.name);
+     assert.deepEqual(Buffer.from(await reader.documentBytes(item.id)),item.bytes);
+     await assertFails(getBytes(ref(X.storage('gs://'+projectId+'.firebasestorage.app'),
+       'rooms/'+roomId+'/documents/'+item.id)));
+   }
+   await assert.rejects(uploader.addDocument({uid:a},{adventureId:planId,file:{
+     name:'fake.heic',type:'text/plain',size:3,arrayBuffer:async()=>Buffer.from('bad')
+   }}),/Use a PDF or supported image/);
+   await assert.rejects(uploader.addDocument({uid:a},{adventureId:planId,file:{
+     name:'short.pdf',type:'',size:12,arrayBuffer:async()=>Buffer.from('short')
+   }}),/size changed before upload/);
+   assert.equal((await reader.readDocuments(planId)).length,2,
+     'Rejected files must not become permanent metadata');
+ }finally{await env.cleanup();}
+});
+
 test('Both members can revise day experiences; outsiders and forged revisions remain blocked',async()=>{
   const {env,A,B,X,one,two}=await setup();
   try{

@@ -3,13 +3,24 @@
 import {collection,doc,getDoc,getDocs,onSnapshot,query,where,runTransaction,serverTimestamp} from 'firebase/firestore';
 import {createItinerary,applyItineraryEdit} from './itinerary-core.mjs';
 import {interpretPlanInstruction} from './instruction-core.mjs';
-import {sha256} from './media.mjs';
+import {sha256,imageMime} from './media.mjs';
 import {ref,getBytes,uploadBytes} from 'firebase/storage';
 const ID=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const UUID=/^[a-f0-9-]{36}$/;
 const text=(s,max)=>{if(typeof s!=='string'||!s.trim()||s.length>max)throw Error('Invalid text');return s.trim();};
 const id=s=>{if(typeof s!=='string'||!ID.test(s))throw Error('Invalid stable ID');return s;};
 const documentMimes=new Set(['application/pdf','image/png','image/jpeg','image/heic','image/heif']);
+// Some iPhone file pickers provide an empty or generic MIME for valid originals.
+// Prefer a recognised explicit type; infer from a supported filename extension
+// only when the picker did not supply a useful type. Preserve original bytes.
+const documentMime=file=>{
+  const claimed=String(file?.type||'').toLowerCase();
+  if(documentMimes.has(claimed))return claimed;
+  if(claimed&&claimed!=='application/octet-stream')return null;
+  const ext=String(file?.name||'').split('.').pop()?.toLowerCase();
+  const guessed=ext==='pdf'?'application/pdf':imageMime({type:'',name:file?.name});
+  return documentMimes.has(guessed)?guessed:null;
+};
 export function plannerBackend({db,storage=null,roomId,membership,mediaTransport=null}){
   if(!membership?.uids||membership.uids.length!==2)throw Error('Two-member room required');
   const root=doc(db,'rooms',roomId),at=(kind,key)=>doc(collection(root,kind),key);
@@ -152,18 +163,22 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
     async addDocument(user,{id:documentId=crypto.randomUUID(),adventureId,file}){
       const author=actor(user);id(adventureId);
       if(!UUID.test(documentId))throw Error('Document identifier must be a UUID');
-      if(!file||!documentMimes.has(file.type)||file.size<=0||file.size>12*1024*1024)
+      const mime=documentMime(file);
+      if(!file||!mime||!Number.isSafeInteger(file.size)||file.size<=0||
+         file.size>12*1024*1024)
         throw Error('Use a PDF or supported image under 12 MB');
       if(!mediaTransport?.uploadDocument&&!storage)
         throw Error('Private document service is not configured');
       if(!(await getDoc(at('adventure_plans',adventureId))).exists())throw Error('Adventure not found');
-      const bytes=new Uint8Array(await file.arrayBuffer()),digest=await sha256(bytes);
-      if(mediaTransport?.uploadDocument)await mediaTransport.uploadDocument(documentId,bytes,file.type);
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      if(bytes.length!==file.size)throw Error('Original document size changed before upload');
+      const digest=await sha256(bytes);
+      if(mediaTransport?.uploadDocument)await mediaTransport.uploadDocument(documentId,bytes,mime);
       else await uploadBytes(ref(storage,'rooms/'+roomId+'/documents/'+documentId),bytes,{
-        contentType:file.type,customMetadata:{author_uid:user.uid,document_id:documentId,sha256:digest}
+        contentType:mime,customMetadata:{author_uid:user.uid,document_id:documentId,sha256:digest}
       });
       const metadata={id:documentId,adventure_id:adventureId,name:text(file.name,180),
-        mime:file.type,size:bytes.length,sha256:digest,
+        mime,size:bytes.length,sha256:digest,
         storage_path:'rooms/'+roomId+'/documents/'+documentId,...author};
       await runTransaction(db,async t=>{
         const target=at('plan_documents',documentId),saved=await t.get(target);
