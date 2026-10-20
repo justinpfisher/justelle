@@ -1,5 +1,6 @@
 // Private booking UI: source records stay separate from mutable itinerary.
 import {sha256} from './media.mjs';
+import {bookingStatusText} from './journey-view.mjs';
 import {extractBookingDraft} from './booking-extraction.mjs';
 const $=id=>document.getElementById(id);
 const node=(tag,cls='',value='')=>{
@@ -53,7 +54,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       const li=node('li','planner-booking-entry');
       li.append(node('strong','',b.summary));
       li.append(node('p','meta',b.kind+' · '+b.starts_on+' to '+b.ends_on+
-        ' · '+(b.status==='confirmed'?'Member-recorded confirmation':'Not confirmed')));
+        ' · '+bookingStatusText(b.status)));
       const view=node('button','text-button',b.source_id?'Show original details':'No source attached');
       view.type='button';view.disabled=!b.source_id;
       view.onclick=()=>void openBooking(b.id);
