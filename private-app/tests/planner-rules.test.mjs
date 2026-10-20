@@ -105,6 +105,23 @@ test('Approximate months share immediately, retain original precision in History
    assert.equal(saved.starts_month,'2027-12');
    assert.equal(saved.revision,0);
    await assertFails(getDoc(plan(X,id)));
+   // A client may never smuggle a month change into an unrelated stop edit.
+   const forged={...structuredClone(saved),starts_month:'2028-01',
+     revision:1,last_event_id:'forged-month-change'};
+   forged.stops=[{id:'hidden-stop',place_id:'hidden-stop',
+     title:'Fictional hidden place',from_day:1,through_day:2,status:'possible',
+     latitude:null,longitude:null}];
+   const hidden=writeBatch(A.firestore());
+   hidden.update(plan(A,id),{state:forged,last_modified_by:'person-a',
+     updated_at:serverTimestamp()});
+   hidden.set(event(A,'forged-month-change'),{id:'forged-month-change',
+     adventure_id:id,revision:1,previous_event_id:saved.last_event_id,
+     actor_id:'person-a',author_uid:a,author_id:'person-a',
+     at:serverTimestamp(),created_at:serverTimestamp(),operation:'add_stop',
+     collection:'stops',record_id:'hidden-stop',before:null,after:forged.stops[0],
+     before_state:saved,after_state:forged});
+   await assertFails(hidden.commit());
+   assert.equal((await two.readPlan(id)).starts_month,'2027-12');
    await two.editPlan({uid:b},id,{type:'add_stop',stop:{
      id:'month-place',place_id:'month-place',title:'Fictional Coast',
      from_day:1,through_day:3,status:'possible'}},0);
