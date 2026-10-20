@@ -41,6 +41,9 @@ export function canonicalRecords({membership,messages,decisions,adventures,attac
           at:asISO(e.created_at),created_at:asISO(e.created_at),operation:e.operation,
           collection:e.collection,record_id:e.record_id,before:e.before,after:e.after,
           before_state:e.before_state,after_state:e.after_state,
+          // AI-assisted changes must keep their immutable original-note link
+          // through encrypted export and independent restoration.
+          ...(e.source_id===undefined?{}:{source_id:e.source_id}),
           ...(e.instruction_text===undefined?{}:{
             instruction_text:e.instruction_text,instruction_format:e.instruction_format})
         })),
