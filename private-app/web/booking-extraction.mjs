@@ -33,8 +33,8 @@ export function explicitBookingDate(value){
   if(m)return calendarDate(m[3],monthNumber(m[2]),m[1]);
   return null;
 }
-const startLabels=new Set(['checkin','departure','start','startdate']);
-const endLabels=new Set(['checkout','arrival','end','enddate']);
+const startLabels=new Set(['checkin','checkindate','departure','departuredate','start','startdate']);
+const endLabels=new Set(['checkout','checkoutdate','arrival','arrivaldate','end','enddate']);
 const dateLabels=new Set([...startLabels,...endLabels,'eventdate','date']);
 const kinds={
   stay:new Set(['checkin','checkout','hotel','property']),
