@@ -127,7 +127,7 @@ test('Protected source PDF and complete plan/event/history restore work without 
     await one.createPlan({uid:a},{id:planId,title:'Fictional portable voyage',
       durationDays:10,startsOn:'2026-11-01'});
     const pdf=Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
-    const aiDocumentId='00000000-0000-4000-8000-000000000098';
+    const aiDocumentId='00000000-0000-4000-8000-000000000901';
     const aiSourceId='00000000-0000-4000-8000-000000000097';
     const screenshot=await readFile(new URL('./fictional-landscape.png',import.meta.url));
     const transport={async uploadDocument(id,bytes,mime){
