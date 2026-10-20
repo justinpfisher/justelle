@@ -54,8 +54,10 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
       if(!storage)throw Error('Document retrieval is unavailable');
       return new Uint8Array(await getBytes(ref(storage,'rooms/'+roomId+'/documents/'+documentId),maxBytes));
     },
-    async createPlan(user,{id:planId=crypto.randomUUID(),title,durationDays=21,startsOn=null}){
-      const author=actor(user),state=createItinerary({id:id(planId),title,durationDays,startsOn});
+    async createPlan(user,{id:planId=crypto.randomUUID(),title,durationDays=21,startsOn=null,
+      startsMonth=null}){
+      const author=actor(user),state=createItinerary({
+        id:id(planId),title,durationDays,startsOn,startsMonth});
       const eventId=crypto.randomUUID(),planRef=at('adventure_plans',planId),eventRef=at('plan_events',eventId);
       state.last_event_id=eventId;
       await runTransaction(db,async t=>{
