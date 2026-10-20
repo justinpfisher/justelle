@@ -138,6 +138,17 @@
             <button id="planner-archive" class="text-button" type="button">Move to archive</button>
             <p class="meta">Archiving keeps every original and revision; it does not delete records or automatically move backups.</p>
           </details>
+          <details id="planner-lessons-panel" hidden>
+            <summary>Lessons from this adventure</summary>
+            <p class="meta">Keep a few useful observations for next time. Each new lesson records who added it and when in History; earlier versions remain recoverable.</p>
+            <ol id="planner-lessons" class="planner-stays"></ol>
+            <form id="planner-add-lesson" class="planner-form soft-card">
+              <label for="planner-lesson-text">What is worth remembering?</label>
+              <textarea id="planner-lesson-text" rows="3" maxlength="2000" required
+                placeholder="Something that worked, or that we would do differently"></textarea>
+              <button class="secondary" type="submit">Save lesson</button>
+            </form>
+          </details>
 
           <form id="planner-instruction-form" class="planner-form soft-card">
             <label for="planner-instruction">Make a change in a sentence</label>
