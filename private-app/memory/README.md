@@ -16,6 +16,12 @@ node memory/backup-cli.mjs restore /outside-repository/fictional-recovery.key /o
 
 Keep recovery keys separate from backup storage. Losing the key loses access; saving the key next to the backup defeats that separation. No real key, private archive or restored content belongs in this public repository. Selecting key custody, backup destination and retention is required before real-content use. No external storage or paid service has been activated.
 
+## Local archive-copy staging limits
+
+`stage-archive-copies.mjs` uses existing, independent local and OneDrive-synchronised directories. It verifies two private encrypted copies by fully restoring each staged ciphertext, then publishes each destination under an **exclusive same-volume hard link**, refusing an existing generation (including a dangling symbolic link) or a competing writer. This avoids the overwrite race possible with a final rename. A hard-link operation requires a filesystem that supports hard links, normally NTFS on Windows; on unsupported destinations the tool fails rather than falling back to non-exclusive publication.
+
+The OneDrive **synchronised-folder** copy is only a local copy. Neither a sync indicator nor the hard-link publication establishes Microsoft cloud recovery, independent-device availability, version retention or permission to remove Firebase/B2 originals. Those claims require separate hosted and clean-device tests under M6.
+
 ## Local sealed-trip preparation (development-only)
 
 After an independently tested full encrypted backup has been restored to a protected directory, the existing CLI can seal one **member-marked archived** V1 adventure into a new encrypted, provider-neutral generation:
