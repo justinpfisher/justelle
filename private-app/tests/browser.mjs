@@ -208,8 +208,14 @@ try{
   await A.locator('#planner-booking-start').fill('2026-11-02');
   await A.locator('#planner-booking-end').fill('2026-11-05');
   await A.locator('#planner-booking-supplier').fill('Test-only supplier');
-  await A.locator('#planner-booking-reference').fill('SYNTHETIC-REF');
   await A.locator('#planner-booking-state').selectOption('confirmed');
+  await A.locator('#planner-add-booking button[type=submit]').click();
+  await poll(async()=>/Add an original document, pasted confirmation or booking reference/
+    .test(await A.locator('#error').textContent()));
+  assert.equal(await B.locator('#planner-bookings .planner-booking-entry')
+    .filter({hasText:'Fictional inn confirmation'}).count(),0,
+    'An unsubstantiated confirmation never enters the shared plan');
+  await A.locator('#planner-booking-reference').fill('SYNTHETIC-REF');
   await A.locator('#planner-booking-file').setInputFiles({
     name:'synthetic-source.pdf',mimeType:'application/pdf',
     buffer:Buffer.from('%PDF-1.4\\n1 0 obj\\n<< /Type /Catalog >>\\nendobj\\n%%EOF\\n')
