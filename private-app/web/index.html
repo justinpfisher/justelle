@@ -202,6 +202,14 @@
             <ul id="planner-bookings"></ul>
             <form id="planner-add-booking" class="planner-form soft-card">
               <p class="meta">Copy details from your original confirmation. This records information in Justelle; it does not change the supplier booking.</p>
+              <details>
+                <summary>Paste booking text (optional)</summary>
+                <label for="planner-booking-paste">Original email or booking text (private, 4,000 characters maximum)</label>
+                <textarea id="planner-booking-paste" rows="4" maxlength="4000"
+                  placeholder="Check-in: 12 December 2027&#10;Check-out: 15 December 2027"></textarea>
+                <button id="planner-booking-extract" type="button" class="secondary">Extract dates and review</button>
+                <p id="planner-booking-extraction-feedback" class="meta" role="status" aria-live="polite">You can also save the original text without extraction. Extracted fields are suggestions only; review before saving.</p>
+              </details>
               <label for="planner-booking-title">Booking or transfer</label>
               <input id="planner-booking-title" required maxlength="180" placeholder="Hotel, train, flight or activity">
               <div class="planner-fields">
