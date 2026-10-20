@@ -26,6 +26,20 @@ test('Tentative transfers are labelled as uncertain and do not imply an AI revie
  assert.equal(reviewAdventure(p).notices.some(n=>n.code==='unconfirmed_transfer'),true);
 });
 
+test('Cancelled and voided transfers are not misrepresented as possible connections',()=>{
+ let p=base();
+ for(const [id,status] of [['cancelled-rail','cancelled'],['voided-flight','voided'],
+   ['possible-ferry','unverified']]){
+   p=edit(p,{type:'add_booking',booking:{id,kind:id.includes('flight')?'flight':'transport',
+     stop_id:null,starts_on:'2026-11-01',ends_on:'2026-11-01',status,
+     source_id:null,summary:'Synthetic '+id}},id);
+ }
+ const original=structuredClone(p),review=reviewAdventure(p);
+ assert.deepEqual(review.notices.filter(n=>n.code==='unconfirmed_transfer')
+   .map(n=>n.evidence.booking_id),['possible-ferry']);
+ assert.deepEqual(p,original);
+});
+
 test('Four planned experiences trigger a disclosed pacing heuristic, not a fabricated booking conflict',()=>{
  let p=base();
  for(let i=0;i<4;i++)p=edit(p,{type:'add_experience',experience:{
