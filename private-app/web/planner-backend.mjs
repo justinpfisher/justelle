@@ -125,6 +125,12 @@ export function plannerBackend({db,storage=null,roomId,membership,mediaTransport
           if(!actualSource)throw Error('A confirmed booking needs its original source');
           if(!source||source.id!==actualSource||source.data().kind!=='booking')
             throw Error('Open the original booking source before confirming');
+          const evidence=source.data();
+          // A booking source with only a generated title does not substantiate
+          // a member-recorded confirmation. Keep it possible/unverified until
+          // the member supplies an original, copied text or reference.
+          if(!evidence.document_id&&!evidence.notes?.trim()&&!evidence.reference?.trim())
+            throw Error('Add an original, pasted confirmation or booking reference before marking this as confirmed.');
         }
         const eventRef=at('plan_events',eventId);
         if((await t.get(eventRef)).exists())throw Error('This edit ID has already been used');
