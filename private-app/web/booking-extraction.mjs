@@ -37,7 +37,7 @@ const startLabels=new Set(['checkin','checkindate','departure','departuredate','
 const endLabels=new Set(['checkout','checkoutdate','arrival','arrivaldate','end','enddate']);
 const dateLabels=new Set([...startLabels,...endLabels,'eventdate','date']);
 const kinds={
-  stay:new Set(['checkin','checkout','hotel','property']),
+  stay:new Set(['checkin','checkindate','checkout','checkoutdate','hotel','property']),
   flight:new Set(['airline','flightnumber']),
   transport:new Set(['train','rail','ferry','bus']),
   activity:new Set(['event','activity','eventdate'])
