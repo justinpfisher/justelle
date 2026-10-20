@@ -245,6 +245,32 @@ try{
     ' | browser: '+pageErrors.join('; '));}
   assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
+  // A pastes a second fictional supplier note. Extraction runs only in the
+  // browser, does not mark a booking confirmed, and keeps the exact original
+  // text for B behind normal member authentication.
+  await A.getByText('Paste booking text (optional)',{exact:true}).click();
+  const pasted=['Booking title: Synthetic Bay Crossing','Ferry: Fictional route',
+    'Departure: 4 November 2026','Arrival: 2026-11-04',
+    'Booking reference: FICT-FERRY-47'].join('\n');
+  await A.locator('#planner-booking-paste').fill(pasted);
+  await A.locator('#planner-booking-extract').click();
+  assert.equal(await A.locator('#planner-booking-title').inputValue(),'Synthetic Bay Crossing');
+  assert.equal(await A.locator('#planner-booking-kind').inputValue(),'transport');
+  assert.equal(await A.locator('#planner-booking-start').inputValue(),'2026-11-04');
+  assert.equal(await A.locator('#planner-booking-end').inputValue(),'2026-11-04');
+  assert.equal(await A.locator('#planner-booking-state').inputValue(),'unverified',
+    'Text recognition must not claim that a supplier confirmed a booking');
+  assert.match(await A.locator('#planner-booking-extraction-feedback').textContent(),/No booking was confirmed/);
+  await A.locator('#planner-add-booking button[type=submit]').click();
+  const pastedCard=B.locator('#planner-bookings .planner-booking-entry')
+    .filter({hasText:'Synthetic Bay Crossing'});
+  await pastedCard.waitFor({timeout:15000});
+  assert.match(await pastedCard.textContent(),/Not confirmed/);
+  await pastedCard.getByRole('button',{name:'Show original details'}).click();
+  await B.locator('#planner-booking-source')
+    .getByText('Booking reference: FICT-FERRY-47',{exact:false}).waitFor({timeout:15000});
+  assert.match(await B.locator('#planner-booking-source').textContent(),
+    /Ferry: Fictional route/);
   // Check the same connected planner in a desktop viewport, not merely the
   // previous pilot chat: the map, source and selected day remain available.
   await B.setViewportSize({width:1280,height:900});
