@@ -2,8 +2,8 @@
 // cloud verification, deletion permission or replacement for live backups.
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
-import {copyFile,mkdir,mkdtemp,rename,rm,stat,realpath} from 'node:fs/promises';
-import {resolve,join,basename,sep} from 'node:path';
+import {copyFile,mkdtemp,link,unlink,rm,stat,lstat,realpath} from 'node:fs/promises';
+import {resolve,join,sep} from 'node:path';
 import {restoreEncryptedBackup} from './encrypted-backup.mjs';
 
 async function checksum(path){
@@ -12,7 +12,8 @@ async function checksum(path){
   return hash.digest('hex');
 }
 async function absent(path){
-  try{await stat(path);throw Error('Archive copy already exists: do not overwrite a sealed generation');}
+  // lstat also detects a dangling link, which stat would treat as missing.
+  try{await lstat(path);throw Error('Archive copy already exists: do not overwrite a sealed generation');}
   catch(error){if(error.code!=='ENOENT')throw error;}
 }
 function inside(parent,child){return child===parent||child.startsWith(parent+sep);}
@@ -54,7 +55,12 @@ export async function stageArchiveCopies({source,key,archiveId,localDir,oneDrive
       await restoreEncryptedBackup(encrypted,key,join(temp,'verified-restore'));
       await rm(join(temp,'verified-restore'),{recursive:true,force:true});
       await absent(destination);
-      await rename(encrypted,destination);published.push(destination);
+      // Hard-link a fully verified, same-volume staged file into place. Unlike
+      // rename(), link() fails with EEXIST when another process has published
+      // the same generation in the meantime. The staging directory is local
+      // to its destination so cross-volume hard-linking is never needed.
+      await link(encrypted,destination);published.push(destination);
+      await unlink(encrypted);
     }
     return {archive_id:archiveId,sha256:digest,local_copy:one,
       synced_folder_copy:two,local_restore_verified:true,sync_folder_restore_verified:true,
