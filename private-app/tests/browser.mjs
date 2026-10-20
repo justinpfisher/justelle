@@ -373,6 +373,12 @@ try{
   await B.locator('#planner-undo').click();
   await poll(async()=>await A.locator('#planner-summary').textContent()
     .then(v=>v.includes('Approximate December 2027 (no day chosen)')));
+  await B.locator('#planner-today').click();
+  await B.locator('#planner-today-result')
+    .getByText('An approximate month is not a travel date.',{exact:false}).waitFor();
+  assert.equal((await B.locator('#planner-today-result').textContent())
+    .includes('Recorded travel and booking essentials'),false,
+    'Month-only plans cannot manufacture dated travel commitments');
 
   await A.locator('[data-tab="conversation"]').click();
   await B.locator('[data-tab="conversation"]').click();
