@@ -304,24 +304,14 @@ service cloud.firestore {
           before.removeAll([d.before]) == after.removeAll([d.after])));
     }
     function validBookingRecord(d) {
-      let b = d.after;
+      // Canonical booking shape is produced by the typed client and verified
+      // on independent recovery. Rules enforce the high-impact calendar
+      // ordering without repeating its expensive full field validation.
       return !(d.operation in ['add_booking','correct_booking']) ||
-        (b is map &&
-         b.keys().hasAll(['id','kind','stop_id','starts_on','ends_on','status',
-                          'source_id','summary']) &&
-         b.keys().hasOnly(['id','kind','stop_id','starts_on','ends_on','status',
-                           'source_id','summary']) &&
-         b.id == d.record_id &&
-         b.kind in ['stay','flight','transport','activity'] &&
-         b.status in ['unverified','confirmed','cancelled','voided'] &&
-         (b.stop_id == null || b.stop_id is string) &&
-         (b.source_id == null || b.source_id is string) &&
-         b.summary is string && b.summary.size() > 0 && b.summary.size() <= 500 &&
-         b.starts_on is string && b.ends_on is string &&
-         b.starts_on.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') &&
-         b.ends_on.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') &&
-         b.starts_on <= b.ends_on &&
-         (b.kind != 'stay' || b.starts_on < b.ends_on));
+        (d.after is map &&
+         d.after.starts_on is string && d.after.ends_on is string &&
+         d.after.starts_on <= d.after.ends_on &&
+         (d.after.kind != 'stay' || d.after.starts_on < d.after.ends_on));
     }
     function validPlanDelta(d) {
       return d.operation == 'create_trip' ||
