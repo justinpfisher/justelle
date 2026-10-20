@@ -1,6 +1,14 @@
 // Provider-neutral journey presentation: every view projects the same saved plan.
 // An unverified transport anchor never becomes a booked transfer or route line.
 import {itineraryDays,itinerarySignals,sortAdventurePlans} from './itinerary-core.mjs';
+export function bookingStatusText(status){
+  return ({
+    confirmed:'Member-recorded confirmation',
+    unverified:'Possible or unverified',
+    cancelled:'Cancelled (recorded by a member)',
+    voided:'Voided (recorded by a member)'
+  })[status]||'Unknown booking status';
+}
 const dateAfter=(start,n)=>{
   if(!start)return null;
   const d=new Date(start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);
@@ -16,7 +24,10 @@ export function journeyOverview(plan){
   const assigned=new Set(stays.filter(s=>s.status==='planned').flatMap(s=>
     Array.from({length:s.nights},(_,i)=>s.from_day+i)));
   const openNights=days.filter(d=>!assigned.has(d.day)).map(d=>d.day);
-  const transfers=plan.bookings.filter(b=>['flight','transport'].includes(b.kind))
+  // Cancelled/voided supplier records belong in booking history, not the
+  // active journey shape. Never invite reliance on an obsolete connection.
+  const transfers=plan.bookings.filter(b=>['flight','transport'].includes(b.kind)&&
+    !['cancelled','voided'].includes(b.status))
     .map(b=>({...b,verified:b.status==='confirmed'&&Boolean(b.source_id)}));
   const bookings=plan.bookings.map(b=>({...b,is_external_confirmation:b.status==='confirmed'&&Boolean(b.source_id)}));
   return {id:plan.id,title:plan.title,status:plan.status,revision:plan.revision,
