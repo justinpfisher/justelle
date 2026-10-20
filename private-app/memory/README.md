@@ -15,3 +15,16 @@ node memory/backup-cli.mjs restore /outside-repository/fictional-recovery.key /o
 ```
 
 Keep recovery keys separate from backup storage. Losing the key loses access; saving the key next to the backup defeats that separation. No real key, private archive or restored content belongs in this public repository. Selecting key custody, backup destination and retention is required before real-content use. No external storage or paid service has been activated.
+
+## Local sealed-trip preparation (development-only)
+
+After an independently tested full encrypted backup has been restored to a protected directory, the existing CLI can seal one **member-marked archived** V1 adventure into a new encrypted, provider-neutral generation:
+
+```sh
+node memory/backup-cli.mjs seal /outside-repository/recovery.key /outside-repository/restored-full archived-adventure-id /outside-repository/trip-revision-3.jmb
+node memory/backup-cli.mjs restore /outside-repository/recovery.key /outside-repository/trip-revision-3.jmb /outside-repository/trip-recovered
+```
+
+The selected archive retains the full immutable plan-event chain, both members' canonical authorship, attached booking/research/note sources, and exact PDF/image document originals. Other adventures and their originals are excluded. The encrypted records contain a sealed generation descriptor with the specific adventure ID, revision and final event ID; if a member makes a later correction or adds a lesson, create a **new** generation rather than overwriting the earlier one. The CLI refuses unarchived plans, linked legacy discussions it cannot yet package completely, invalid history, missing originals and overwritten destinations. It never edits Firebase, changes supplier reservations or deletes any source.
+
+This is **offline archive packaging only**. It does not upload to OneDrive, establish remote recovery, create a live archive index, automate Windows scheduling, safely exclude any records from active B2 snapshots, or authorize source deletion. Such steps remain under [M6](../../docs/BACKUP-ARCHIVE-POLICY.md) and require actual provider and independent-device qualification. Never publish example archives, restored records or recovery keys in the public repository.
