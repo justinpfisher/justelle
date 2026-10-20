@@ -334,6 +334,16 @@ service cloud.firestore {
             validNamedItemDelta(d)) &&
           validBookingRecord(d));
     }
+    // A generated source title alone does not establish a member-reported
+    // supplier confirmation. Existing archival records remain readable;
+    // this check governs new confirmed booking edits only.
+    function substantiatedBookingSource(roomId, adventureId, sourceId) {
+      let path=planSourcePath(roomId,sourceId);
+      let source=get(path).data;
+      return exists(path) && source.kind == 'booking' &&
+        source.adventure_id == adventureId &&
+        (source.document_id != null || source.notes != '' || source.reference != '');
+    }
     function validPlanEvent(roomId, eventId) {
       let d = request.resource.data;
       let p = planPath(roomId, d.adventure_id);
@@ -369,9 +379,7 @@ service cloud.firestore {
         (!(d.operation in ['add_booking','correct_booking']) ||
           !(d.after is map) || d.after.status != 'confirmed' ||
           (d.after.source_id is string &&
-           exists(planSourcePath(roomId,d.after.source_id)) &&
-           get(planSourcePath(roomId,d.after.source_id)).data.kind == 'booking' &&
-           get(planSourcePath(roomId,d.after.source_id)).data.adventure_id == d.adventure_id));
+           substantiatedBookingSource(roomId,d.adventure_id,d.after.source_id)));
     }
     function validPlanSource(roomId, sourceId) {
       let d = request.resource.data;
