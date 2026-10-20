@@ -297,8 +297,23 @@ try{
   assert.equal(await A.locator('#planner-trip-date').inputValue(),'2026-11-02');
   await B.locator('#planner-archive').click();
   await poll(async()=>await A.locator('#planner-archive').textContent()==='Return to planning');
+  await A.locator('#planner-lessons-panel').waitFor({state:'visible'});
+  assert.equal(await A.locator('#planner-lessons').getByText(/No lessons saved yet/).count(),1);
+  const lesson='Fictional lesson: keep extra time between the coastal stops.';
+  await B.locator('#planner-lesson-text').fill(lesson);
+  await B.locator('#planner-add-lesson button[type=submit]').click();
+  await A.locator('#planner-lessons').getByText(lesson,{exact:true}).waitFor({timeout:15000});
+  await poll(async()=>await A.locator('#planner-history').textContent()
+    .then(v=>v.includes('add lesson')));
+  await A.locator('#planner-undo').click();
+  await poll(async()=>await B.locator('#planner-lessons').getByText(lesson,{exact:true}).count()===0);
+  await B.locator('#planner-lesson-text').fill(lesson);
+  await B.locator('#planner-add-lesson button[type=submit]').click();
+  await A.locator('#planner-lessons').getByText(lesson,{exact:true}).waitFor({timeout:15000});
   await B.locator('#planner-archive').click();
   await poll(async()=>await A.locator('#planner-archive').textContent()==='Move to archive');
+  assert.equal(await A.locator('#planner-lessons-panel').isVisible(),true,
+    'Earlier lessons remain available for reference when an adventure returns to planning');
   await A.locator('#planner-bookings').getByText('Fictional inn confirmation',{exact:true}).waitFor({timeout:15000});
 
 
