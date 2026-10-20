@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,readFile,stat,unlink} from 'node:fs/promises';
+import {mkdtemp,readFile,stat,unlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Readable} from 'node:stream';
@@ -9,6 +9,7 @@ import {createItinerary,applyItineraryEdit} from '../web/itinerary-core.mjs';
 import {verifyRecords} from '../web/archive-core.mjs';
 import {generateRecoveryKey,writeEncryptedBackup,restoreEncryptedBackup} from '../memory/encrypted-backup.mjs';
 import {selectSealedAdventure,sealArchivedAdventureFromRestore,SEALED_TRIP_FORMAT} from '../memory/seal-adventure.mjs';
+import {main as recoveryCLI} from '../memory/backup-cli.mjs';
 
 const trip='fictional-archived-trip',other='fictional-other-trip';
 const docId='00000000-0000-4000-8000-000000000731';
@@ -132,4 +133,16 @@ test('Missing original PDF aborts sealing without publishing a partial ciphertex
    adventureId:trip,key:x.key,destination}),/ENOENT|no such file/);
  await assert.rejects(stat(destination),{code:'ENOENT'});
  assert.ok(await stat(x.original),'Whole encrypted backup remains available');
+});
+
+test('Existing offline recovery CLI can seal and restore without access to providers',async()=>{
+ const x=await snapshot(),keyPath=join(x.dir,'private-test-key'),sealed=join(x.dir,'cli-sealed.jmb');
+ await writeFile(keyPath,x.key,{mode:0o600});
+ const result=await recoveryCLI(['seal',keyPath,x.restored,trip,sealed]);
+ assert.equal(result.safe_to_delete_source,false);
+ await recoveryCLI(['restore',keyPath,sealed,join(x.dir,'cli-restored')]);
+ const r=JSON.parse(await readFile(join(x.dir,'cli-restored','records.json'),'utf8'));
+ assert.equal(r.sealed_adventure.last_event_id,'archived');
+ await assert.rejects(recoveryCLI(['seal',keyPath,x.restored,other,
+   join(x.dir,'unarchived.jmb')]),/explicitly moved/);
 });
