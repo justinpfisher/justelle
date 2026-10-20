@@ -529,7 +529,14 @@ try{
   const bundle=JSON.parse(await readFile(await download.path(),'utf8'));
   assert.equal(bundle.records.conversations.length,3);
   assert.ok(bundle.records.messages.length>=53);
-  assert.equal(bundle.records.adventure_plans.length,1);
+  assert.equal(bundle.records.adventure_plans.length,2);
+  const roughMonth=bundle.records.adventure_plans.find(p=>
+    p.state.title==='Fictional December possibility');
+  assert.ok(roughMonth,'Month-only adventures remain in a portable export');
+  assert.equal(roughMonth.state.starts_month,'2027-12');
+  assert.equal(roughMonth.state.starts_on,null);
+  assert.ok(bundle.records.plan_events.some(e=>
+    e.adventure_id===roughMonth.id&&e.after_state.starts_month==='2027-12'));
   assert.equal(bundle.records.plan_documents.length,2,
     'Both protected supplier PDF and original AI screenshot remain in the portable archive');
   assert.ok(bundle.media.some(f=>f.mime==='application/pdf'));
