@@ -103,6 +103,10 @@ test('Unarchived adventures, linked legacy discussions and forged seal boundarie
    body:'Fictional original message',kind:'person',author_id:'person-a',conversation_id:'shared',
    attachment_ids:[],created_at:time});
  linked.conversations.push({id:'shared',kind:'shared'});
+ linked.adventures.push({id:trip,title:'Legacy linked fictional discussion',
+   phase:'plan',phases:['plan'],author_id:'person-a',last_event_id:null,
+   source_message_id:'legacy-note',conversation_id:'shared',
+   created_at:time,updated_at:time});
  assert.throws(()=>selectSealedAdventure(linked,trip),/historical discussion/);
  const selected=selectSealedAdventure(r,trip);
  const broken=structuredClone(selected);broken.sealed_adventure.revision++;
