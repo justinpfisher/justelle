@@ -251,7 +251,7 @@ try{
   await A.getByText('Paste booking text (optional)',{exact:true}).click();
   const pasted=['Booking title: Synthetic Bay Crossing','Ferry: Fictional route',
     'Departure: 4 November 2026','Arrival: 2026-11-04',
-    'Booking reference: FICT-FERRY-47'].join('\\n');
+    'Booking reference: FICT-FERRY-47'].join('\n');
   await A.locator('#planner-booking-paste').fill(pasted);
   await A.locator('#planner-booking-extract').click();
   assert.equal(await A.locator('#planner-booking-title').inputValue(),'Synthetic Bay Crossing');
