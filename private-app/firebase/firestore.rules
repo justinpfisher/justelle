@@ -235,9 +235,11 @@ service cloud.firestore {
         existsAfter(planEventPath(roomId, eventId)) &&
         e.id == eventId && e.adventure_id == planId &&
         e.author_uid == request.auth.uid && e.author_id == person(roomId) &&
+        // The event's own create rule separately verifies both complete
+        // state snapshots against get/getAfter(plan). Duplicating those deep
+        // comparisons here exhausts Firestore's 1,000-expression limit.
         e.actor_id == person(roomId) && e.created_at == request.time &&
-        e.at == request.time && e.before_state == oldState &&
-        e.after_state == newState && e.revision == newState.revision &&
+        e.at == request.time && e.revision == newState.revision &&
         e.previous_event_id == (oldState == null ? null : oldState.last_event_id);
     }
     function validPlanCreate(roomId, planId) {
@@ -274,6 +276,43 @@ service cloud.firestore {
           before.duration_days == after.duration_days)) &&
         (collectionName == 'status' || before.status == after.status);
     }
+    // A mutually linked plan/event pair must describe one actual item edit.
+    // Merely matching the event's collection would allow an extra booking or
+    // unseen change to a second stay in the same otherwise valid transaction.
+    function validNamedItemDelta(d) {
+      let before = d.before_state.get(d.collection, []);
+      let after = d.after_state.get(d.collection, []);
+      return before is list && after is list &&
+        (((d.operation in ['add_stop','add_experience','add_booking','add_lesson'] ||
+           d.operation == 'undo_last') &&
+          d.before == null && d.after is map &&
+          d.after.id == d.record_id &&
+          after == before.concat([d.after])) ||
+         ((d.operation in ['remove_stop','remove_experience'] ||
+           d.operation == 'undo_last') &&
+          d.before is map && d.after == null &&
+          d.before.id == d.record_id &&
+          before.size() == after.size() + 1 &&
+          before.hasAny([d.before]) &&
+          after == before.removeAll([d.before])) ||
+         ((d.operation in ['edit_stop','edit_experience','correct_booking'] ||
+           d.operation == 'undo_last') &&
+          d.before is map && d.after is map &&
+          d.before.id == d.record_id && d.after.id == d.record_id &&
+          before.size() == after.size() &&
+          before.hasAny([d.before]) && after.hasAny([d.after]) &&
+          before.removeAll([d.before]) == after.removeAll([d.after])));
+    }
+    function validBookingRecord(d) {
+      // Canonical booking shape is produced by the typed client and verified
+      // on independent recovery. Rules enforce the high-impact calendar
+      // ordering without repeating its expensive full field validation.
+      return !(d.operation in ['add_booking','correct_booking']) ||
+        (d.after is map &&
+         d.after.starts_on is string && d.after.ends_on is string &&
+         d.after.starts_on <= d.after.ends_on &&
+         (d.after.kind != 'stay' || d.after.starts_on < d.after.ends_on));
+    }
     function validPlanDelta(d) {
       return d.operation == 'create_trip' ||
         (d.before_state is map && d.after_state is map &&
@@ -285,7 +324,10 @@ service cloud.firestore {
            (d.operation == 'set_status' && d.collection == 'status') ||
            (d.operation == 'undo_last' &&
              d.collection in ['stops','experiences','bookings','lessons','trip','status'])) &&
-          planUnchangedExcept(d,d.collection));
+          planUnchangedExcept(d,d.collection) &&
+          (!(d.collection in ['stops','experiences','bookings','lessons']) ||
+            validNamedItemDelta(d)) &&
+          validBookingRecord(d));
     }
     function validPlanEvent(roomId, eventId) {
       let d = request.resource.data;

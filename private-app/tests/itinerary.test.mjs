@@ -92,6 +92,21 @@ test('booking is never silently marked confirmed from missing source status',()=
   assert.equal(itinerarySignals(x).length,0);
 });
 
+test('All bookings reject reversed dates without changing existing plans or sources',()=>{
+ const original=make({startsOn:'2026-11-01'});
+ const travel=booking({id:'synthetic-travel',kind:'transport',stop_id:null,
+   source_id:null,status:'unverified',starts_on:'2026-11-09',ends_on:'2026-11-08'});
+ assert.throws(()=>edit(original,{type:'add_booking',booking:travel},'invalid-transport'),
+   /Invalid booking calendar dates/);
+ const valid=edit(original,{type:'add_booking',
+   booking:{...travel,ends_on:'2026-11-09'}},'valid-day');
+ assert.throws(()=>edit(valid.plan,{type:'correct_booking',id:'synthetic-travel',
+   patch:{ends_on:'2026-11-07'}},'invalid-correction'),/Invalid booking calendar dates/);
+ assert.equal(original.bookings.length,0);
+ assert.equal(valid.plan.bookings[0].ends_on,'2026-11-09');
+ assert.deepEqual(valid.plan.bookings[0].source_id,null);
+});
+
 test('trip date changes move tentative stays but never external booking dates',()=>{
   let p=edit(make({startsOn:'2026-10-25'}),{type:'add_stop',stop:stop('town-a',{status:'planned'})},'ev1').plan;
   p=edit(p,{type:'add_booking',booking:booking()},'ev2').plan;

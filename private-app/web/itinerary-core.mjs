@@ -69,7 +69,8 @@ function booking(value, plan) {
   if (!kinds.includes(b.kind) || !['unverified', 'confirmed', 'cancelled', 'voided'].includes(b.status))
     throw Error('Invalid booking kind or status');
   if (!isoDate(b.starts_on) || !isoDate(b.ends_on) ||
-      (b.kind === 'stay' && b.starts_on >= b.ends_on))
+      b.starts_on > b.ends_on ||
+      (b.kind === 'stay' && b.starts_on === b.ends_on))
     throw Error('Invalid booking calendar dates');
   return b;
 }

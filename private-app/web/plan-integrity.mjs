@@ -8,6 +8,33 @@ function eq(a,b){
   return canonical(a)===canonical(b);
 }
 const fail=s=>{throw Error('Plan recovery integrity: '+s);};
+const validDay=value=>{
+  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return false;
+  const date=new Date(value+'T12:00:00Z');
+  return Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===value;
+};
+// One immutable event may change one named item. The other items must retain
+// their full values and relative order, not merely remain in the same array.
+function exactItemDelta(event){
+  const kind=event.collection;
+  if(!['stops','experiences','bookings','lessons'].includes(kind))return true;
+  const before=event.before_state?.[kind]??[],after=event.after_state?.[kind]??[];
+  if(!Array.isArray(before)||!Array.isArray(after))return false;
+  const old=before.filter(item=>item.id===event.record_id),
+    current=after.filter(item=>item.id===event.record_id);
+  if(old.length>1||current.length>1||
+     !eq(old[0]??null,event.before)||!eq(current[0]??null,event.after)||
+     !eq(before.filter(item=>item.id!==event.record_id),
+         after.filter(item=>item.id!==event.record_id)))return false;
+  if(['add_stop','add_experience','add_booking','add_lesson'].includes(event.operation))
+    return !old.length&&current.length===1&&after.length===before.length+1;
+  if(['remove_stop','remove_experience'].includes(event.operation))
+    return old.length===1&&!current.length&&after.length===before.length-1;
+  if(['edit_stop','edit_experience','correct_booking'].includes(event.operation))
+    return old.length===1&&current.length===1&&after.length===before.length;
+  return event.operation==='undo_last'&&Math.abs(after.length-before.length)<=1&&
+    (old.length===1||current.length===1);
+}
 const linked=(id,set,label)=>{if(id!=null&&!set.has(id))fail('Broken '+label+' relationship');};
 function untouchedExcept(before,after,collection){
   if(!before||!after)return false;
@@ -87,7 +114,8 @@ export function validatePortablePlannerRecords(records){
     for(const b of state.bookings){
       if(!['stay','flight','transport','activity'].includes(b.kind)||
          !['unverified','confirmed','cancelled','voided'].includes(b.status)||
-         typeof b.starts_on!=='string'||typeof b.ends_on!=='string')
+         !validDay(b.starts_on)||!validDay(b.ends_on)||
+         b.starts_on>b.ends_on||(b.kind==='stay'&&b.starts_on===b.ends_on))
         fail('Invalid booking anchor');
       if(b.source_id){
         const s=sourcesById.get(b.source_id);
@@ -127,6 +155,7 @@ export function validatePortablePlannerRecords(records){
            (e.operation==='undo_last'?!['stops','experiences','bookings','lessons','status','trip'].includes(e.collection):
               operations[e.operation]!==e.collection)||
            !untouchedExcept(e.before_state,e.after_state,e.collection)||
+           !exactItemDelta(e)||
            !eq(e.before,value(e.before_state,e.collection,e.record_id))||
            !eq(e.after,value(e.after_state,e.collection,e.record_id)))
           fail('Event before/after does not match actual revision');

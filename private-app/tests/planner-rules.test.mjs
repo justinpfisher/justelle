@@ -214,6 +214,16 @@ test('Protected source PDF and complete plan/event/history restore work without 
     assert.throws(()=>validatePortablePlannerRecords(corruptExperience),/integrity/);
     const orphan=structuredClone(recovered);orphan.plan_sources=[];
     assert.throws(()=>validatePortablePlannerRecords(orphan),/source|booking/);
+    const covert=structuredClone(recovered);
+    const last=covert.plan_events.find(e=>e.revision===covert.adventure_plans[0].state.revision);
+    last.after_state.experiences.find(x=>x.id==='walk-activity').title=
+      'Silently replaced while another experience was added';
+    covert.adventure_plans[0].state=structuredClone(last.after_state);
+    assert.throws(()=>validatePortablePlannerRecords(covert),/Plan recovery integrity/,
+      'A single-event audit must detect changes to a second item in the same collection');
+    const backwardBooking=structuredClone(recovered);
+    backwardBooking.adventure_plans[0].state.bookings[0].ends_on='2026-11-01';
+    assert.throws(()=>validatePortablePlannerRecords(backwardBooking),/Invalid booking anchor/);
     await assert.rejects(restoreEncryptedBackup(destination,generateRecoveryKey(),join(folder,'wrong-key')),/authentication/);
     await assert.rejects(stat(join(folder,'wrong-key')),{code:'ENOENT'});
   }finally{await db.terminate();await deleteApp(admin);await env.cleanup();}
@@ -250,6 +260,46 @@ test('Unverified transfers persist independently; forged confirmation and partia
   }finally{await env.cleanup();}
 });
 
+
+test('Firestore refuses a forged second booking edit or backwards travel dates in a paired event',async()=>{
+ const {env,A,one,two}=await setup();
+ try{
+   await one.createPlan({uid:a},{id:planId,title:'Fictional single-item audit',
+     durationDays:10,startsOn:'2026-11-01'});
+   const record=(id)=>({id,kind:'transport',stop_id:null,starts_on:'2026-11-03',
+     ends_on:'2026-11-03',status:'unverified',source_id:null,summary:'Synthetic '+id});
+   await one.editPlan({uid:a},planId,{type:'add_booking',booking:record('first')},0);
+   await two.editPlan({uid:b},planId,{type:'add_booking',booking:record('second')},1);
+   const before=(await getDoc(plan(A))).data().state;
+   const forge=async(eventId,operation,recordId,prior,current,bookings)=>{
+     const after={...structuredClone(before),bookings,revision:before.revision+1,
+       last_event_id:eventId};
+     const batch=writeBatch(A.firestore());
+     batch.update(plan(A),{state:after,last_modified_by:'person-a',
+       updated_at:serverTimestamp()});
+     batch.set(event(A,eventId),{id:eventId,adventure_id:planId,
+       revision:after.revision,previous_event_id:before.last_event_id,
+       actor_id:'person-a',author_uid:a,author_id:'person-a',
+       operation,collection:'bookings',record_id:recordId,before:prior,after:current,
+       before_state:before,after_state:after,
+       at:serverTimestamp(),created_at:serverTimestamp()});
+     await assertFails(batch.commit());
+   };
+   const first=before.bookings[0],second=before.bookings[1];
+   const cancelled={...first,status:'cancelled'};
+   await forge('covert-two-booking-changes','correct_booking','first',first,cancelled,
+     [cancelled,{...second,summary:'Hidden change to second booking'}]);
+   const backward={...record('backward'),starts_on:'2026-11-09',
+     ends_on:'2026-11-08'};
+   await forge('forged-backwards','add_booking','backward',null,backward,
+     [...before.bookings,backward]);
+   assert.equal((await one.readPlan(planId)).revision,2);
+   assert.deepEqual((await two.readHistory(planId)).map(e=>e.revision),[0,1,2]);
+   const valid=await two.editPlan({uid:b},planId,{type:'correct_booking',id:'first',
+     patch:{status:'cancelled'}},2);
+   assert.equal(valid.plan.bookings[1].summary,second.summary);
+ }finally{await env.cleanup();}
+});
 
 test('Fictional original PDF uploads are private, immutable and readable to the second member',async()=>{
  const freshDocumentId='00000000-0000-4000-8000-000000000098';
