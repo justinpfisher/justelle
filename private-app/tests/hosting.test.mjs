@@ -179,3 +179,41 @@ test('Before JavaScript starts, private sign-in is neutral and pilot warnings ar
  assert.ok(!html.includes('This prototype is not authorised for personal content'));
  assert.ok(html.includes('id="planner-create"'));
 });
+
+import {syntheticVisionPng,visionColourAnswer} from '../hosting/fictional-vision-probe.mjs';
+import {inflateSync} from 'node:zlib';
+test('Hosted fictional vision probes are valid distinct PNGs with no embedded answer metadata',()=>{
+ const a=syntheticVisionPng('red'),b=syntheticVisionPng('blue');
+ for(const [colour,bytes] of [['red',a],['blue',b]]){
+   assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+   assert.equal(bytes.readUInt32BE(16),24);
+   assert.equal(bytes.readUInt32BE(20),24);
+   assert.equal(bytes[25],2,'RGB PNG, not an SVG or referenced remote image');
+   const idatLength=bytes.readUInt32BE(33);
+   assert.equal(bytes.toString('ascii',37,41),'IDAT');
+   const raw=inflateSync(bytes.subarray(41,41+idatLength));
+   assert.equal(raw.length,24*(1+24*3));
+   for(let y=0;y<24;y++){
+     assert.equal(raw[y*(1+24*3)],0);
+     for(let x=0;x<24;x++){
+       const at=y*(1+24*3)+1+x*3;
+       assert.deepEqual([...raw.subarray(at,at+3)],
+         colour==='red'?[255,0,0]:[0,0,255]);
+     }
+   }
+   assert.ok(!bytes.includes(Buffer.from('red'))&&!bytes.includes(Buffer.from('blue')),
+     'The answer is encoded only as coloured pixels, not visible text');
+ }
+ assert.notDeepEqual(a,b);
+ assert.throws(()=>syntheticVisionPng('real-photo'),/fictional/);
+});
+test('Live vision must identify the correct colour, not merely clarify or echo choices',()=>{
+ assert.equal(visionColourAnswer('red','red'),true);
+ assert.equal(visionColourAnswer('The main colour is blue.','blue'),true);
+ for(const [reply,expected] of [
+   ['This might be red or blue','red'],
+   ['Not sure','blue'],['blue','red'],['red and blue','blue'],
+   ['','red'],['The image contains a square','red'],
+   ['red','green']
+ ])assert.equal(visionColourAnswer(reply,expected),false);
+});
