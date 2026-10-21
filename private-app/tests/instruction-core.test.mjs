@@ -70,3 +70,45 @@ test('Day experience language is conservative about duplicates, invalid spans an
  assert.equal(interpretPlanInstruction(p,'Reserve tickets to the fictional aquarium for day 2').kind,'unsupported');
  assert.deepEqual(p.experiences,[]);
 });
+
+test('Clear approximate-month instructions preserve uncertainty, prior date and Undo',()=>{
+ const original=base();
+ for(const phrase of ['Change trip start to December 2027',
+   'Change trip start to 2027-12']){
+   const outcome=interpretPlanInstruction(original,phrase);
+   assert.equal(outcome.kind,'ready');
+   assert.deepEqual(outcome.change,{type:'edit_trip',patch:{starts_month:'2027-12'}});
+   assert.equal(outcome.preview_required,false);
+   assert.match(outcome.summary,/without choosing a day/);
+   const first=applyItineraryEdit(original,outcome.change,{
+     eventId:'approximate-date',actorId:'person-a',at:'2026-10-21T10:00:00Z'});
+   assert.equal(first.plan.starts_month,'2027-12');
+   assert.equal(first.plan.starts_on,null);
+   const undone=applyItineraryEdit(first.plan,{type:'undo_last'},{
+     eventId:'undo-date',actorId:'person-b',at:'2026-10-21T10:01:00Z',lastEvent:first.event});
+   assert.equal(undone.plan.starts_on,'2026-10-29');
+   assert.equal(undone.plan.starts_month,null);
+   assert.equal(original.starts_on,'2026-10-29');
+ }
+ for(const phrase of ['Change trip start to 2027-13','Change trip start to 12/2027',
+   'Change trip start to Winter 2027','Change trip start to December',
+   'Change trip start to December 1899']){
+   const outcome=interpretPlanInstruction(original,phrase);
+   assert.notEqual(outcome.kind,'ready',phrase);
+ }
+});
+test('Month-only change with an existing booking requires preview and never rebooks',()=>{
+ const p=added(base(),{type:'add_booking',booking:{id:'booking-anchored',kind:'stay',
+   stop_id:null,starts_on:'2026-10-29',ends_on:'2026-11-02',
+   status:'confirmed',source_id:'fictional-original',summary:'Synthetic hotel booking'}});
+ const outcome=interpretPlanInstruction(p,'Change trip start to December 2027');
+ assert.equal(outcome.kind,'ready');
+ assert.equal(outcome.preview_required,true);
+ assert.deepEqual(outcome.change.patch,{starts_month:'2027-12'});
+ assert.equal(p.bookings[0].starts_on,'2026-10-29');
+ const updated=applyItineraryEdit(p,outcome.change,{
+   eventId:'month-shift',actorId:'person-a',at:'2026-10-21T10:00:00Z'});
+ assert.equal(updated.plan.starts_on,null);
+ assert.equal(updated.plan.starts_month,'2027-12');
+ assert.equal(updated.plan.bookings[0].starts_on,p.bookings[0].starts_on);
+});

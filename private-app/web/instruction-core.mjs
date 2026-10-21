@@ -9,6 +9,16 @@ const ready=(change,summary,preview=false,extra={})=>({
 const clarify=(message)=>({format,kind:'needs_detail',message,change:null});
 const decline=(message)=>({format,kind:'unsupported',message,change:null});
 const asNumber=s=>Number(s);
+const months=['january','february','march','april','may','june','july','august',
+  'september','october','november','december'];
+function explicitMonth(value){
+  const text=value.trim(),iso=/^(\d{4})-(0[1-9]|1[0-2])$/.exec(text);
+  if(iso)return iso[1]+'-'+iso[2];
+  const named=/^([A-Za-z]+)\s+(\d{4})$/.exec(text);
+  if(!named)return null;
+  const index=months.indexOf(named[1].toLowerCase());
+  return index<0?null:named[2]+'-'+String(index+1).padStart(2,'0');
+}
 const findStop=(plan,title)=>{
   const matched=plan.stops.filter(s=>s.title.toLocaleLowerCase('en-CA')===title.trim().toLocaleLowerCase('en-CA'));
   return matched.length===1?matched[0]:null;
@@ -51,7 +61,13 @@ export function interpretPlanInstruction(plan,input,{idFactory=()=>crypto.random
   }else if(match=/^change\s+trip\s+start\s+to\s+(\d{4}-\d{2}-\d{2})[.!]?$/i.exec(text)){
     change={type:'edit_trip',patch:{starts_on:match[1]}};
     summary='Move the intended adventure start to '+match[1]+'. Actual booking dates remain unchanged.';
-  }else return clarify('Try “Consider 2 nights in Kyoto starting day 4”, “Plan a visit to the museum on day 5”, or “Move Kyoto to day 6”.');
+  }else if(match=/^change\s+trip\s+start\s+to\s+(.+?)[.!]?$/i.exec(text)){
+    const month=explicitMonth(match[1]);
+    if(!month)return clarify('Choose an unambiguous month and year, such as December 2027, or an exact date.');
+    change={type:'edit_trip',patch:{starts_month:month}};
+    summary='Keep the intended adventure start around '+month+
+      ', without choosing a day. Actual supplier bookings and dates remain unchanged.';
+  }else return clarify('Try “Consider 2 nights in Kyoto starting day 4”, “Change trip start to December 2027”, or “Move Kyoto to day 6”.');
   let changed;
   try{changed=applyItineraryEdit(plan,change,{eventId:idFactory(),actorId:'instruction-preview',
     at:'2026-10-17T12:00:00.000Z'}).plan;}

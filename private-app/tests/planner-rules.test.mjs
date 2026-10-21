@@ -93,6 +93,32 @@ test('Atomic two-member edits reject stale revisions, preserve history and Undo 
     await assertFails(deleteDoc(event(B,history[1].id)));
   }finally{await env.cleanup();}
 });
+test('Typed month-only member text shares immediately and cannot be silently changed',async()=>{
+ const {env,one,two}=await setup();
+ try{
+   await one.createPlan({uid:a},{id:planId,title:'Fictional month-first trip',
+     durationDays:7,startsOn:'2026-11-01'});
+   const text='Change trip start to December 2027';
+   await one.editPlan({uid:a},planId,{type:'edit_trip',patch:{
+     starts_month:'2027-12'}},0,{instructionText:text});
+   const shared=await two.readPlan(planId);
+   assert.equal(shared.starts_on,null);
+   assert.equal(shared.starts_month,'2027-12');
+   assert.equal(shared.revision,1);
+   const history=await two.readHistory(planId);
+   assert.equal(history[1].instruction_text,text);
+   assert.equal(history[1].actor_id,'person-a');
+   await assert.rejects(two.editPlan({uid:b},planId,{type:'edit_trip',
+     patch:{starts_month:'2028-01'}},1,{instructionText:text}),
+     /instruction no longer matches/);
+   await two.editPlan({uid:b},planId,{type:'undo_last'},1);
+   const restored=await one.readPlan(planId);
+   assert.equal(restored.starts_on,'2026-11-01');
+   assert.equal(restored.starts_month,null);
+   assert.equal((await one.readHistory(planId)).at(-1).actor_id,'person-b');
+ }finally{await env.cleanup();}
+});
+
 test('Approximate months share immediately, retain original precision in History and encrypted recovery',async()=>{
  const {env,A,B,X,one,two}=await setup();
  const admin=initializeApp({projectId,storageBucket:projectId+'.firebasestorage.app'},
