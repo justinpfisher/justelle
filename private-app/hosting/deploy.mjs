@@ -6,7 +6,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
-import {release} from './release-core.mjs';
+import {release,disableInitialService} from './release-core.mjs';
 import {smoke} from './smoke.mjs';
 import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
@@ -53,13 +53,17 @@ try{
             await run('git',['worktree','remove','--force',checkout],{cwd:resolve(root,'..')}).catch(()=>{});
             await rm(temp,{recursive:true,force:true});
           }
-        },failClosed:async()=>{
+        },failClosed:()=>disableInitialService({
           // An initial failed launch has no previous version to restore.
-          await run('gcloud',['run','services','remove-iam-policy-binding','privateapi','--region','northamerica-northeast1',
-            '--project',config.projectId,'--member','allUsers','--role','roles/run.invoker','--quiet'],{maxBuffer:1024*1024});
-          await run(process.execPath,[join(root,'node_modules/firebase-tools/lib/bin/firebase.js'),'hosting:disable','--project',config.projectId,
-            '--site',config.site,'--force'],{cwd:root,maxBuffer:1024*1024});
-        },report:async result=>{
+          // Both actions must run even if the first command fails.
+          removePublicInvoker:()=>run('gcloud',['run','services','remove-iam-policy-binding',
+            'privateapi','--region','northamerica-northeast1','--project',config.projectId,
+            '--member','allUsers','--role','roles/run.invoker','--quiet'],{maxBuffer:1024*1024}),
+          disableHosting:()=>run(process.execPath,[
+            join(root,'node_modules/firebase-tools/lib/bin/firebase.js'),'hosting:disable',
+            '--project',config.projectId,'--site',config.site,'--force'],
+            {cwd:root,maxBuffer:1024*1024,env})
+        }),report:async result=>{
           const safe=JSON.stringify(result);console.log(safe);
           if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'Justelle release: '+safe+'\n');
         }});
