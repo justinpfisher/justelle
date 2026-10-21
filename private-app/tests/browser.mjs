@@ -61,6 +61,8 @@ try{
   A.on('pageerror',e=>pageErrors.push('A: '+e.message));
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   await login(A,fixture.a);await login(B,fixture.b);
+  assert.equal(await A.locator('.pilot').isVisible(),true);
+  assert.match(await A.locator('.pilot').textContent(),/Local fictional-data pilot/);
   assert.equal(await A.locator('#topic-title').textContent(),'Our chat');
   assert.equal(await B.locator('#topic-title').textContent(),'Our chat');
   // M1 iPhone-sized journey slice: direct member edits, realtime visibility, Undo.
