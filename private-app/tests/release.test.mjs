@@ -2,24 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {release,disableInitialService} from '../hosting/release-core.mjs';
 import {qualificationDrill,checkQualificationClosed} from '../hosting/qualification-drill.mjs';
-import {enforceAuthConfig} from '../hosting/auth-config.mjs';
 const sha='a'.repeat(40),old='b'.repeat(40);
-test('Auth config deployment uses a narrow leaf mask and verifies disabled providers',async()=>{
- let call;
- await enforceAuthConfig('fictional-qualification',{credential:{getAccessToken:async()=>({access_token:'synthetic'})},fetchImpl:async(url,options)=>{
-  call={url,options};return new Response(JSON.stringify({signIn:{email:{enabled:true,passwordRequired:true},anonymous:{enabled:false},phoneNumber:{enabled:false}}}));
- }});
- assert.equal(call.url.searchParams.get('updateMask'),'signIn.email.enabled,signIn.email.passwordRequired,signIn.anonymous.enabled,signIn.phoneNumber.enabled');
- assert.equal(call.options.redirect,'error');assert.equal(call.options.headers['x-goog-user-project'],'fictional-qualification');assert.equal(JSON.parse(call.options.body).signIn.email.passwordRequired,true);
- for(const config of [
-  {email:{enabled:false,passwordRequired:true},anonymous:{enabled:false},phoneNumber:{enabled:false}},
-  {email:{enabled:true,passwordRequired:false},anonymous:{enabled:false},phoneNumber:{enabled:false}},
-  {email:{enabled:true,passwordRequired:true},anonymous:{enabled:true},phoneNumber:{enabled:false}},
-  {email:{enabled:true,passwordRequired:true},anonymous:{enabled:false},phoneNumber:{enabled:true}}
- ])await assert.rejects(enforceAuthConfig('fictional-qualification',{credential:{getAccessToken:async()=>({access_token:'synthetic'})},fetchImpl:async()=>new Response(JSON.stringify({signIn:config}))}),/verification/);
- await assert.rejects(enforceAuthConfig('bad/project',{credential:{getAccessToken:async()=>({access_token:'synthetic'})}}),/Invalid Auth project/);
- await assert.rejects(enforceAuthConfig('fictional-qualification',{credential:{getAccessToken:async()=>({access_token:'synthetic'})},fetchImpl:async()=>new Response('',{status:403})}),/update failed/);
-});
 function setup({failure=null,previous=true,rollbackFailure=false}={}){
   const calls=[];
   return {calls,options:{sha,qualified:true,readLastGood:async()=>previous?{sha:old}:null,

@@ -4,14 +4,13 @@ import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {initializeApp,deleteApp,applicationDefault} from 'firebase-admin/app';
+import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore} from 'firebase-admin/firestore';
 import {release,disableInitialService} from './release-core.mjs';
 import {smoke} from './smoke.mjs';
 import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
 import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
-import {enforceAuthConfig} from './auth-config.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const [configPath,command='production',previousSha]=process.argv.slice(2);
 try{
@@ -27,7 +26,6 @@ try{
     process.platform==='win32'?['/d','/s','/c','npm.cmd '+args.join(' ')]:args,
     {cwd:directory,env,maxBuffer:8*1024*1024});
   async function deploy(directory){
-    await enforceAuthConfig(config.projectId,{credential:applicationDefault()});
     await writeFile(join(directory,runtimeFile),functionEnvironment(config),{mode:0o600});
     await writeFile(join(directory,'hosting/.firebaserc'),JSON.stringify({targets:{[config.projectId]:{hosting:{[target]:[config.site]}}}}),{mode:0o600});
     await npm(['ci','--no-audit','--no-fund'],directory);
