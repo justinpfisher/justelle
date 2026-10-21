@@ -6,9 +6,26 @@ export async function smoke({origin,projectId,roomId,apiKey,members,sha},fetchIm
   };
   const health=await request(origin+'/api/healthz',{},[200]);
   if((await health.json()).version!==sha)throw Error('Hosted source version differs');
-  for(const path of ['/','/manifest.webmanifest','/justelle-caricature.png']){
-    const result=await request(origin+path,{},[200]);await result.body?.cancel();
-  }
+  // A healthy API does not prove the protected journey application was deployed.
+  const entry=await request(origin+'/',{},[200]);
+  const html=await entry.text();
+  if(!html.includes('id="login-form"')||!html.includes('id="private-app"')||
+     !html.includes('id="planner-create"')||
+     !html.includes('rel="apple-touch-icon"'))
+    throw Error('Private planner HTML is missing from this release');
+  if(!(entry.headers.get('cache-control')||'').includes('no-store')||
+     !(entry.headers.get('content-security-policy')||'').includes("frame-ancestors 'none'")||
+     !(entry.headers.get('content-security-policy')||'').includes("object-src 'none'"))
+    throw Error('Private planner Hosting security headers are missing');
+  const manifestResponse=await request(origin+'/manifest.webmanifest',{},[200]);
+  const manifest=await manifestResponse.json();
+  if(typeof manifest.name!=='string'||!manifest.name.includes('Justelle')||
+     manifest.start_url!=='/'||manifest.scope!=='/'||
+     manifest.display!=='standalone'||!Array.isArray(manifest.icons)||
+     !manifest.icons.some(item=>item.src==='/justelle-caricature.png'))
+    throw Error('The private iPhone Home Screen manifest is not configured');
+  const artwork=await request(origin+'/justelle-caricature.png',{},[200]);
+  await artwork.body?.cancel();
   const id='00000000-0000-4000-8000-000000000001';
   const anonymousImage=await request(origin+'/api/media/'+id+'/original',{},[401]);await anonymousImage.body?.cancel();
   const anonymousAI=await request(origin+'/api/respond',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_message_id:id})},[401]);await anonymousAI.body?.cancel();
