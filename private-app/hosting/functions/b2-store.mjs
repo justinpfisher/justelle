@@ -1,5 +1,22 @@
 import {S3Client,PutObjectCommand,GetObjectCommand,GetObjectLockConfigurationCommand} from '@aws-sdk/client-s3';
 import {createReadStream} from 'node:fs';
+// A configured Object Lock bucket can still use the wrong mode or an
+// ineffective default period. New ciphertext generations require the
+// owner-approved governance retention before any remote upload begins.
+export function validateB2Retention(configuration){
+  const lock=configuration?.ObjectLockConfiguration;
+  const retention=lock?.Rule?.DefaultRetention;
+  if(lock?.ObjectLockEnabled!=='Enabled'||retention?.Mode!=='GOVERNANCE')
+    throw Error('B2 governance retention is not configured');
+  const days=retention.Days,years=retention.Years;
+  if((days!==undefined&&years!==undefined)||
+     (days===undefined&&years===undefined)||
+     (days!==undefined&&(!Number.isSafeInteger(days)||days<1||days>3000))||
+     (years!==undefined&&(!Number.isSafeInteger(years)||years<1||years*365>3000)))
+    throw Error('B2 default retention period must be a positive permitted duration');
+  return true;
+}
+
 export function createB2Store(config){
   const endpoint=new URL(config.endpoint);
   if(endpoint.protocol!=='https:'||!/^s3\.[a-z0-9-]+\.backblazeb2\.com$/.test(endpoint.hostname)||
@@ -12,8 +29,7 @@ export function createB2Store(config){
   return {
     async verifyRetention(){
       const result=await client.send(new GetObjectLockConfigurationCommand({Bucket:config.bucket}));
-      if(result.ObjectLockConfiguration?.ObjectLockEnabled!=='Enabled'||
-        !result.ObjectLockConfiguration?.Rule?.DefaultRetention)throw Error('B2 retention is not configured');
+      validateB2Retention(result);
     },
     async put(name,path,size){
       await client.send(new PutObjectCommand({Bucket:config.bucket,Key:name,Body:createReadStream(path),ContentLength:size,

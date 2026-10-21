@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {Readable} from 'node:stream';
 import {createHash,randomBytes} from 'node:crypto';
 import {runScheduledBackup} from '../hosting/scheduled-backup.mjs';
-import {createB2Store} from '../hosting/functions/b2-store.mjs';
+import {createB2Store,validateB2Retention} from '../hosting/functions/b2-store.mjs';
 const id='00000000-0000-4000-8000-000000000001';
 const image=Buffer.from('synthetic-original-image');
 const records={persons:[{id:'person-a'},{id:'person-b'}],conversations:[{id:'conversation-shared'}],
@@ -33,4 +33,33 @@ test('Retention failure, upload failure and corrupt downloads cannot report a su
 });
 test('B2 store cannot send credentials to an unrelated endpoint',()=>{
   assert.throws(()=>createB2Store({endpoint:'https://attacker.invalid',bucket:'fictional',keyId:'synthetic',applicationKey:'synthetic'}),/destination/);
+});
+
+test('B2 Object Lock preflight requires actual positive default governance retention',()=>{
+ const set=(rule,enabled='Enabled')=>({ObjectLockConfiguration:{
+   ObjectLockEnabled:enabled,Rule:{DefaultRetention:rule}}});
+ for(const retention of [{Mode:'GOVERNANCE',Days:1},{Mode:'GOVERNANCE',Days:30},
+   {Mode:'GOVERNANCE',Days:3000},{Mode:'GOVERNANCE',Years:2}])
+   assert.equal(validateB2Retention(set(retention)),true);
+ for(const candidate of [
+   null,{},set({Mode:'COMPLIANCE',Days:30}),
+   set({Mode:'GOVERNANCE',Days:30},'Disabled'),
+   set({Mode:'GOVERNANCE',Days:0}),
+   set({Mode:'GOVERNANCE',Days:3001}),
+   set({Mode:'GOVERNANCE',Years:0}),
+   set({Mode:'GOVERNANCE',Years:9}),
+   set({Mode:'GOVERNANCE',Days:1,Years:2}),
+   set({Mode:'GOVERNANCE'}),
+   set({Mode:'GOVERNANCE',Days:'30'})
+ ])assert.throws(()=>validateB2Retention(candidate),/B2/);
+});
+test('Invalid default retention prevents any remote snapshot upload',async()=>{
+ let uploaded=false;
+ const store={
+   verifyRetention:async()=>validateB2Retention({ObjectLockConfiguration:{
+     ObjectLockEnabled:'Enabled',Rule:{DefaultRetention:{Mode:'COMPLIANCE',Days:30}}}}),
+   put:async()=>{uploaded=true;},get:async()=>{throw Error('Remote bytes should not be fetched');}
+ };
+ await assert.rejects(runScheduledBackup({config,source:source(),store}),/governance retention/);
+ assert.equal(uploaded,false);
 });
