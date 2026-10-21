@@ -15,6 +15,7 @@ import {protectedMediaTransport} from '../web/protected-media.mjs';
 import {qualify} from './qualify.mjs';
 import {buildEnvironment} from './deployment-config.mjs';
 import {runScheduledBackup} from './scheduled-backup.mjs';
+import {syntheticVisionPng,visionColourAnswer} from './fictional-vision-probe.mjs';
 const config=JSON.parse(await readFile(process.argv[2],'utf8'));
 const backupConfig=JSON.parse(await readFile(process.argv[3],'utf8'));
 const env=buildEnvironment(config);
@@ -78,6 +79,33 @@ try{
   const answer=await ai.json();assert(answer.message_id==='ai-'+source);
   const generated=(await db.doc('rooms/fictional-room/messages/'+answer.message_id).get()).data();assert(generated.kind==='ai'&&generated.author_id==='ai-justelle'&&generated.body.length>0);
   const replay=await http('/api/respond',{method:'POST',token:B.token,contentType:'application/json',body:JSON.stringify({source_message_id:source})});assert((await replay.json()).replayed===true);results.push('protected_images_immutable_retry_and_live_vision');
+  // A generic clarification is not proof that the real hosted model read
+  // screenshot pixels. Both inputs have identical text and non-descriptive
+  // filenames; only their protected PNG bytes differ.
+  for(const colour of ['red','blue']){
+    const synthetic=syntheticVisionPng(colour),colourImageId=randomUUID();
+    const originalPath='rooms/fictional-room/media/'+colourImageId;
+    await http('/api/media/'+colourImageId+'/original',{
+      method:'PUT',token:A.token,body:synthetic,contentType:'image/png'},[201]);
+    await setDoc(doc(A.db,'rooms/fictional-room/attachments/'+colourImageId),{
+      id:colourImageId,author_uid:A.user.uid,author_id:'person-a',
+      name:'fictional-colour-sample.png',mime:'image/png',
+      size:synthetic.length,sha256:createHash('sha256').update(synthetic).digest('hex'),
+      original_path:originalPath,preview_path:null,created_at:serverTimestamp()
+    });
+    const colourMessage=await A.backend.addMessage(A.user,{
+      body:'Look only at the attached solid-square image. What is its main colour? Reply with only one word: red or blue. Do not suggest any trip or booking.',
+      attachmentIds:[colourImageId]
+    });
+    const vision=await http('/api/respond',{method:'POST',token:A.token,
+      contentType:'application/json',body:JSON.stringify({source_message_id:colourMessage})});
+    const result=await vision.json();
+    assert(result.message_id==='ai-'+colourMessage);
+    const reply=(await db.doc('rooms/fictional-room/messages/'+result.message_id).get()).data();
+    assert(reply?.kind==='ai'&&visionColourAnswer(reply.body,colour));
+    assert(result.proposal_created!==true);
+  }
+  results.push('live_model_distinguishes_two_protected_synthetic_png_colours');
   // Qualify the current immediate-edit planner; legacy approvals are compatibility tests only.
   const planId=randomUUID(),documentId=randomUUID(),sourceId=randomUUID();
   await A.planner.createPlan(A.user,{id:planId,title:'Synthetic shared journey',durationDays:4,startsOn:'2026-11-01'});
