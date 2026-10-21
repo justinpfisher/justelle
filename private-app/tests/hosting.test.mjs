@@ -59,6 +59,14 @@ test('Production uses its own project, protected routes and only the approved ap
 });
 
 import {smoke} from '../hosting/smoke.mjs';
+const plannerHtml='<html lang="en-CA"><head><link rel="apple-touch-icon" href="/justelle-caricature.png"></head>'+
+  '<body><form id="login-form"></form><div id="private-app">'+
+  '<form id="planner-create"></form></div></body></html>';
+const privateHeaders={'Cache-Control':'no-store',
+  'Content-Security-Policy':"default-src 'self'; frame-ancestors 'none'; object-src 'none'"};
+const homeManifest={name:'Justelle. Still us.',start_url:'/',scope:'/',
+  display:'standalone',icons:[{src:'/justelle-caricature.png',type:'image/png',sizes:'any'}]};
+
 test('Production smoke covers both member planner reads, unauthenticated originals and no-cost source-missing AI paths',async()=>{
   const sha='a'.repeat(40),origin='https://app.justelle.life';
   const members=[{email:'fictional-a@example.invalid',password:'fictional-a-secret'},
@@ -69,8 +77,9 @@ test('Production smoke covers both member planner reads, unauthenticated origina
     const method=options.method||'GET',token=options.headers?.Authorization;
     calls.push({pathname,method,authorized:Boolean(token)});
     if(pathname==='/api/healthz')return Response.json({version:sha});
-    if(['/','/manifest.webmanifest','/justelle-caricature.png'].includes(pathname))
-      return new Response('fictional-content',{status:200});
+    if(pathname==='/')return new Response(plannerHtml,{headers:privateHeaders});
+    if(pathname==='/manifest.webmanifest')return Response.json(homeManifest);
+    if(pathname==='/justelle-caricature.png')return new Response('synthetic-image');
     if(pathname.startsWith('/v1/accounts:signInWithPassword')){
       const input=JSON.parse(options.body);
       assert.ok(members.some(m=>m.email===input.email));
@@ -114,8 +123,9 @@ test('Production smoke fails closed when the signed planner API is absent',async
  const fetchImpl=async(uri,options)=>{
    const path=new URL(uri).pathname;
    if(path==='/api/healthz')return Response.json({version:'a'.repeat(40)});
-   if(['/','/manifest.webmanifest','/justelle-caricature.png'].includes(path))
-     return new Response('ok',{status:200});
+   if(path==='/')return new Response(plannerHtml,{headers:privateHeaders});
+   if(path==='/manifest.webmanifest')return Response.json(homeManifest);
+   if(path==='/justelle-caricature.png')return new Response('synthetic-image');
    if(path.startsWith('/api/media/')||path==='/api/respond'&&!options.headers?.Authorization||
       path==='/api/plan/suggest'&&!options.headers?.Authorization)
      return new Response('Anonymous denied',{status:401});
@@ -129,4 +139,31 @@ test('Production smoke fails closed when the signed planner API is absent',async
    apiKey:'fictional-key',members:[{email:'a@example.invalid',password:'a'},
      {email:'b@example.invalid',password:'b'}],sha:'a'.repeat(40)},fetchImpl),
  /Release access check failed/);
+});
+
+test('A public landing page, missing privacy headers or bad PWA manifest block release',async()=>{
+ const origin='https://app.justelle.life',sha='a'.repeat(40);
+ const cases=[
+   {html:'<html><h1>Justelle. Still us.</h1></html>',headers:privateHeaders,manifest:homeManifest,
+      expected:/Private planner HTML/},
+   {html:plannerHtml,headers:{},manifest:homeManifest,
+      expected:/security headers/},
+   {html:plannerHtml,headers:privateHeaders,manifest:{...homeManifest,display:'browser'},
+      expected:/Home Screen manifest/}
+ ];
+ for(const entry of cases){
+   let calls=0;
+   const fakeFetch=async uri=>{
+     calls++;
+     const path=new URL(uri).pathname;
+     if(path==='/api/healthz')return Response.json({version:sha});
+     if(path==='/')return new Response(entry.html,{headers:entry.headers});
+     if(path==='/manifest.webmanifest')return Response.json(entry.manifest);
+     throw Error('Incorrectly reached member authentication after invalid private site');
+   };
+   await assert.rejects(smoke({origin,projectId:'fictional-project',roomId:'fictional-room',
+     apiKey:'fictional-key',members:[{email:'first@example.invalid'},
+       {email:'second@example.invalid'}],sha},fakeFetch),entry.expected);
+   assert.ok(calls<=3,'Invalid shell must fail before member credentials are used');
+ }
 });
