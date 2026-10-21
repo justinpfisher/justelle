@@ -167,3 +167,15 @@ test('A public landing page, missing privacy headers or bad PWA manifest block r
    assert.ok(calls<=3,'Invalid shell must fail before member credentials are used');
  }
 });
+
+test('Before JavaScript starts, private sign-in is neutral and pilot warnings are hidden',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const html=await readFile(new URL('../web/index.html',import.meta.url),'utf8');
+ assert.match(html,/class="pilot" role="note" hidden/);
+ assert.match(html,/Sign in to your private Justelle space/);
+ assert.match(html,/<label for="email">Email<\/label>/);
+ assert.match(html,/<label for="password">Password<\/label>/);
+ assert.ok(!html.includes('Test email'));
+ assert.ok(!html.includes('This prototype is not authorised for personal content'));
+ assert.ok(html.includes('id="planner-create"'));
+});

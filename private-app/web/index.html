@@ -22,16 +22,16 @@
     </div>
     <button type="button" id="sign-out" class="text-button" hidden>Sign out</button>
   </header>
-  <p class="pilot" role="note"><span class="pilot-dot"></span> Local fictional-data pilot · Not connected to the public website</p>
+  <p class="pilot" role="note" hidden><span class="pilot-dot"></span> Local fictional-data pilot · Not connected to the public website</p>
   <p id="notice" role="status" aria-live="polite"></p>
   <p id="error" role="alert" aria-live="assertive"></p>
   <section class="login-card" id="login">
     <h2>A place for two.</h2>
-    <p>Sign in with a fictional account created by the local emulator. This prototype is not authorised for personal content.</p>
+    <p>Sign in to your private Justelle space.</p>
     <form id="login-form" method="post">
-      <label for="email">Test email</label>
+      <label for="email">Email</label>
       <input id="email" type="email" autocomplete="username" required disabled>
-      <label for="password">Test password</label>
+      <label for="password">Password</label>
       <input id="password" type="password" autocomplete="current-password" required disabled>
       <button id="sign-in-button" type="submit" class="primary full" disabled>Sign in</button>
     </form>

@@ -22,7 +22,18 @@ if(runtime.mode==='local'){
 await setPersistence(auth,browserLocalPersistence);
 
 const $=id=>document.getElementById(id);
-if(runtime.mode==='hosted-fictional')document.querySelector('.pilot').textContent='Fictional qualification · Personal content is not enabled';
+if(runtime.mode!=='production'){
+  const banner=document.querySelector('.pilot');
+  banner.textContent=runtime.mode==='hosted-fictional'?
+    'Fictional qualification · Personal content is not enabled':
+    'Local fictional-data pilot · Not connected to the public website';
+  banner.hidden=false;
+  document.querySelector('#login > p').textContent=runtime.mode==='hosted-fictional'?
+    'Use the dedicated fictional qualification account. Do not enter personal information.':
+    'Sign in with a fictional account created by the local emulator. This prototype is not authorised for personal content.';
+  document.querySelector('label[for=email]').textContent='Test email';
+  document.querySelector('label[for=password]').textContent='Test password';
+}
 if(runtime.mode==='production'){
   document.querySelector('.pilot').hidden=true;
   document.querySelector('#login > p').textContent='Sign in once on your own device. Justelle usually remembers you when you reopen it.';
