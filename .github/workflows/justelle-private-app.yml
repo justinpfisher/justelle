@@ -128,6 +128,8 @@ jobs:
           workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
           service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
       - name: Prepare private deployment configuration
         env:
           CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
