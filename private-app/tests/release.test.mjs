@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {release} from '../hosting/release-core.mjs';
+import {release,disableInitialService} from '../hosting/release-core.mjs';
 const sha='a'.repeat(40),old='b'.repeat(40);
 function setup({failure=null,previous=true,rollbackFailure=false}={}){
   const calls=[];
@@ -24,4 +24,33 @@ test('Partial deployment and smoke failures restore exact prior source and verif
 test('First-release failure disables service; failed rollback produces an explicit recovery failure',async()=>{
   const initial=setup({failure:'check',previous:false});await assert.rejects(release(initial.options));assert.deepEqual(initial.calls.slice(-2),[['disable'],['report','disabled']]);
   const broken=setup({failure:'check',rollbackFailure:true});await assert.rejects(release(broken.options),/immediate operator/);assert.deepEqual(broken.calls.at(-1),['report','recovery-failed']);
+});
+
+test('First-release shutdown attempts Hosting even when Cloud Run IAM removal fails',async()=>{
+ for(const failure of ['run','hosting','both']){
+   const calls=[];
+   const close=()=>disableInitialService({
+     removePublicInvoker:async()=>{calls.push('remove-run-public-access');
+       if(failure==='run'||failure==='both')throw Error('Synthetic IAM failure with sensitive details');},
+     disableHosting:async()=>{calls.push('disable-hosting');
+       if(failure==='hosting'||failure==='both')throw Error('Synthetic Firebase failure with sensitive details');}
+   });
+   await assert.rejects(close(),/operator recovery required/);
+   assert.deepEqual(calls,['remove-run-public-access','disable-hosting']);
+ }
+ const calls=[];
+ await disableInitialService({removePublicInvoker:async()=>calls.push('run'),
+   disableHosting:async()=>calls.push('hosting')});
+ assert.deepEqual(calls,['run','hosting']);
+});
+test('Failed initial rollback never reports success when either public shutdown is incomplete',async()=>{
+ const calls=[];
+ const initial=setup({failure:'check',previous:false});
+ await assert.rejects(release({...initial.options,failClosed:()=>disableInitialService({
+   removePublicInvoker:async()=>{calls.push('remove-run');throw Error('Synthetic denied');},
+   disableHosting:async()=>{calls.push('disable-hosting');}
+ })}),/immediate operator attention/);
+ assert.deepEqual(calls,['remove-run','disable-hosting']);
+ assert.equal(initial.calls.some(x=>x[0]==='record'),false);
+ assert.deepEqual(initial.calls.at(-1),['report','recovery-failed']);
 });
