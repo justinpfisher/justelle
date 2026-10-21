@@ -10,7 +10,7 @@ test('Auth config deployment uses a narrow leaf mask and verifies disabled provi
   call={url,options};return new Response(JSON.stringify({signIn:{email:{enabled:true,passwordRequired:true},anonymous:{enabled:false},phoneNumber:{enabled:false}}}));
  }});
  assert.equal(call.url.searchParams.get('updateMask'),'signIn.email.enabled,signIn.email.passwordRequired,signIn.anonymous.enabled,signIn.phoneNumber.enabled');
- assert.equal(call.options.redirect,'error');assert.equal(JSON.parse(call.options.body).signIn.email.passwordRequired,true);
+ assert.equal(call.options.redirect,'error');assert.equal(call.options.headers['x-goog-user-project'],'fictional-qualification');assert.equal(JSON.parse(call.options.body).signIn.email.passwordRequired,true);
  for(const config of [
   {email:{enabled:false,passwordRequired:true},anonymous:{enabled:false},phoneNumber:{enabled:false}},
   {email:{enabled:true,passwordRequired:false},anonymous:{enabled:false},phoneNumber:{enabled:false}},

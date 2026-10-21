@@ -5,7 +5,7 @@ export async function enforceAuthConfig(projectId,{credential,fetchImpl=fetch}={
   const url=new URL(`https://identitytoolkit.googleapis.com/admin/v2/projects/${projectId}/config`);
   url.searchParams.set('updateMask',updateMask);
   const response=await fetchImpl(url,{method:'PATCH',redirect:'error',signal:AbortSignal.timeout(15000),
-    headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json'},
+    headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json','x-goog-user-project':projectId},
     body:JSON.stringify({signIn:{email:{enabled:true,passwordRequired:true},anonymous:{enabled:false},phoneNumber:{enabled:false}}})});
   if(!response.ok)throw Error('Auth configuration update failed');
   const actual=await response.json();
