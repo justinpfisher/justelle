@@ -12,7 +12,8 @@ test('Cloud upload package loads and routes real HTTP requests without any paren
   const isolated=await mkdtemp(join(tmpdir(),'justelle-functions-package-'));
   try{
     for(const name of ['lib','package.json','package-lock.json'])await cp(join(root,'hosting/functions',name),join(isolated,name),{recursive:true});
-    await run(process.platform==='win32'?'npm.cmd':'npm',['ci','--offline','--omit=dev','--ignore-scripts','--no-audit','--no-fund'],{cwd:isolated});
+    const npmArgs=['ci','--offline','--omit=dev','--ignore-scripts','--no-audit','--no-fund'];
+    await run(process.platform==='win32'?(process.env.ComSpec||'cmd.exe'):'npm',process.platform==='win32'?['/d','/s','/c','npm.cmd '+npmArgs.join(' ')]:npmArgs,{cwd:isolated});
     const script=`import assert from 'node:assert/strict';
       const {privateApi,encryptedBackup}=await import('./lib/index.mjs');
       assert.equal(privateApi.__endpoint.platform,'gcfv2');
@@ -22,6 +23,15 @@ test('Cloud upload package loads and routes real HTTP requests without any paren
       assert.equal(health.status,200);assert.match(JSON.parse(health.body).version,/^[a-f0-9]{40}$/);
       const denied=response();await privateApi({url:'/api/respond',method:'POST',headers:{'content-type':'application/json'},rawBody:Buffer.from('{}')},denied);
       assert.equal(denied.status,401);
+      const logged=[],originalError=console.error;
+      process.env.JUSTELLE_ORIGIN='invalid-runtime-origin';
+      try{
+        console.error=message=>logged.push(message);
+        await assert.rejects(encryptedBackup.run({}),/Encrypted backup failed; review private provider monitoring/);
+      }finally{console.error=originalError;}
+      assert.equal(logged.length,1);
+      assert.equal(JSON.parse(logged[0]).event,'encrypted_backup_failed');
+      assert.equal(logged[0].includes('invalid-runtime-origin'),false);
       console.log('Isolated deployment package passed');`;
     await writeFile(join(isolated,'verify.mjs'),script);
     const env={...process.env,JUSTELLE_MODE:'hosted-fictional',JUSTELLE_ROOM_ID:'fictional-room',JUSTELLE_ORIGIN:'https://fictional-qualification.web.app',

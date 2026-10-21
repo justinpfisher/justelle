@@ -73,8 +73,8 @@ export const privateApi=onRequest({region:'northamerica-northeast1',memory:'512M
 export const encryptedBackup=onSchedule({schedule:'15 3 * * *',timeZone:'America/Toronto',region:'northamerica-northeast1',
   memory:'1GiB',timeoutSeconds:540,minInstances:0,maxInstances:1,concurrency:1,retryCount:0,
   serviceAccount:backupAccount,secrets:[backupConfig]},async()=>{
-  const {roomId,environment}=runtime();
   try{
+    const {roomId,environment}=runtime();
     await runScheduledBackup({db:getFirestore(),bucket:getStorage().bucket(),roomId,
       productionApproved:environment==='production',config:JSON.parse(backupConfig.value())});
     console.info(JSON.stringify({event:'encrypted_backup_verified',version}));

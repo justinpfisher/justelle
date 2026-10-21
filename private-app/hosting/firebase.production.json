@@ -1,4 +1,10 @@
 {
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "anonymous": false
+    }
+  },
   "hosting": {
     "target": "justelle-private-production",
     "public": "../dist",
