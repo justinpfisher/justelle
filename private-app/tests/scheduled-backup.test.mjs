@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {Readable} from 'node:stream';
 import {createHash,randomBytes} from 'node:crypto';
 import {runScheduledBackup} from '../hosting/scheduled-backup.mjs';
-import {createB2Store,validateB2Retention} from '../hosting/functions/b2-store.mjs';
+import {createB2Store,validateB2Retention,validateB2ObjectRetention} from '../hosting/functions/b2-store.mjs';
 const id='00000000-0000-4000-8000-000000000001';
 const image=Buffer.from('synthetic-original-image');
 const records={persons:[{id:'person-a'},{id:'person-b'}],conversations:[{id:'conversation-shared'}],
@@ -16,19 +16,22 @@ const config={prefix:'fictional',recoveryKeyBase64:randomBytes(32).toString('bas
 const source=()=>({records,media:[{id,mime:'image/png',stream:Readable.from([image])}]});
 test('Scheduled backup uploads ciphertext and downloads/restores exact original history without Firebase',async()=>{
   let stored,closed=false;const calls=[];
-  const store={verifyRetention:async()=>calls.push('retention'),put:async(n,p,size)=>{stored=await readFile(p);assert.equal(stored.length,size);calls.push('put');},
+  const store={verifyRetention:async()=>calls.push('retention'),put:async(n,p,size)=>{stored=await readFile(p);assert.equal(stored.length,size);calls.push('put');return 'fictional-version';},
+    verifyObjectRetention:async(n,version)=>{assert.match(n,/^fictional\//);assert.equal(version,'fictional-version');calls.push('object-retention');},
     get:async()=>{calls.push('get');return Readable.from([stored]);},close:()=>{closed=true;}};
   const result=await runScheduledBackup({config,source:source(),store});
-  assert.equal(result.verified,true);assert.deepEqual(calls,['retention','put','get']);assert.equal(closed,true);
+  assert.equal(result.verified,true);assert.deepEqual(calls,['retention','put','object-retention','get']);assert.equal(closed,true);
   assert.equal(stored.includes(image),false);assert.equal(stored.includes(Buffer.from('Synthetic original')),false);
 });
 test('Retention failure, upload failure and corrupt downloads cannot report a successful backup',async()=>{
-  for(const fault of ['retention','upload','corrupt']){
-    let stored,uploaded=false;
+  for(const fault of ['retention','upload','object-retention','corrupt']){
+    let stored,uploaded=false,downloaded=false;
     const store={verifyRetention:async()=>{if(fault==='retention')throw Error('Retention missing');},put:async(n,p)=>{if(fault==='upload')throw Error('Upload unavailable');stored=await readFile(p);uploaded=true;},
-      get:async()=>{const corrupt=Buffer.from(stored);corrupt[70]^=1;return Readable.from([corrupt]);}};
+      verifyObjectRetention:async()=>{if(fault==='object-retention')throw Error('Object lock missing');},
+      get:async()=>{downloaded=true;const corrupt=Buffer.from(stored);corrupt[70]^=1;return Readable.from([corrupt]);}};
     await assert.rejects(runScheduledBackup({config,source:source(),store}));
-    assert.equal(uploaded,fault==='corrupt');
+    assert.equal(uploaded,['object-retention','corrupt'].includes(fault));
+    assert.equal(downloaded,fault==='corrupt');
   }
 });
 test('B2 store cannot send credentials to an unrelated endpoint',()=>{
@@ -62,4 +65,18 @@ test('Invalid default retention prevents any remote snapshot upload',async()=>{
  };
  await assert.rejects(runScheduledBackup({config,source:source(),store}),/governance retention/);
  assert.equal(uploaded,false);
+});
+
+test('Uploaded B2 object must report its own valid future GOVERNANCE retention',()=>{
+ const now=Date.parse('2026-10-21T12:00:00Z');
+ assert.equal(validateB2ObjectRetention({Mode:'GOVERNANCE',RetainUntilDate:new Date(now+86400000)},now),true);
+ for(const candidate of [
+   null,{},
+   {Mode:'COMPLIANCE',RetainUntilDate:new Date(now+86400000)},
+   {Mode:'GOVERNANCE'},
+   {Mode:'GOVERNANCE',RetainUntilDate:new Date('invalid')},
+   {Mode:'GOVERNANCE',RetainUntilDate:new Date(now)},
+   {Mode:'GOVERNANCE',RetainUntilDate:new Date(now-1000)},
+   {Mode:'GOVERNANCE',RetainUntilDate:'2026-10-22T12:00:00Z'}
+ ])assert.throws(()=>validateB2ObjectRetention(candidate,now),/object/);
 });

@@ -1,4 +1,4 @@
-import {S3Client,PutObjectCommand,GetObjectCommand,GetObjectLockConfigurationCommand} from '@aws-sdk/client-s3';
+import {S3Client,PutObjectCommand,GetObjectCommand,GetObjectLockConfigurationCommand,GetObjectRetentionCommand} from '@aws-sdk/client-s3';
 import {createReadStream} from 'node:fs';
 // A configured Object Lock bucket can still use the wrong mode or an
 // ineffective default period. New ciphertext generations require the
@@ -17,6 +17,16 @@ export function validateB2Retention(configuration){
   return true;
 }
 
+// The bucket policy alone does not prove a newly uploaded object is locked.
+// Verify the exact object (and its version when supplied) independently.
+export function validateB2ObjectRetention(retention,now=Date.now()){
+  const until=retention?.RetainUntilDate;
+  if(retention?.Mode!=='GOVERNANCE'||!(until instanceof Date)||
+      !Number.isFinite(until.getTime())||until.getTime()<=now)
+    throw Error('B2 uploaded object has no effective future governance retention');
+  return true;
+}
+
 export function createB2Store(config){
   const endpoint=new URL(config.endpoint);
   if(endpoint.protocol!=='https:'||!/^s3\.[a-z0-9-]+\.backblazeb2\.com$/.test(endpoint.hostname)||
@@ -32,8 +42,15 @@ export function createB2Store(config){
       validateB2Retention(result);
     },
     async put(name,path,size){
-      await client.send(new PutObjectCommand({Bucket:config.bucket,Key:name,Body:createReadStream(path),ContentLength:size,
+      const result=await client.send(new PutObjectCommand({Bucket:config.bucket,Key:name,Body:createReadStream(path),ContentLength:size,
         ContentType:'application/octet-stream',CacheControl:'private, no-store'}));
+      return result.VersionId||null;
+    },
+    async verifyObjectRetention(name,versionId){
+      const result=await client.send(new GetObjectRetentionCommand({
+        Bucket:config.bucket,Key:name,...(versionId?{VersionId:versionId}:{})
+      }));
+      validateB2ObjectRetention(result);
     },
     async get(name){return (await client.send(new GetObjectCommand({Bucket:config.bucket,Key:name}))).Body;},
     close(){client.destroy();}

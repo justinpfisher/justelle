@@ -24,7 +24,10 @@ export async function runScheduledBackup({db,bucket,roomId,productionApproved=fa
     // restore of the identical bytes adds no recovery assurance.
     await remote.verifyRetention();
     const name=config.prefix+'/'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID()+'.jmb';
-    await remote.put(name,destination,size);
+    const versionId=await remote.put(name,destination,size);
+    // A default bucket rule is insufficient: require the uploaded version
+    // itself to report future governance retention before counting recovery.
+    await remote.verifyObjectRetention(name,versionId);
     const handle=await open(downloaded,'wx',0o600);let received=0;
     try{
       for await(const chunk of await remote.get(name)){
