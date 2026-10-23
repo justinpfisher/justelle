@@ -1,0 +1,134 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,symlink,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
+  readOfflineRecoveryKey} from '../tools/bootstrap-b2-secret.mjs';
+
+const endpoint='https://s3.us-west-004.backblazeb2.com';
+const keyId='testappkeyid12345';
+const appKey='SYNTHETIC_not-real-secret/12345';
+const capString=capabilities.join(',');
+const listLine=()=>keyId+" justelle-qualification-backup justelle-qualification-backups - - 'qualification/' "+capString;
+function makeRunner({preexistingKey=false,preexistingVersion=false,scopeMismatch=false,failAt='',failDelete=false}={}){
+  const calls=[];let created=false,installed=null;
+  async function run(provider,args,stdin){
+    const command=provider+' '+args.join(' ');
+    calls.push({provider,args,stdin:stdin?Buffer.from(stdin):null});
+    if(failAt&&command.includes(failAt)&&!(provider==='b2'&&args[1]==='delete'))throw Error('Simulated sensitive failure');
+    if(provider==='b2'&&args[0]==='key'&&args[1]==='list')
+      return (preexistingKey||created?listLine().replace(scopeMismatch?"'qualification/'":"no-match","'wrong/'"): '')+'\n';
+    if(provider==='b2'&&args[0]==='key'&&args[1]==='create'){
+      created=true;return Buffer.from(keyId+' '+appKey+'\n');
+    }
+    if(provider==='b2'&&args[0]==='key'&&args[1]==='delete'){
+      if(failDelete)throw Error('Cannot revoke');
+      created=false;return '';
+    }
+    if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='list')return '[]';
+    if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='create')return '';
+    if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='versions'&&args[2]==='list')
+      return preexistingVersion?'[{"name":"projects/123/secrets/JUSTELLE_BACKUP_CONFIG/versions/1"}]':'[]';
+    if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='versions'&&args[2]==='add'){
+      installed=JSON.parse(stdin.toString('utf8'));return '';
+    }
+    throw Error('Unexpected synthetic command '+command);
+  }
+  return {run,calls,get installed(){return installed;}};
+}
+const runBootstrap=async (runner,options={})=>bootstrap({endpoint,recoveryKey:Buffer.alloc(32,17),offlineCustodyConfirmed:true,run:runner.run,...options});
+
+test('validates exact B2 HTTPS endpoint and rejects credentials/unexpected hosts',()=>{
+  assert.equal(validateEndpoint(endpoint),endpoint);
+  for(const host of ['http://s3.us-west-004.backblazeb2.com','https://s3.fake.com',
+    'https://user:pass@s3.us-west-004.backblazeb2.com','https://s3.us-west-004.backblazeb2.com/bucket',
+    'https://s3.us-west-004.backblazeb2.com?token=x'])
+    assert.throws(()=>validateEndpoint(host),/Invalid Backblaze S3 endpoint/);
+});
+
+test('B2 key parser accepts only a single private two-token response',()=>{
+  assert.deepEqual(parseCreatedKey(keyId+' '+appKey),{keyId,applicationKey:appKey});
+  assert.throws(()=>parseCreatedKey('log line\n'+keyId+' '+appKey),/unexpected key format/);
+  assert.throws(()=>parseCreatedKey('onlyone'),/unexpected key format/);
+});
+
+test('B2 key-list metadata enforces bucket, prefix, and exactly five capabilities',()=>{
+  assert.equal(verifyKeyList(listLine(),keyId),true);
+  assert.throws(()=>verifyKeyList(listLine().replace("'qualification/'","'elsewhere/'"),keyId),/restrictions/);
+  assert.throws(()=>verifyKeyList(listLine().replace('readFiles','deleteFiles'),keyId),/restrictions/);
+});
+
+test('successful one-time bootstrap never writes key material to output/command args',async()=>{
+  const runner=makeRunner();const result=await runBootstrap(runner);
+  assert.deepEqual(result,{restricted_key_installed:true,secret_version_added:true,offline_custody_owner_confirmed:true});
+  const json=runner.installed;
+  assert.equal(json.endpoint,endpoint);
+  assert.equal(json.bucket,'justelle-qualification-backups');
+  assert.equal(json.prefix,'qualification');
+  assert.equal(json.applicationKey,appKey);
+  assert.equal(json.keyId,keyId);
+  assert.equal(Buffer.from(json.recoveryKeyBase64,'base64').length,32);
+  assert.equal(runner.calls.filter(c=>c.provider==='b2'&&c.args[1]==='create').length,1);
+  assert.equal(runner.calls.filter(c=>c.provider==='gcloud'&&c.args[2]==='add').length,1);
+  assert.equal(runner.calls.filter(c=>c.provider==='b2'&&c.args[1]==='delete').length,0);
+  for(const c of runner.calls){
+    assert.ok(!c.args.join(' ').includes(appKey));
+    assert.ok(!c.args.join(' ').includes(json.recoveryKeyBase64));
+    if(c.stdin)assert.equal(c.provider,'gcloud');
+  }
+});
+
+test('refuses issuance when key already exists or backup secret already has a version',async()=>{
+  for(const settings of [{preexistingKey:true},{preexistingVersion:true}]){
+    const runner=makeRunner(settings);
+    await assert.rejects(runBootstrap(runner),/failed closed/);
+    assert.equal(runner.calls.some(c=>c.provider==='b2'&&c.args[1]==='create'),false);
+  }
+});
+
+test('requires verified owner offline custody before any provider calls',async()=>{
+  const runner=makeRunner();
+  await assert.rejects(runBootstrap(runner,{offlineCustodyConfirmed:false}),/Owner-confirmed/);
+  assert.equal(runner.calls.length,0);
+});
+
+test('revokes new key if scope check or Secret Manager installation fails; errors redact secrets',async()=>{
+  for(const settings of [{scopeMismatch:true},{failAt:'versions add'}]){
+    const runner=makeRunner(settings);
+    let message='';
+    try{await runBootstrap(runner);}catch(e){message=e.message;}
+    assert.match(message,/failed closed/);
+    assert.ok(!message.includes(appKey));
+    assert.ok(runner.calls.some(c=>c.provider==='b2'&&c.args[1]==='delete'));
+    assert.equal(runner.calls.some(c=>c.provider==='b2'&&c.args[1]==='create'),true);
+  }
+});
+
+test('a failed key revocation is reported, still without exposing the key',async()=>{
+  const runner=makeRunner({failAt:'versions add',failDelete:true});
+  await assert.rejects(runBootstrap(runner),e=>{
+    assert.match(e.message,/revocation failed/);
+    assert.ok(!e.message.includes(appKey));
+    return true;
+  });
+});
+
+test('offline recovery file must have 32 bytes and remain outside repository/OneDrive',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'justelle-test-repo-'));
+  const outside=await mkdtemp(join(tmpdir(),'justelle-test-offline-'));
+  try{
+    const ok=join(outside,'key.bin');const bad=join(outside,'bad.bin');
+    await writeFile(ok,Buffer.alloc(32,2));await writeFile(bad,Buffer.alloc(8,2));
+    const key=await readOfflineRecoveryKey(ok,root);
+    assert.equal(key.length,32);key.fill(0);
+    await assert.rejects(readOfflineRecoveryKey(bad,root),/32-byte/);
+    const inRepo=join(root,'key.bin');await writeFile(inRepo,Buffer.alloc(32,1));
+    await assert.rejects(readOfflineRecoveryKey(inRepo,root),/outside the repository/);
+    await mkdir(join(outside,'OneDrive'));
+    const inSync=join(outside,'OneDrive','key.bin');await writeFile(inSync,Buffer.alloc(32,3));
+    await assert.rejects(readOfflineRecoveryKey(inSync,root),/OneDrive/);
+    const link=join(outside,'link.bin');
+    try{await symlink(ok,link);await assert.rejects(readOfflineRecoveryKey(link,root),/regular file/);}catch(e){if(e.code!=='EPERM'&&e.code!=='EACCES')throw e;}
+  }finally{await rm(root,{recursive:true,force:true});await rm(outside,{recursive:true,force:true});}
+});
