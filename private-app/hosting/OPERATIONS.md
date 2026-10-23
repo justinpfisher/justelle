@@ -62,6 +62,8 @@ Create GitHub workload identity federation for `justinpfisher/justelle`, constra
 
 ## Private configuration
 
+**Readiness flags are non-secret repository-level Actions variables.** `JUSTELLE_HOSTED_CONFIGURED` and `JUSTELLE_INITIAL_ACCEPTANCE` are read through `vars.*` in the **job-level `if` conditions** of `.github/workflows/justelle-private-app.yml`, before GitHub starts a job in a named environment. Define them under the repository's **Settings → Secrets and variables → Actions → Variables**, **not only inside an environment**: environment-level variables do not become available until the runner declares that environment, so a job-level guard could otherwise silently skip qualification or production. Leave them unset until the corresponding evidence exists; never set `JUSTELLE_INITIAL_ACCEPTANCE=verified` merely to unblock a workflow. See [GitHub's `vars` context timing](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#vars-context).
+
 The `justelle-qualification` and `justelle-production` GitHub environments each need these separate secrets:
 
 - `JUSTELLE_WIF_PROVIDER`, `JUSTELLE_DEPLOY_SERVICE_ACCOUNT`, `JUSTELLE_DEPLOY_CONFIG`.
