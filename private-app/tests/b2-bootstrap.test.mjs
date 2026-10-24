@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {EventEmitter} from 'node:events';
 import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
-  readOfflineRecoveryKey,selectBootstrapTarget} from '../tools/bootstrap-b2-secret.mjs';
+  readOfflineRecoveryKey,selectBootstrapTarget,windowsCliInvocation} from '../tools/bootstrap-b2-secret.mjs';
 import {decodePrintedRecoveryKey,readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 
 const endpoint='https://s3.us-west-004.backblazeb2.com';
@@ -40,6 +40,17 @@ function makeRunner({preexistingKey=false,preexistingVersion=false,scopeMismatch
   return {run,calls,get installed(){return installed;}};
 }
 const runBootstrap=async (runner,options={})=>bootstrap({endpoint,recoveryKey:Buffer.alloc(32,17),offlineCustodyConfirmed:true,run:runner.run,...options});
+
+test('Windows provider launchers use the roaming B2 script and gcloud.cmd without PowerShell',()=>{
+  const b2=windowsCliInvocation('b2',['key','list'],{appData:'C:\\Users\\owner\\AppData\\Roaming',comSpec:'C:\\Windows\\System32\\cmd.exe'});
+  assert.equal(b2.binary,'C:\\Users\\owner\\AppData\\Roaming\\Python\\Python312\\Scripts\\b2.exe');
+  assert.deepEqual(b2.args,['key','list']);
+  const gcloud=windowsCliInvocation('gcloud',['secrets','list','--project=justelle-qualification','--quiet'],{appData:'unused',comSpec:'C:\\Windows\\System32\\cmd.exe'});
+  assert.equal(gcloud.binary,'C:\\Windows\\System32\\cmd.exe');
+  assert.deepEqual(gcloud.args,['/d','/s','/c','gcloud.cmd secrets list --project=justelle-qualification --quiet']);
+  assert.throws(()=>windowsCliInvocation('b2',['key','list'],{appData:''}),/profile is unavailable/);
+  assert.throws(()=>windowsCliInvocation('unknown',[]),/Unsupported private command/);
+});
 
 test('validates exact B2 HTTPS endpoint and rejects credentials/unexpected hosts',()=>{
   assert.equal(validateEndpoint(endpoint),endpoint);
