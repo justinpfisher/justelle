@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,symlink,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {EventEmitter} from 'node:events';
 import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
   readOfflineRecoveryKey} from '../tools/bootstrap-b2-secret.mjs';
+import {decodePrintedRecoveryKey,readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 
 const endpoint='https://s3.us-west-004.backblazeb2.com';
 const keyId='testappkeyid12345';
@@ -131,4 +133,63 @@ test('offline recovery file must have 32 bytes and remain outside repository/One
     const link=join(outside,'link.bin');
     try{await symlink(ok,link);await assert.rejects(readOfflineRecoveryKey(link,root),/regular file/);}catch(e){if(e.code!=='EPERM'&&e.code!=='EACCES')throw e;}
   }finally{await rm(root,{recursive:true,force:true});await rm(outside,{recursive:true,force:true});}
+});
+
+
+test('paper recovery encoding accepts exact random bytes as grouped hex or canonical Base64',()=>{
+  const bytes=Buffer.from(Array.from({length:32},(_,i)=>i+1));
+  const hex=bytes.toString('hex');
+  const grouped=hex.match(/.{1,8}/g).join('-');
+  assert.deepEqual(decodePrintedRecoveryKey(hex),bytes);
+  assert.deepEqual(decodePrintedRecoveryKey(grouped),bytes);
+  assert.deepEqual(decodePrintedRecoveryKey(bytes.toString('base64')),bytes);
+  for(const invalid of ['a'.repeat(63),'z'.repeat(64),'password123',
+    'a'.repeat(44),bytes.toString('base64').replace(/=$/,'A')]){
+    assert.throws(()=>decodePrintedRecoveryKey(invalid),/Printed recovery key/);
+  }
+});
+class SimulatedTTY extends EventEmitter{
+  constructor(){super();this.isTTY=true;this.isRaw=false;this.paused=false;}
+  setRawMode(value){this.isRaw=value;}
+  resume(){this.paused=false;}
+  pause(){this.paused=true;}
+}
+function mockPrivateConsole(){
+  const input=new SimulatedTTY();
+  const output={isTTY:true,text:'',write(value){this.text+=value;}};
+  return {input,output};
+}
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+test('paper key is entered twice without echo, shell history, temporary file or normal output',async()=>{
+  const {input,output}=mockPrivateConsole();
+  const key=Buffer.alloc(32,9).toString('hex');
+  const reading=readPaperRecoveryKey({input,output});
+  assert.equal(input.isRaw,true);
+  input.emit('data',Buffer.from(key.slice(0,20)));
+  input.emit('data',Buffer.from(key.slice(20)+'\r'));
+  await tick();
+  input.emit('data',Buffer.from(key+'\r'));
+  const received=await reading;
+  assert.equal(received.toString('hex'),key);
+  assert.equal(input.isRaw,false);
+  assert.equal(input.paused,true);
+  assert.ok(!output.text.includes(key));
+  assert.match(output.text,/input hidden/);
+  received.fill(0);
+});
+test('paper input mismatches and cancellation fail closed and restore TTY mode',async()=>{
+  const key=Buffer.alloc(32,7).toString('hex');
+  for(const second of [Buffer.alloc(32,8).toString('hex'),'\x03']){
+    const {input,output}=mockPrivateConsole();
+    const reading=readPaperRecoveryKey({input,output});
+    input.emit('data',Buffer.from(key+'\n'));
+    await tick();
+    input.emit('data',Buffer.from(second+(second==='\x03'?'':'\n')));
+    await assert.rejects(reading,/do not match|cancelled/);
+    assert.equal(input.isRaw,false);
+    assert.ok(!output.text.includes(key));
+  }
+});
+test('paper input is refused when a private TTY is unavailable',async()=>{
+  await assert.rejects(readPaperRecoveryKey({input:{isTTY:false},output:{isTTY:false}}),/interactive terminal/);
 });

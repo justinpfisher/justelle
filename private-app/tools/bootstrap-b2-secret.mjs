@@ -2,6 +2,7 @@
 // The one-time B2 key and complete backup configuration only pass through process memory
 // and the stdin of Google Secret Manager. No credentials or recovery key go to stdout.
 import {spawn} from 'node:child_process';
+import {readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 import {lstat,readFile,realpath} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,sep,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -38,6 +39,7 @@ export async function readOfflineRecoveryKey(file,repositoryRoot){
   if(key.length!==32){key.fill(0);throw Error('The recovery key has an invalid length');}
   return key;
 }
+
 
 export function parseCreatedKey(output){
   // The B2 CLI documents one space-separated line: applicationKeyId applicationKey.
@@ -159,21 +161,25 @@ function parseArguments(argv){
   const args={};
   for(let i=0;i<argv.length;i++){
     if(argv[i]==='--offline-custody-confirmed')args.offlineCustodyConfirmed=true;
+    else if(argv[i]==='--paper-key')args.paperKey=true;
     else if(['--offline-key','--endpoint'].includes(argv[i])&&argv[i+1]){
       const option=argv[i++];args[option==='--offline-key'?'file':'endpoint']=argv[i];
     }
-    else throw Error('Use --offline-key <absolute-owner-held-file> --endpoint <B2-S3-HTTPS-endpoint> --offline-custody-confirmed');
+    else throw Error('Use either --paper-key or --offline-key <absolute-owner-held-file>, plus --endpoint <B2-S3-HTTPS-endpoint> --offline-custody-confirmed');
   }
-  if(!args.file||!args.endpoint||!args.offlineCustodyConfirmed)
-    throw Error('Offline key path, B2 endpoint and genuine owner custody confirmation are required');
+  if(Boolean(args.file)===Boolean(args.paperKey)||!args.endpoint||!args.offlineCustodyConfirmed)
+    throw Error('Choose exactly one recovery key input method, B2 endpoint and genuine owner custody confirmation');
   return args;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
   let key;
   try{
-    const {file,endpoint,offlineCustodyConfirmed}=parseArguments(process.argv.slice(2));
-    const root=fileURLToPath(new URL('../',import.meta.url));
-    key=await readOfflineRecoveryKey(file,root);
+    const {file,paperKey,endpoint,offlineCustodyConfirmed}=parseArguments(process.argv.slice(2));
+    if(paperKey)key=await readPaperRecoveryKey();
+    else{
+      const root=fileURLToPath(new URL('../',import.meta.url));
+      key=await readOfflineRecoveryKey(file,root);
+    }
     const result=await bootstrap({endpoint,recoveryKey:key,offlineCustodyConfirmed,run:localCliRunner()});
     console.log(JSON.stringify(result));
   }catch(e){
