@@ -97,7 +97,8 @@ function hiddenTTYLine(input,output,prompt){
   });
 }
 export async function readPaperRecoveryKey({input=process.stdin,output=process.stderr}={}){
-  if(process.env.CI||process.env.GITHUB_ACTIONS||input?.isTTY!==true||output?.isTTY!==true||
+  if((input===process.stdin&&(process.env.CI||process.env.GITHUB_ACTIONS))||
+     input?.isTTY!==true||output?.isTTY!==true||
      typeof input.setRawMode!=='function')
     throw Error('Paper recovery entry requires a private owner-controlled interactive terminal');
   const priorRaw=Boolean(input.isRaw);
