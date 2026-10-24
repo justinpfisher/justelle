@@ -132,7 +132,8 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
   try{
     // Fail before issuing a non-recoverable one-time key if this account or
     // Secret Manager is not accessible, or a backup credential already exists.
-    const knownKeys=String(await run('b2',['key','list']));
+    // CLI v5 defaults to ID/name only; the scope audit needs --long.
+    const knownKeys=String(await run('b2',['key','list','--long']));
     if(knownKeys.split(/\r?\n/).some(l=>l.trim().split(/\s+/)[1]===keyName))
       throw Error('A named restricted B2 key already exists; inspect it before retrying');
     const listed=parseJson(await run('gcloud',googleArgs(project,'secrets','list','--format=json')));
@@ -149,7 +150,7 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
     const pair=parseCreatedKey(createdOutput);
     newId=pair.keyId;
     if(Buffer.isBuffer(createdOutput))createdOutput.fill(0);
-    const listAfter=await run('b2',['key','list']);
+    const listAfter=await run('b2',['key','list','--long']);
     verifyKeyList(listAfter,newId,target);
     if(Buffer.isBuffer(listAfter))listAfter.fill(0);
     const raw=JSON.stringify({endpoint:safeEndpoint,bucket,keyId:pair.keyId,
