@@ -41,14 +41,23 @@ function makeRunner({preexistingKey=false,preexistingVersion=false,scopeMismatch
 }
 const runBootstrap=async (runner,options={})=>bootstrap({endpoint,recoveryKey:Buffer.alloc(32,17),offlineCustodyConfirmed:true,run:runner.run,...options});
 
-test('Windows provider launchers use the roaming B2 script and gcloud.cmd without PowerShell',()=>{
-  const b2=windowsCliInvocation('b2',['key','list'],{appData:'C:\\Users\\owner\\AppData\\Roaming',comSpec:'C:\\Windows\\System32\\cmd.exe'});
-  assert.equal(b2.binary,'C:\\Users\\owner\\AppData\\Roaming\\Python\\Python312\\Scripts\\b2.exe');
-  assert.deepEqual(b2.args,['key','list']);
-  const gcloud=windowsCliInvocation('gcloud',['secrets','list','--project=justelle-qualification','--quiet'],{appData:'unused',comSpec:'C:\\Windows\\System32\\cmd.exe'});
+test('Windows launcher invokes the installed B2 v5 Python module without requiring b2.exe',()=>{
+  const b2=windowsCliInvocation('b2',['key','list']);
+  assert.deepEqual(b2,{binary:'py',args:['-m','b2._internal.b2v5','key','list']});
+  const create=windowsCliInvocation('b2',['key','create','--bucket','test-private-bucket',
+    '--name-prefix','qualification/','test-restricted-key',capString]);
+  assert.equal(create.binary,'py');
+  assert.deepEqual(create.args.slice(0,3),['-m','b2._internal.b2v5','key']);
+  assert.equal(create.args.includes('--bucket'),true);
+  assert.equal(create.args.includes('test-private-bucket'),true);
+  // The local pip install may not have generated an executable in its Scripts path.
+  // Our invocation must not depend on APPDATA, PATH changes or PowerShell policy.
+  const gcloud=windowsCliInvocation('gcloud',
+    ['secrets','list','--project=justelle-qualification','--quiet'],
+    {comSpec:'C:\\Windows\\System32\\cmd.exe'});
   assert.equal(gcloud.binary,'C:\\Windows\\System32\\cmd.exe');
-  assert.deepEqual(gcloud.args,['/d','/s','/c','gcloud.cmd secrets list --project=justelle-qualification --quiet']);
-  assert.throws(()=>windowsCliInvocation('b2',['key','list'],{appData:''}),/profile is unavailable/);
+  assert.deepEqual(gcloud.args,
+    ['/d','/s','/c','gcloud.cmd secrets list --project=justelle-qualification --quiet']);
   assert.throws(()=>windowsCliInvocation('unknown',[]),/Unsupported private command/);
 });
 
