@@ -5,7 +5,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {EventEmitter} from 'node:events';
 import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
-  readOfflineRecoveryKey,decodePrintedRecoveryKey,readPaperRecoveryKey} from '../tools/bootstrap-b2-secret.mjs';
+  readOfflineRecoveryKey} from '../tools/bootstrap-b2-secret.mjs';
+import {decodePrintedRecoveryKey,readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 
 const endpoint='https://s3.us-west-004.backblazeb2.com';
 const keyId='testappkeyid12345';
