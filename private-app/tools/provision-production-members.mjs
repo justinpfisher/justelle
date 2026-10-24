@@ -104,11 +104,11 @@ export async function readOwnerConfig(file){
   const info=await lstat(file);
   if(!info.isFile()||info.isSymbolicLink()||info.size<16||info.size>32768)
     throw Error('The private production config must be a regular small file');
-  if(process.platform!=='win32'&&(info.mode&0o077)!==0)
-    throw Error('The private production config must not be readable by other local users');
   const current=await realpath(file),repo=await realpath(fileURLToPath(new URL('../../',import.meta.url)));
   if(within(repo,current)||/(^|[\\/])onedrive([\\/]|$)/i.test(current))
     throw Error('Private production credentials must be outside GitHub and OneDrive');
+  if(process.platform!=='win32'&&(info.mode&0o077)!==0)
+    throw Error('The private production config must not be readable by other local users');
   const config=JSON.parse(await readFile(current,'utf8'));
   validateProductionMemberConfig(config);
   return config;
