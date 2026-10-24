@@ -218,11 +218,11 @@ test('production bootstrap keeps its key, prefix, Secret Manager project and cre
     calls.push({provider,args});
     if(provider==='b2'&&args[0]==='key'&&args[1]==='list')
       return created?
-        keyId+' '+expected.keyName+' '+expected.bucket+" - - 'production/' "+capString+'\\n':'';
+        keyId+' '+expected.keyName+' '+expected.bucket+" - - 'production/' "+capString+'\n':'';
     if(provider==='b2'&&args[0]==='key'&&args[1]==='create'){
       assert.deepEqual(args,['key','create','--bucket',bucketName,'--name-prefix','production/',
         'justelle-production-backup',capString]);
-      created=true;return Buffer.from(keyId+' '+appKey+'\\n');
+      created=true;return Buffer.from(keyId+' '+appKey+'\n');
     }
     if(provider==='gcloud'){
       assert.ok(args.includes('--project=justelle-production'));
