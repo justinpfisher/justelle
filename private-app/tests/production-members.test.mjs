@@ -182,5 +182,13 @@ test('private config must remain outside repository and OneDrive',async()=>{
     const synced=join(oneDrive,'production.json');
     await writeFile(synced,JSON.stringify(config()),{mode:0o600});
     await assert.rejects(readOwnerConfig(synced),/outside GitHub and OneDrive/);
+    // Windows can label synced folders "OneDrive - Organisation" or "OneDrive (Personal)".
+    for(const folderName of ['OneDrive - Example','OneDrive (Personal)']){
+      const labelled=join(folder,folderName);
+      await mkdir(labelled);
+      const file=join(labelled,'production.json');
+      await writeFile(file,JSON.stringify(config()),{mode:0o600});
+      await assert.rejects(readOwnerConfig(file),/outside GitHub and OneDrive/);
+    }
   }finally{await rm(folder,{recursive:true,force:true});}
 });

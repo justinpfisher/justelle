@@ -28,7 +28,7 @@ function inside(parent,path){
 export async function readOfflineRecoveryKey(file,repositoryRoot){
   if(typeof file!=='string'||!isAbsolute(file))throw Error('An absolute owner-controlled recovery-key path is required');
   const current=await realpath(file),root=await realpath(repositoryRoot);
-  if(inside(root,current)||/(^|[\\/])onedrive([\\/]|$)/i.test(current))
+  if(inside(root,current)||/(^|[\\/])onedrive(?:[ \t]*[-–][^\\/]+|[ \t]*\([^\\/]+\))?([\\/]|$)/i.test(current))
     throw Error('Recovery key must be held outside the repository and OneDrive');
   const stat=await lstat(file);
   if(stat.isSymbolicLink()||!stat.isFile()||stat.size!==32)

@@ -130,6 +130,14 @@ test('offline recovery file must have 32 bytes and remain outside repository/One
     await mkdir(join(outside,'OneDrive'));
     const inSync=join(outside,'OneDrive','key.bin');await writeFile(inSync,Buffer.alloc(32,3));
     await assert.rejects(readOfflineRecoveryKey(inSync,root),/OneDrive/);
+    // Also refuse Windows' labelled OneDrive sync roots.
+    for(const folderName of ['OneDrive - Example','OneDrive – Family']){
+      const labelled=join(outside,folderName);
+      await mkdir(labelled);
+      const file=join(labelled,'key.bin');
+      await writeFile(file,Buffer.alloc(32,5));
+      await assert.rejects(readOfflineRecoveryKey(file,root),/OneDrive/);
+    }
     const link=join(outside,'link.bin');
     try{await symlink(ok,link);await assert.rejects(readOfflineRecoveryKey(link,root),/regular file/);}catch(e){if(e.code!=='EPERM'&&e.code!=='EACCES')throw e;}
   }finally{await rm(root,{recursive:true,force:true});await rm(outside,{recursive:true,force:true});}
