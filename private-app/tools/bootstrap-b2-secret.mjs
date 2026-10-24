@@ -1,4 +1,4 @@
-// One-time owner-local qualification setup. Never run in Actions or in a captured/shared shell.
+// One-time, project-isolated owner-local backup setup. Never run in Actions or a captured/shared shell.
 // The one-time B2 key and complete backup configuration only pass through process memory
 // and the stdin of Google Secret Manager. No credentials or recovery key go to stdout.
 import {spawn} from 'node:child_process';
@@ -7,11 +7,25 @@ import {lstat,readFile,realpath} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,sep,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 
-const bucket='justelle-qualification-backups';
-const prefix='qualification/';
-const keyName='justelle-qualification-backup';
-const project='justelle-qualification';
 const secretName='JUSTELLE_BACKUP_CONFIG';
+// Preserve the tested fictional default. Require an explicit, separately
+// named production bucket so the bootstrap cannot cross environments.
+export function selectBootstrapTarget(environment='qualification',bucketName){
+  if(environment==='qualification'){
+    const selectedBucket=bucketName??'justelle-qualification-backups';
+    if(typeof selectedBucket!=='string'||!/^justelle-qualification-backups(?:-[a-z0-9]{3,12})?$/.test(selectedBucket))
+      throw Error('Fictional B2 bootstrap requires an approved qualification bucket');
+    return {project:'justelle-qualification',bucket:selectedBucket,
+      prefix:'qualification/',keyName:'justelle-qualification-backup'};
+  }
+  if(environment==='production'){
+    if(typeof bucketName!=='string'||!/^justelle-production-backups(?:-[a-z0-9]{3,12})?$/.test(bucketName))
+      throw Error('Production requires a separate approved Justelle production backup bucket');
+    return {project:'justelle-production',bucket:bucketName,
+      prefix:'production/',keyName:'justelle-production-backup'};
+  }
+  throw Error('Unsupported B2 bootstrap environment');
+}
 export const capabilities=['listFiles','readFiles','writeFiles','readBucketRetentions','readFileRetentions'];
 
 export function validateEndpoint(value){
@@ -48,7 +62,8 @@ export function parseCreatedKey(output){
   if(!m)throw Error('B2 returned an unexpected key format; inspect and revoke any orphaned key privately');
   return {keyId:m[1],applicationKey:m[2]};
 }
-export function verifyKeyList(output,keyId){
+export function verifyKeyList(output,keyId,target=selectBootstrapTarget()){
+  const {keyName,bucket,prefix}=target;
   const line=String(output).split(/\r?\n/).find(v=>v.trim().split(/\s+/)[0]===keyId);
   if(!line)throw Error('Created B2 key was not visible in the authorised key listing');
   const fields=line.trim().split(/\s+/);
@@ -105,15 +120,18 @@ function parseJson(output){
   try{return JSON.parse(String(output));}
   catch{throw Error('Unexpected private provider metadata response');}
 }
-const googleArgs=(...args)=>[...args,'--project='+project,'--quiet'];
+const googleArgs=(project,...args)=>[...args,'--project='+project,'--quiet'];
 
 // Run exclusively after the owner has independently checked offline custody.
 // run is injectable so every failure path can be qualified using synthetic secrets.
-export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,run}){
+export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,run,
+  environment='qualification',bucketName}){
   if(offlineCustodyConfirmed!==true)throw Error('Owner-confirmed independent offline key custody is required');
   const safeEndpoint=validateEndpoint(endpoint);
   if(!Buffer.isBuffer(recoveryKey)||recoveryKey.length!==32)throw Error('Invalid offline recovery key');
   if(typeof run!=='function')throw Error('An authenticated private command runner is required');
+  const target=selectBootstrapTarget(environment,bucketName);
+  const {project,bucket,prefix,keyName}=target;
   let newId=null,installed=false,fullSecret=null;
   try{
     // Fail before issuing a non-recoverable one-time key if this account or
@@ -121,12 +139,12 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
     const knownKeys=String(await run('b2',['key','list']));
     if(knownKeys.split(/\r?\n/).some(l=>l.trim().split(/\s+/)[1]===keyName))
       throw Error('A named restricted B2 key already exists; inspect it before retrying');
-    const listed=parseJson(await run('gcloud',googleArgs('secrets','list','--format=json')));
+    const listed=parseJson(await run('gcloud',googleArgs(project,'secrets','list','--format=json')));
     if(!Array.isArray(listed))throw Error('Secret Manager metadata is invalid');
     const exists=listed.some(s=>typeof s.name==='string'&&s.name.split('/').at(-1)===secretName);
-    if(!exists)await run('gcloud',googleArgs('secrets','create',secretName,
+    if(!exists)await run('gcloud',googleArgs(project,'secrets','create',secretName,
       '--replication-policy=user-managed','--locations=northamerica-northeast1'));
-    const versions=parseJson(await run('gcloud',googleArgs('secrets','versions','list',secretName,'--format=json')));
+    const versions=parseJson(await run('gcloud',googleArgs(project,'secrets','versions','list',secretName,'--format=json')));
     if(!Array.isArray(versions)||versions.length!==0)
       throw Error('Backup configuration already has versions; never silently overwrite credentials');
     // The CLI prints the one-time secret on stdout; capture it in memory only.
@@ -136,13 +154,13 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
     newId=pair.keyId;
     if(Buffer.isBuffer(createdOutput))createdOutput.fill(0);
     const listAfter=await run('b2',['key','list']);
-    verifyKeyList(listAfter,newId);
+    verifyKeyList(listAfter,newId,target);
     if(Buffer.isBuffer(listAfter))listAfter.fill(0);
     const raw=JSON.stringify({endpoint:safeEndpoint,bucket,keyId:pair.keyId,
-      applicationKey:pair.applicationKey,prefix:'qualification',
+      applicationKey:pair.applicationKey,prefix:prefix.slice(0,-1),
       recoveryKeyBase64:recoveryKey.toString('base64')});
     fullSecret=Buffer.from(raw,'utf8');
-    await run('gcloud',googleArgs('secrets','versions','add',secretName,'--data-file=-'),fullSecret);
+    await run('gcloud',googleArgs(project,'secrets','versions','add',secretName,'--data-file=-'),fullSecret);
     installed=true;
     return {restricted_key_installed:true,secret_version_added:true,offline_custody_owner_confirmed:true};
   }catch{
@@ -162,25 +180,30 @@ function parseArguments(argv){
   for(let i=0;i<argv.length;i++){
     if(argv[i]==='--offline-custody-confirmed')args.offlineCustodyConfirmed=true;
     else if(argv[i]==='--paper-key')args.paperKey=true;
-    else if(['--offline-key','--endpoint'].includes(argv[i])&&argv[i+1]){
-      const option=argv[i++];args[option==='--offline-key'?'file':'endpoint']=argv[i];
+    else if(['--offline-key','--endpoint','--target','--bucket'].includes(argv[i])&&argv[i+1]){
+      const option=argv[i++];
+      const name={'--offline-key':'file','--endpoint':'endpoint','--target':'environment','--bucket':'bucketName'}[option];
+      args[name]=argv[i];
     }
-    else throw Error('Use either --paper-key or --offline-key <absolute-owner-held-file>, plus --endpoint <B2-S3-HTTPS-endpoint> --offline-custody-confirmed');
+    else throw Error('Use --paper-key or --offline-key <absolute-file>, --target qualification|production, --bucket <production-bucket>, --endpoint <B2-HTTPS-endpoint> and --offline-custody-confirmed');
   }
   if(Boolean(args.file)===Boolean(args.paperKey)||!args.endpoint||!args.offlineCustodyConfirmed)
     throw Error('Choose exactly one recovery key input method, B2 endpoint and genuine owner custody confirmation');
+  args.environment??='qualification';
+  selectBootstrapTarget(args.environment,args.bucketName);
   return args;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
   let key;
   try{
-    const {file,paperKey,endpoint,offlineCustodyConfirmed}=parseArguments(process.argv.slice(2));
+    const {file,paperKey,endpoint,offlineCustodyConfirmed,environment,bucketName}=parseArguments(process.argv.slice(2));
     if(paperKey)key=await readPaperRecoveryKey();
     else{
       const root=fileURLToPath(new URL('../',import.meta.url));
       key=await readOfflineRecoveryKey(file,root);
     }
-    const result=await bootstrap({endpoint,recoveryKey:key,offlineCustodyConfirmed,run:localCliRunner()});
+    const result=await bootstrap({endpoint,recoveryKey:key,offlineCustodyConfirmed,
+      environment,bucketName,run:localCliRunner()});
     console.log(JSON.stringify(result));
   }catch(e){
     // File system/cloud errors may contain account paths and credentials.

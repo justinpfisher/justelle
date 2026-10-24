@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {EventEmitter} from 'node:events';
 import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
-  readOfflineRecoveryKey} from '../tools/bootstrap-b2-secret.mjs';
+  readOfflineRecoveryKey,selectBootstrapTarget} from '../tools/bootstrap-b2-secret.mjs';
 import {decodePrintedRecoveryKey,readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 
 const endpoint='https://s3.us-west-004.backblazeb2.com';
@@ -192,4 +192,63 @@ test('paper input mismatches and cancellation fail closed and restore TTY mode',
 });
 test('paper input is refused when a private TTY is unavailable',async()=>{
   await assert.rejects(readPaperRecoveryKey({input:{isTTY:false},output:{isTTY:false}}),/interactive terminal/);
+});
+
+test('production bootstrap rejects cross-environment buckets and requires an explicit target',()=>{
+  const productionBucket='justelle-production-backups-v1x';
+  const target=selectBootstrapTarget('production',productionBucket);
+  assert.deepEqual(target,{project:'justelle-production',bucket:productionBucket,
+    prefix:'production/',keyName:'justelle-production-backup'});
+  assert.equal(selectBootstrapTarget().project,'justelle-qualification');
+  assert.equal(selectBootstrapTarget('qualification','justelle-qualification-backups-alt3').bucket,
+    'justelle-qualification-backups-alt3');
+  for(const [mode,bucketName] of [
+    ['production',undefined],['production','justelle-qualification-backups'],
+    ['production','other-project-backups'],['production','justelle-production-backups/other'],
+    ['qualification',productionBucket],['other',productionBucket]
+  ])assert.throws(()=>selectBootstrapTarget(mode,bucketName),/bucket|environment/i);
+  const productionLine=keyId+' '+target.keyName+' '+productionBucket+" - - 'production/' "+capString;
+  assert.equal(verifyKeyList(productionLine,keyId,target),true);
+  assert.throws(()=>verifyKeyList(listLine(),keyId,target),/restrictions/);
+});
+
+test('production bootstrap keeps its key, prefix, Secret Manager project and credentials isolated',async()=>{
+  const bucketName='justelle-production-backups-v1x';
+  const expected=selectBootstrapTarget('production',bucketName);
+  const calls=[];let created=false,installed;
+  async function run(provider,args,stdin){
+    calls.push({provider,args});
+    if(provider==='b2'&&args[0]==='key'&&args[1]==='list')
+      return created?
+        keyId+' '+expected.keyName+' '+expected.bucket+" - - 'production/' "+capString+'\n':'';
+    if(provider==='b2'&&args[0]==='key'&&args[1]==='create'){
+      assert.deepEqual(args,['key','create','--bucket',bucketName,'--name-prefix','production/',
+        'justelle-production-backup',capString]);
+      created=true;return Buffer.from(keyId+' '+appKey+'\n');
+    }
+    if(provider==='gcloud'){
+      assert.ok(args.includes('--project=justelle-production'));
+      if(args[0]==='secrets'&&args[1]==='list')return '[]';
+      if(args[0]==='secrets'&&args[1]==='create')return '';
+      if(args[0]==='secrets'&&args[1]==='versions'&&args[2]==='list')return '[]';
+      if(args[0]==='secrets'&&args[1]==='versions'&&args[2]==='add'){
+        installed=JSON.parse(stdin.toString('utf8'));return '';
+      }
+    }
+    throw Error('Unexpected synthetic production command');
+  }
+  const result=await bootstrap({endpoint,recoveryKey:Buffer.alloc(32,25),
+    offlineCustodyConfirmed:true,environment:'production',bucketName,run});
+  assert.equal(result.secret_version_added,true);
+  assert.equal(installed.bucket,bucketName);
+  assert.equal(installed.prefix,'production');
+  assert.equal(installed.keyId,keyId);
+  assert.equal(installed.applicationKey,appKey);
+  assert.equal(Buffer.from(installed.recoveryKeyBase64,'base64').length,32);
+  assert.equal(calls.filter(c=>c.provider==='b2'&&c.args[1]==='create').length,1);
+  assert.equal(calls.filter(c=>c.provider==='gcloud'&&c.args[2]==='add').length,1);
+  for(const call of calls){
+    assert.ok(!call.args.join(' ').includes(appKey));
+    assert.ok(!call.args.join(' ').includes(installed.recoveryKeyBase64));
+  }
 });
