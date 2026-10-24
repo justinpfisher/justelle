@@ -36,12 +36,24 @@ export async function smoke({origin,projectId,roomId,apiKey,members,sha},fetchIm
     body:JSON.stringify(proposal)},[401]);await anonymousPlanner.body?.cancel();
   const anonymousDocument=await request(origin+'/api/media/documents/'+id,{},[401]);
   await anonymousDocument.body?.cancel();
-  if(!Array.isArray(members)||members.length!==2)throw Error('Two private member smoke identities are required');
+  // Two configured logins are not evidence of two distinct real members.
+  if(!Array.isArray(members)||members.length!==2||
+     members.some(m=>typeof m?.email!=='string'||!m.email.trim()||
+       typeof m.password!=='string'||!m.password)||
+     new Set(members.map(m=>m.email.trim().toLowerCase())).size!==2)
+    throw Error('Two distinct private member smoke identities are required');
+  const authenticatedUids=new Set();
   for(const member of members){
     const login=await request('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+encodeURIComponent(apiKey),{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:member.email,password:member.password,returnSecureToken:true})},[200]);
     const identity=await login.json();
     try{
+      // Email/password REST responses identify the actual Firebase user via localId.
+      // Reject two aliases resolving to the same UID before approving the release.
+      if(typeof identity.localId!=='string'||!identity.localId||
+         authenticatedUids.has(identity.localId)||typeof identity.idToken!=='string'||!identity.idToken)
+        throw Error('Two distinct authenticated Firebase member UIDs are required');
+      authenticatedUids.add(identity.localId);
       const records='https://firestore.googleapis.com/v1/projects/'+projectId+
         '/databases/(default)/documents/rooms/'+roomId;
       const authorized={Authorization:'Bearer '+identity.idToken};
@@ -58,6 +70,6 @@ export async function smoke({origin,projectId,roomId,apiKey,members,sha},fetchIm
         method:'POST',headers:{...authorized,'Content-Type':'application/json'},
         body:JSON.stringify(proposal)},[404]);
       await planner.body?.cancel();
-    }finally{identity.idToken=null;identity.refreshToken=null;}
+    }finally{identity.idToken=null;identity.refreshToken=null;identity.localId=null;}
   }
 }
