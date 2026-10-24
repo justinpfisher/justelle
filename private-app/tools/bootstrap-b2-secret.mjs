@@ -1,4 +1,4 @@
-// One-time owner-local qualification setup. Never run in Actions or in a captured/shared shell.
+// One-time, project-isolated owner-local backup setup. Never run in Actions or a captured/shared shell.
 // The one-time B2 key and complete backup configuration only pass through process memory
 // and the stdin of Google Secret Manager. No credentials or recovery key go to stdout.
 import {spawn} from 'node:child_process';
@@ -12,9 +12,10 @@ const secretName='JUSTELLE_BACKUP_CONFIG';
 // named production bucket so the bootstrap cannot cross environments.
 export function selectBootstrapTarget(environment='qualification',bucketName){
   if(environment==='qualification'){
-    if(bucketName!==undefined&&bucketName!=='justelle-qualification-backups')
-      throw Error('Fictional B2 bootstrap requires the existing qualification bucket');
-    return {project:'justelle-qualification',bucket:'justelle-qualification-backups',
+    const selectedBucket=bucketName??'justelle-qualification-backups';
+    if(typeof selectedBucket!=='string'||!/^justelle-qualification-backups(?:-[a-z0-9]{3,12})?$/.test(selectedBucket))
+      throw Error('Fictional B2 bootstrap requires an approved qualification bucket');
+    return {project:'justelle-qualification',bucket:selectedBucket,
       prefix:'qualification/',keyName:'justelle-qualification-backup'};
   }
   if(environment==='production'){
