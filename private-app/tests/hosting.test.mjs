@@ -83,7 +83,8 @@ test('Production smoke covers both member planner reads, unauthenticated origina
     if(pathname.startsWith('/v1/accounts:signInWithPassword')){
       const input=JSON.parse(options.body);
       assert.ok(members.some(m=>m.email===input.email));
-      return Response.json({idToken:'fictional-'+input.email,refreshToken:'never-printed'});
+      return Response.json({idToken:'fictional-'+input.email,localId:'uid-'+input.email,
+        refreshToken:'never-printed'});
     }
     if(pathname.startsWith('/v1/projects/')){
       assert.match(token,/^Bearer fictional-/);
@@ -129,7 +130,7 @@ test('Production smoke fails closed when the signed planner API is absent',async
    if(path.startsWith('/api/media/')||path==='/api/respond'&&!options.headers?.Authorization||
       path==='/api/plan/suggest'&&!options.headers?.Authorization)
      return new Response('Anonymous denied',{status:401});
-   if(path==='/v1/accounts:signInWithPassword')return Response.json({idToken:'fictional-'+(++login)});
+   if(path==='/v1/accounts:signInWithPassword')return Response.json({idToken:'fictional-'+(++login),localId:'fictional-uid-'+login});
    if(path.startsWith('/v1/projects/'))return Response.json({});
    if(path==='/api/respond')return new Response('Missing message',{status:404});
    if(path==='/api/plan/suggest')return new Response('Missing planner route',{status:503});
@@ -216,4 +217,56 @@ test('Live vision must identify the correct colour, not merely clarify or echo c
    ['','red'],['The image contains a square','red'],
    ['red','green']
  ])assert.equal(visionColourAnswer(reply,expected),false);
+});
+
+test('Production smoke rejects duplicate configured member emails before sign-in',async()=>{
+ const members=[{email:'one@example.invalid',password:'secret-one'},
+   {email:' ONE@example.invalid ',password:'secret-two'}];
+ const sha='a'.repeat(40),origin='https://app.justelle.life';
+ let attemptedLogin=false;
+ const fetchImpl=async(url)=>{
+   const path=new URL(url).pathname;
+   if(path==='/api/healthz')return Response.json({version:sha});
+   if(path==='/')return new Response(plannerHtml,{headers:privateHeaders});
+   if(path==='/manifest.webmanifest')return Response.json(homeManifest);
+   if(path==='/justelle-caricature.png')return new Response('fictional-image');
+   if(path.startsWith('/api/media/')||path==='/api/respond'||path==='/api/plan/suggest')
+     return new Response('Sign-in required',{status:401});
+   if(path==='/v1/accounts:signInWithPassword')attemptedLogin=true;
+   throw Error('Unexpected login or request');
+ };
+ await assert.rejects(smoke({origin,projectId:'fictional-production',roomId:'shared-life',
+   apiKey:'synthetic-api-key',members,sha},fetchImpl),/distinct private member/);
+ assert.equal(attemptedLogin,false);
+});
+
+test('Production smoke refuses two different email logins resolving to the same Firebase UID',async()=>{
+ const members=[{email:'one@example.invalid',password:'synthetic-one'},
+   {email:'two@example.invalid',password:'synthetic-two'}];
+ const sha='a'.repeat(40),origin='https://app.justelle.life';
+ let logins=0,successfulMemberReads=0;
+ const fakeFetch=async(url,options)=>{
+   const path=new URL(url).pathname;
+   if(path==='/api/healthz')return Response.json({version:sha});
+   if(path==='/')return new Response(plannerHtml,{headers:privateHeaders});
+   if(path==='/manifest.webmanifest')return Response.json(homeManifest);
+   if(path==='/justelle-caricature.png')return new Response('fictional-image');
+   if(path==='/v1/accounts:signInWithPassword'){
+     logins++;
+     return Response.json({idToken:'synthetic-id-token',localId:'same-uid',
+       refreshToken:'synthetic-refresh-token'});
+   }
+   if(path.startsWith('/v1/projects/')){
+     successfulMemberReads++;
+     return Response.json({});
+   }
+   if(path.startsWith('/api/media/'))return new Response('',{status:401});
+   if(path==='/api/respond'||path==='/api/plan/suggest')
+     return new Response('',{status:options.headers?.Authorization?404:401});
+   throw Error('Unexpected synthetic smoke request');
+ };
+ await assert.rejects(smoke({origin,projectId:'fictional-production',roomId:'shared-life',
+   apiKey:'synthetic-api-key',members,sha},fakeFetch),/distinct authenticated Firebase member UIDs/);
+ assert.equal(logins,2);
+ assert.equal(successfulMemberReads,2); // second login denied before any member data access
 });
