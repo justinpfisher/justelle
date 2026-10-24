@@ -200,6 +200,8 @@ test('production bootstrap rejects cross-environment buckets and requires an exp
   assert.deepEqual(target,{project:'justelle-production',bucket:productionBucket,
     prefix:'production/',keyName:'justelle-production-backup'});
   assert.equal(selectBootstrapTarget().project,'justelle-qualification');
+  assert.equal(selectBootstrapTarget('qualification','justelle-qualification-backups-alt3').bucket,
+    'justelle-qualification-backups-alt3');
   for(const [mode,bucketName] of [
     ['production',undefined],['production','justelle-qualification-backups'],
     ['production','other-project-backups'],['production','justelle-production-backups/other'],
