@@ -4,7 +4,7 @@
 import {spawn} from 'node:child_process';
 import {readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 import {lstat,readFile,realpath} from 'node:fs/promises';
-import {isAbsolute,relative,resolve,sep,join,win32} from 'node:path';
+import {isAbsolute,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 
 import {selectBootstrapTarget} from '../hosting/backup-target.mjs';
@@ -58,13 +58,13 @@ export function verifyKeyList(output,keyId,target=selectBootstrapTarget()){
   return true;
 }
 
-// Keep Windows command selection independent of PATH and execution policy.
-// Provider arguments passed here are fixed by bootstrap(); no secret is an argument.
-export function windowsCliInvocation(kind,args,{appData=process.env.APPDATA,comSpec=process.env.ComSpec||'cmd.exe'}={}){
-  if(kind==='b2'){
-    if(!appData)throw Error('Owner Windows profile is unavailable');
-    return {binary:win32.join(appData,'Python','Python312','Scripts','b2.exe'),args};
-  }
+// B2's installed Python package supplies the version-stable v5 module entrypoint.
+// Use the same Windows Python launcher already used for "py -m pip", rather than
+// assuming pip wrote b2.exe to a particular Scripts directory. No shell is used.
+// Google Cloud uses gcloud.cmd via cmd.exe, not the blocked gcloud.ps1 wrapper.
+// All arguments come from fixed bootstrap commands; no secrets are command args.
+export function windowsCliInvocation(kind,args,{comSpec=process.env.ComSpec||'cmd.exe'}={}){
+  if(kind==='b2')return {binary:'py',args:['-m','b2._internal.b2v5',...args]};
   if(kind==='gcloud')
     return {binary:comSpec,args:['/d','/s','/c','gcloud.cmd '+args.join(' ')]};
   throw Error('Unsupported private command');
