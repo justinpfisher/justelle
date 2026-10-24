@@ -54,21 +54,21 @@ For the uploader key, the documented B2 CLI form is `b2 key create --bucket <exi
 
 **Paper recovery-key custody (no USB drive required):** The owner may keep the actual cryptographically generated 32-byte recovery key **on paper in secure physical custody**, entirely outside Firebase and B2. It must be a **Justelle recovery key**, not a Backblaze master/application key, password or chosen phrase. Its printed representation must be either **64 hexadecimal digits** (spacing/hyphens acceptable) or **44 canonical Base64 characters**; those represent the same 32 raw bytes. Keep it in a sealed secure place; never photograph, paste, print to a captured console, upload or store it in a public/synchronised file. The helper can read it directly from this paper, so no encrypted USB drive or persistent digital key file is required.
 
-**One-time owner-local bootstrap:** After personally verifying secure paper custody, use an uncaptured **owner-controlled Windows PowerShell** session (not Codex's agent terminal, Cloud Shell or a GitHub Action), signed into the existing B2/GCP sessions. From the \`private-app\` directory:
+**One-time owner-local bootstrap:** After personally verifying secure paper custody, use an uncaptured **owner-controlled Windows PowerShell** session (not Codex's agent terminal, Cloud Shell or a GitHub Action), signed into the existing B2/GCP sessions. From the `private-app` directory:
 
-\`\`\`powershell
+```powershell
 node tools/bootstrap-b2-secret.mjs --paper-key --endpoint "https://s3.<actual-b2-region>.backblazeb2.com" --offline-custody-confirmed
-\`\`\`
+```
 
 Replace the endpoint placeholder with the actual private bucket S3 HTTPS endpoint shown in Backblaze. The command does **not** contain the recovery key; it prompts twice with characters hidden and validates exact byte length and matching entries **before issuing a new B2 key**. Neither entry is echoed, entered as PowerShell history or written to an intermediate recovery-key file. A 32-byte key whose bytes differ from the printed copy cannot decrypt later backups, so correct transcription matters. Cancel with Ctrl+C if uncertain, and do not guess the content.
 
-For an alternative offline file on encrypted removable media, the existing \`--offline-key "<absolute-owner-held-file>"\` mode remains available instead of \`--paper-key\`; use exactly one. In both modes, the helper uses the already authorised B2 CLI and Google Cloud CLI, checks pre-existing keys and Secret Manager versions, creates a strictly bucket/\`qualification/\`-scoped five-capability uploader, captures its one-time secret in process memory, and streams \`JUSTELLE_BACKUP_CONFIG\` into Canada-region Secret Manager through \`--data-file=-\`. It attempts B2 key revocation on failed installation; verify effective state privately before any retry. Neither successful bootstrap nor copied paper counts as real restoration.
+For an alternative offline file on encrypted removable media, the existing `--offline-key "<absolute-owner-held-file>"` mode remains available instead of `--paper-key`; use exactly one. In both modes, the helper uses the already authorised B2 CLI and Google Cloud CLI, checks pre-existing keys and Secret Manager versions, creates a strictly bucket/`qualification/`-scoped five-capability uploader, captures its one-time secret in process memory, and streams `JUSTELLE_BACKUP_CONFIG` into Canada-region Secret Manager through `--data-file=-`. It attempts B2 key revocation on failed installation; verify effective state privately before any retry. Neither successful bootstrap nor copied paper counts as real restoration.
 
-**Independent restore using only the paper:** After a real encrypted \`.jmb\` version has been uploaded, its retention verified and that ciphertext downloaded to a protected owner-controlled local path, perform an additional clean offline drill **without retrieving the stored Google Secret Manager key**:
+**Independent restore using only the paper:** After a real encrypted `.jmb` version has been uploaded, its retention verified and that ciphertext downloaded to a protected owner-controlled local path, perform an additional clean offline drill **without retrieving the stored Google Secret Manager key**:
 
-\`\`\`powershell
+```powershell
 node memory/backup-cli.mjs restore-paper "<private-downloaded-archive.jmb>" "<new-private-restore-directory>"
-\`\`\`
+```
 
 This also prompts for the printed key twice with no terminal echo, then authenticates and restores the archive without writing the key to disk. Verify the expected canonical records and exact source originals against the qualified fictional snapshot; this demonstrates that the independently stored paper can actually recover the encrypted backup. Do not put the encrypted download or recovered contents in GitHub, public logs or shared directories. Keep the original paper securely held after testing. Only run this with the owner at a private TTY. No new provider/service or recurring manual step is introduced.
 
