@@ -7,25 +7,9 @@ import {lstat,readFile,realpath} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,sep,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 
+import {selectBootstrapTarget} from '../hosting/backup-target.mjs';
+export {selectBootstrapTarget};
 const secretName='JUSTELLE_BACKUP_CONFIG';
-// Preserve the tested fictional default. Require an explicit, separately
-// named production bucket so the bootstrap cannot cross environments.
-export function selectBootstrapTarget(environment='qualification',bucketName){
-  if(environment==='qualification'){
-    const selectedBucket=bucketName??'justelle-qualification-backups';
-    if(typeof selectedBucket!=='string'||!/^justelle-qualification-backups(?:-[a-z0-9]{3,12})?$/.test(selectedBucket))
-      throw Error('Fictional B2 bootstrap requires an approved qualification bucket');
-    return {project:'justelle-qualification',bucket:selectedBucket,
-      prefix:'qualification/',keyName:'justelle-qualification-backup'};
-  }
-  if(environment==='production'){
-    if(typeof bucketName!=='string'||!/^justelle-production-backups(?:-[a-z0-9]{3,12})?$/.test(bucketName))
-      throw Error('Production requires a separate approved Justelle production backup bucket');
-    return {project:'justelle-production',bucket:bucketName,
-      prefix:'production/',keyName:'justelle-production-backup'};
-  }
-  throw Error('Unsupported B2 bootstrap environment');
-}
 export const capabilities=['listFiles','readFiles','writeFiles','readBucketRetentions','readFileRetentions'];
 
 export function validateEndpoint(value){
