@@ -81,6 +81,16 @@ test('B2 key-list metadata enforces bucket, prefix, and exactly five capabilitie
   assert.throws(()=>verifyKeyList(listLine().replace('readFiles','deleteFiles'),keyId),/restrictions/);
 });
 
+test('uses Backblaze v5 long listings for the preflight and scoped-key audit',async()=>{
+  const runner=makeRunner();
+  const result=await runBootstrap(runner);
+  assert.equal(result.secret_version_added,true);
+  const keyListings=runner.calls.filter(c=>c.provider==='b2'&&c.args[0]==='key'&&c.args[1]==='list');
+  assert.equal(keyListings.length,2);
+  // Backblaze CLI v5's default short listing lacks bucket, prefix and capabilities.
+  for(const c of keyListings)assert.deepEqual(c.args,['key','list','--long']);
+});
+
 test('successful one-time bootstrap never writes key material to output/command args',async()=>{
   const runner=makeRunner();const result=await runBootstrap(runner);
   assert.deepEqual(result,{restricted_key_installed:true,secret_version_added:true,offline_custody_owner_confirmed:true});
