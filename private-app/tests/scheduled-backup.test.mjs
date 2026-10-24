@@ -12,12 +12,12 @@ const records={persons:[{id:'person-a'},{id:'person-b'}],conversations:[{id:'con
     {id:'correction',body:'Synthetic correction',author_id:'person-a',kind:'person',conversation_id:'conversation-shared',attachment_ids:[],corrects_id:'note'},
     {id:'reply',body:'Synthetic AI',author_id:'ai-justelle',kind:'ai',conversation_id:'conversation-shared',source_message_id:'note',attachment_ids:[]}],
   decisions:[{id:'agreement',author_id:'person-b',conversation_id:'conversation-shared',status:'locked',locked_at:'2026-10-14T00:00:00Z',approvals:[{person_id:'person-a'},{person_id:'person-b'}]}],adventures:[],attachments:[{id,author_id:'person-a',mime:'image/png',size:image.length,sha256:createHash('sha256').update(image).digest('hex')}]};
-const config={prefix:'fictional',recoveryKeyBase64:randomBytes(32).toString('base64')};
+const config={bucket:'justelle-qualification-backups',prefix:'qualification',recoveryKeyBase64:randomBytes(32).toString('base64')};
 const source=()=>({records,media:[{id,mime:'image/png',stream:Readable.from([image])}]});
 test('Scheduled backup uploads ciphertext and downloads/restores exact original history without Firebase',async()=>{
   let stored,closed=false;const calls=[];
   const store={verifyRetention:async()=>calls.push('retention'),put:async(n,p,size)=>{stored=await readFile(p);assert.equal(stored.length,size);calls.push('put');return 'fictional-version';},
-    verifyObjectRetention:async(n,version)=>{assert.match(n,/^fictional\//);assert.equal(version,'fictional-version');calls.push('object-retention');},
+    verifyObjectRetention:async(n,version)=>{assert.match(n,/^qualification\//);assert.equal(version,'fictional-version');calls.push('object-retention');},
     get:async()=>{calls.push('get');return Readable.from([stored]);},close:()=>{closed=true;}};
   const result=await runScheduledBackup({config,source:source(),store});
   assert.equal(result.verified,true);assert.deepEqual(calls,['retention','put','object-retention','get']);assert.equal(closed,true);
@@ -79,4 +79,51 @@ test('Uploaded B2 object must report its own valid future GOVERNANCE retention',
    {Mode:'GOVERNANCE',RetainUntilDate:new Date(now-1000)},
    {Mode:'GOVERNANCE',RetainUntilDate:'2026-10-22T12:00:00Z'}
  ])assert.throws(()=>validateB2ObjectRetention(candidate,now),/object/);
+});
+
+test('Scheduled backup rejects crossed project B2 destinations before any remote contact',async()=>{
+  const wrong=[
+    {productionApproved:true,config:{...config}}, // fictional bucket in production
+    {productionApproved:false,config:{...config,bucket:'justelle-production-backups-v1x',prefix:'production'}},
+    {productionApproved:true,config:{...config,bucket:'justelle-production-backups-v1x'}},
+    {productionApproved:false,config:{...config,prefix:'production'}},
+    {productionApproved:false,config:{...config,bucket:'unrelated-bucket'}},
+    {productionApproved:true,config:{...config,bucket:'justelle-qualification-backups',prefix:'production'}},
+    {productionApproved:true,config:{...config,bucket:'justelle-production-backups/escape',prefix:'production'}},
+    {productionApproved:true,config:{...config,bucket:undefined,prefix:'production'}}
+  ];
+  for(const entry of wrong){
+    let contacted=false;
+    const store={
+      verifyRetention:async()=>{contacted=true;},
+      put:async()=>{contacted=true;},
+      get:async()=>{contacted=true;},
+      close:()=>{contacted=true;}
+    };
+    await assert.rejects(runScheduledBackup({...entry,source:source(),store}),
+      /B2 backup destination|Production requires|Fictional B2 bootstrap/);
+    assert.equal(contacted,false);
+  }
+});
+
+test('A distinct, correctly scoped production target still produces an independently restored archive',async()=>{
+  const productionConfig={...config,bucket:'justelle-production-backups-v1x',prefix:'production'};
+  let stored;const calls=[];
+  const store={
+    verifyRetention:async()=>calls.push('default'),
+    put:async(key,path)=>{
+      assert.match(key,/^production\//);
+      stored=await readFile(path);calls.push('upload');return 'synthetic-production-version';
+    },
+    verifyObjectRetention:async(key,version)=>{
+      assert.match(key,/^production\//);
+      assert.equal(version,'synthetic-production-version');
+      calls.push('object');
+    },
+    get:async()=>{calls.push('download');return Readable.from([stored]);}
+  };
+  const result=await runScheduledBackup({config:productionConfig,productionApproved:true,
+    source:source(),store});
+  assert.equal(result.verified,true);
+  assert.deepEqual(calls,['default','upload','object','download']);
 });
