@@ -9,6 +9,7 @@ import {getFirestore} from 'firebase-admin/firestore';
 import {release,disableInitialService} from './release-core.mjs';
 import {smoke} from './smoke.mjs';
 import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
+import {stageFirebaseDeploymentConfig} from './firebase-deployment-config.mjs';
 import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
@@ -31,9 +32,14 @@ try{
     await npm(['ci','--no-audit','--no-fund'],directory);
     await npm(['ci','--prefix','hosting/functions','--no-audit','--no-fund'],directory);
     await npm(['run','build'],directory);
-    await run(process.execPath,[join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive',
-      '--project',config.projectId,'--config',join(directory,'hosting',configName),
-      '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env,maxBuffer:8*1024*1024});
+    const stagedConfig=await stageFirebaseDeploymentConfig({appDirectory:directory,configName});
+    try{
+      await run(process.execPath,[join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive',
+        '--project',config.projectId,'--config',stagedConfig.path,
+        '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env,maxBuffer:8*1024*1024});
+    }finally{
+      await stagedConfig.cleanup();
+    }
   }
   async function deploySource(version){
     const temp=await mkdtemp(join(tmpdir(),'justelle-rollback-')),checkout=join(temp,'source');
