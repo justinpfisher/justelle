@@ -4,7 +4,7 @@
 import {spawn} from 'node:child_process';
 import {readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 import {lstat,readFile,realpath} from 'node:fs/promises';
-import {isAbsolute,relative,resolve,sep,join} from 'node:path';
+import {isAbsolute,relative,resolve,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 
 import {selectBootstrapTarget} from '../hosting/backup-target.mjs';
@@ -58,6 +58,18 @@ export function verifyKeyList(output,keyId,target=selectBootstrapTarget()){
   return true;
 }
 
+// B2's installed Python package supplies the version-stable v5 module entrypoint.
+// Use the same Windows Python launcher already used for "py -m pip", rather than
+// assuming pip wrote b2.exe to a particular Scripts directory. No shell is used.
+// Google Cloud uses gcloud.cmd via cmd.exe, not the blocked gcloud.ps1 wrapper.
+// All arguments come from fixed bootstrap commands; no secrets are command args.
+export function windowsCliInvocation(kind,args,{comSpec=process.env.ComSpec||'cmd.exe'}={}){
+  if(kind==='b2')return {binary:'py',args:['-m','b2._internal.b2v5',...args]};
+  if(kind==='gcloud')
+    return {binary:comSpec,args:['/d','/s','/c','gcloud.cmd '+args.join(' ')]};
+  throw Error('Unsupported private command');
+}
+
 async function quietSpawn(binary,args,stdin){
   return new Promise((accept,reject)=>{
     let child;
@@ -87,14 +99,14 @@ async function quietSpawn(binary,args,stdin){
 export function localCliRunner(){
   return async(kind,args,stdin)=>{
     if(kind==='b2'){
-      if(process.platform==='win32'&&!process.env.APPDATA)throw Error('Owner Windows profile is unavailable');
-      const cmd=process.platform==='win32'?join(process.env.APPDATA,'Python','Python312','Scripts','b2.exe'):'b2';
-      return quietSpawn(cmd,args,stdin);
+      const invocation=process.platform==='win32'?windowsCliInvocation(kind,args):{binary:'b2',args};
+      return quietSpawn(invocation.binary,invocation.args,stdin);
     }
     if(kind!=='gcloud')throw Error('Unsupported private command');
     // All Google command arguments are hard-coded below. No secret reaches cmd.exe args.
     if(process.platform==='win32'){
-      return quietSpawn(process.env.ComSpec||'cmd.exe',['/d','/s','/c','gcloud.cmd '+args.join(' ')],stdin);
+      const invocation=windowsCliInvocation(kind,args);
+      return quietSpawn(invocation.binary,invocation.args,stdin);
     }
     return quietSpawn('gcloud',args,stdin);
   };

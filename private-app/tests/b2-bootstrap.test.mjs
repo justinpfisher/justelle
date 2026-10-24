@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {EventEmitter} from 'node:events';
 import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
-  readOfflineRecoveryKey,selectBootstrapTarget} from '../tools/bootstrap-b2-secret.mjs';
+  readOfflineRecoveryKey,selectBootstrapTarget,windowsCliInvocation} from '../tools/bootstrap-b2-secret.mjs';
 import {decodePrintedRecoveryKey,readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 
 const endpoint='https://s3.us-west-004.backblazeb2.com';
@@ -40,6 +40,26 @@ function makeRunner({preexistingKey=false,preexistingVersion=false,scopeMismatch
   return {run,calls,get installed(){return installed;}};
 }
 const runBootstrap=async (runner,options={})=>bootstrap({endpoint,recoveryKey:Buffer.alloc(32,17),offlineCustodyConfirmed:true,run:runner.run,...options});
+
+test('Windows launcher invokes the installed B2 v5 Python module without requiring b2.exe',()=>{
+  const b2=windowsCliInvocation('b2',['key','list']);
+  assert.deepEqual(b2,{binary:'py',args:['-m','b2._internal.b2v5','key','list']});
+  const create=windowsCliInvocation('b2',['key','create','--bucket','test-private-bucket',
+    '--name-prefix','qualification/','test-restricted-key',capString]);
+  assert.equal(create.binary,'py');
+  assert.deepEqual(create.args.slice(0,3),['-m','b2._internal.b2v5','key']);
+  assert.equal(create.args.includes('--bucket'),true);
+  assert.equal(create.args.includes('test-private-bucket'),true);
+  // The local pip install may not have generated an executable in its Scripts path.
+  // Our invocation must not depend on APPDATA, PATH changes or PowerShell policy.
+  const gcloud=windowsCliInvocation('gcloud',
+    ['secrets','list','--project=justelle-qualification','--quiet'],
+    {comSpec:'C:\\Windows\\System32\\cmd.exe'});
+  assert.equal(gcloud.binary,'C:\\Windows\\System32\\cmd.exe');
+  assert.deepEqual(gcloud.args,
+    ['/d','/s','/c','gcloud.cmd secrets list --project=justelle-qualification --quiet']);
+  assert.throws(()=>windowsCliInvocation('unknown',[]),/Unsupported private command/);
+});
 
 test('validates exact B2 HTTPS endpoint and rejects credentials/unexpected hosts',()=>{
   assert.equal(validateEndpoint(endpoint),endpoint);
