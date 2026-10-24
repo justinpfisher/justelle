@@ -112,11 +112,11 @@ test('A distinct, correctly scoped production target still produces an independe
   const store={
     verifyRetention:async()=>calls.push('default'),
     put:async(key,path)=>{
-      assert.match(key,/^production\\//);
+      assert.match(key,/^production\//);
       stored=await readFile(path);calls.push('upload');return 'synthetic-production-version';
     },
     verifyObjectRetention:async(key,version)=>{
-      assert.match(key,/^production\\//);
+      assert.match(key,/^production\//);
       assert.equal(version,'synthetic-production-version');
       calls.push('object');
     },
