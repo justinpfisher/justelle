@@ -2,6 +2,7 @@
 // The one-time B2 key and complete backup configuration only pass through process memory
 // and the stdin of Google Secret Manager. No credentials or recovery key go to stdout.
 import {spawn} from 'node:child_process';
+import {timingSafeEqual} from 'node:crypto';
 import {lstat,readFile,realpath} from 'node:fs/promises';
 import {isAbsolute,relative,resolve,sep,join} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -37,6 +38,87 @@ export async function readOfflineRecoveryKey(file,repositoryRoot){
   const key=await readFile(file);
   if(key.length!==32){key.fill(0);throw Error('The recovery key has an invalid length');}
   return key;
+}
+
+
+/**
+ * Decode a cryptographically generated 32-byte recovery key printed as hex
+ * (64 digits, optional spaces/dashes) or canonical Base64 (44 characters).
+ * This validates length and encoding, not the entropy of its generation.
+ * Never print or log the argument or the returned Buffer.
+ */
+export function decodePrintedRecoveryKey(value){
+  if(typeof value!=='string')throw Error('A printed 32-byte recovery key is required');
+  const hex=value.replace(/[\s-]/g,'');
+  if(/^[a-fA-F0-9]{64}$/.test(hex))return Buffer.from(hex,'hex');
+  const b64=value.replace(/\s/g,'');
+  if(/^[A-Za-z0-9+/]{43}=$/.test(b64)){
+    const bytes=Buffer.from(b64,'base64');
+    if(bytes.length===32&&bytes.toString('base64')===b64)return bytes;
+    bytes.fill(0);
+  }
+  throw Error('Printed recovery key must be 64 hexadecimal characters or 44 canonical Base64 characters');
+}
+
+// Input is intentionally read in raw mode: readline/Read-Host can echo the
+// secret or place it in history. Only a genuine owner-controlled local TTY
+// can be used, never redirected stdin or a captured agent execution.
+function hiddenTTYLine(input,output,prompt){
+  return new Promise((resolve,reject)=>{
+    const chars=[];
+    let finished=false;
+    function finish(error){
+      if(finished)return;
+      finished=true;
+      input.off('data',onData);
+      input.off('end',onEnd);
+      output.write('\n');
+      const entered=error?null:chars.join('');
+      chars.fill('');
+      if(error)reject(error);else resolve(entered);
+    }
+    function onEnd(){finish(Error('Private recovery key entry was interrupted'));}
+    function onData(data){
+      for(const ch of data.toString('utf8')){
+        if(ch==='\r'||ch==='\n'){finish(null);return;}
+        if(ch==='\x03'||ch==='\x04'||ch==='\x1b'){
+          finish(Error('Private recovery key entry was cancelled'));return;
+        }
+        if(ch==='\b'||ch==='\x7f'){chars.pop();continue;}
+        if(ch<' '||ch>'~'||chars.length>=128){
+          finish(Error('Invalid recovery key input; nothing was installed'));return;
+        }
+        chars.push(ch);
+      }
+    }
+    input.on('data',onData);
+    input.once('end',onEnd);
+    output.write(prompt);
+  });
+}
+export async function readPaperRecoveryKey({input=process.stdin,output=process.stderr}={}){
+  if(process.env.CI||process.env.GITHUB_ACTIONS||input?.isTTY!==true||output?.isTTY!==true||
+     typeof input.setRawMode!=='function')
+    throw Error('Paper recovery entry requires a private owner-controlled interactive terminal');
+  const priorRaw=Boolean(input.isRaw);
+  let first,second;
+  try{
+    input.setRawMode(true);
+    input.resume();
+    const firstText=await hiddenTTYLine(input,output,'Enter printed Justelle recovery key (input hidden): ');
+    first=decodePrintedRecoveryKey(firstText);
+    const secondText=await hiddenTTYLine(input,output,'Re-enter the printed key to verify (input hidden): ');
+    second=decodePrintedRecoveryKey(secondText);
+    if(!timingSafeEqual(first,second))throw Error('Printed key entries do not match; nothing was installed');
+    return first;
+  }catch(error){
+    first?.fill(0);
+    throw error;
+  }finally{
+    second?.fill(0);
+    input.setRawMode(priorRaw);
+    input.pause();
+  }
 }
 
 export function parseCreatedKey(output){
@@ -159,21 +241,25 @@ function parseArguments(argv){
   const args={};
   for(let i=0;i<argv.length;i++){
     if(argv[i]==='--offline-custody-confirmed')args.offlineCustodyConfirmed=true;
+    else if(argv[i]==='--paper-key')args.paperKey=true;
     else if(['--offline-key','--endpoint'].includes(argv[i])&&argv[i+1]){
       const option=argv[i++];args[option==='--offline-key'?'file':'endpoint']=argv[i];
     }
-    else throw Error('Use --offline-key <absolute-owner-held-file> --endpoint <B2-S3-HTTPS-endpoint> --offline-custody-confirmed');
+    else throw Error('Use either --paper-key or --offline-key <absolute-owner-held-file>, plus --endpoint <B2-S3-HTTPS-endpoint> --offline-custody-confirmed');
   }
-  if(!args.file||!args.endpoint||!args.offlineCustodyConfirmed)
-    throw Error('Offline key path, B2 endpoint and genuine owner custody confirmation are required');
+  if(Boolean(args.file)===Boolean(args.paperKey)||!args.endpoint||!args.offlineCustodyConfirmed)
+    throw Error('Choose exactly one recovery key input method, B2 endpoint and genuine owner custody confirmation');
   return args;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
   let key;
   try{
-    const {file,endpoint,offlineCustodyConfirmed}=parseArguments(process.argv.slice(2));
-    const root=fileURLToPath(new URL('../',import.meta.url));
-    key=await readOfflineRecoveryKey(file,root);
+    const {file,paperKey,endpoint,offlineCustodyConfirmed}=parseArguments(process.argv.slice(2));
+    if(paperKey)key=await readPaperRecoveryKey();
+    else{
+      const root=fileURLToPath(new URL('../',import.meta.url));
+      key=await readOfflineRecoveryKey(file,root);
+    }
     const result=await bootstrap({endpoint,recoveryKey:key,offlineCustodyConfirmed,run:localCliRunner()});
     console.log(JSON.stringify(result));
   }catch(e){
