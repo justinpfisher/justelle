@@ -56,11 +56,11 @@ test('Failed initial rollback never reports success when either public shutdown 
  assert.deepEqual(initial.calls.at(-1),['report','recovery-failed']);
 });
 
-const fictionalConfig={mode:'hosted-fictional',projectId:'fictional-qualification',
- otherProjectId:'fictional-production',site:'fictional-qualification',
- origin:'https://fictional-qualification.web.app',roomId:'fictional-room',apiKey:'synthetic',
- gatewayServiceAccount:'gateway@fictional-qualification.iam.gserviceaccount.com',
- backupServiceAccount:'backup@fictional-qualification.iam.gserviceaccount.com'};
+const fictionalConfig={mode:'hosted-fictional',projectId:'justelle-qualification',
+ otherProjectId:'justelle-production',site:'justelle-qualification',
+ origin:'https://justelle-qualification.web.app',roomId:'fictional-room',apiKey:'synthetic',
+ gatewayServiceAccount:'gateway@justelle-qualification.iam.gserviceaccount.com',
+ backupServiceAccount:'backup@justelle-qualification.iam.gserviceaccount.com'};
 function drillSetup(){
  const calls=[];let deployed=sha;
  return {calls,options:{config:fictionalConfig,sha,previousSha:old,
