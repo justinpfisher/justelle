@@ -2,7 +2,25 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveRuntime} from '../web/runtime-config.mjs';
 import {protectedMediaTransport} from '../web/protected-media.mjs';
+import {buildEnvironment} from '../hosting/deployment-config.mjs';
 const env={VITE_JUSTELLE_MODE:'hosted-fictional',VITE_JUSTELLE_ORIGIN:'https://fictional-qualification.web.app',VITE_FIREBASE_PROJECT_ID:'fictional-qualification',VITE_FIREBASE_API_KEY:'fictional-public-config',VITE_FIREBASE_AUTH_DOMAIN:'fictional-qualification.firebaseapp.com',VITE_FIREBASE_STORAGE_BUCKET:'fictional-qualification.firebasestorage.app',VITE_JUSTELLE_ROOM:'fictional-room'};
+test('Deployment configuration pins each mode to its dedicated Justelle project pair and qualification site',()=>{
+  const qualification={mode:'hosted-fictional',projectId:'justelle-qualification',otherProjectId:'justelle-production',
+    site:'justelle-qualification',origin:'https://justelle-qualification.web.app',roomId:'fictional-room',apiKey:'synthetic-public-key',
+    gatewayServiceAccount:'justelle-gateway@justelle-qualification.iam.gserviceaccount.com',
+    backupServiceAccount:'justelle-backup@justelle-qualification.iam.gserviceaccount.com'};
+  assert.equal(buildEnvironment(qualification).VITE_FIREBASE_PROJECT_ID,'justelle-qualification');
+  assert.throws(()=>buildEnvironment({...qualification,projectId:'justelle-production',otherProjectId:'justelle-qualification'}),/dedicated Justelle project pair/);
+  assert.throws(()=>buildEnvironment({...qualification,otherProjectId:'another-project'}),/dedicated Justelle project pair/);
+  assert.throws(()=>buildEnvironment({...qualification,site:'justelle-private-production'}),/isolated qualification Hosting site/);
+  assert.throws(()=>buildEnvironment({...qualification,origin:'https://app.justelle.life'}),/isolated qualification Hosting site/);
+  const production={...qualification,mode:'production',projectId:'justelle-production',otherProjectId:'justelle-qualification',
+    site:'private-production-site',origin:'https://app.justelle.life',roomId:'fictional-production-room',
+    gatewayServiceAccount:'justelle-gateway@justelle-production.iam.gserviceaccount.com',
+    backupServiceAccount:'justelle-backup@justelle-production.iam.gserviceaccount.com'};
+  assert.equal(buildEnvironment(production).VITE_FIREBASE_PROJECT_ID,'justelle-production');
+  assert.throws(()=>buildEnvironment({...production,projectId:'justelle-qualification',otherProjectId:'justelle-production'}),/dedicated Justelle project pair/);
+});
 test('Hosted bootstrap requires an explicit isolated fictional project and HTTPS origin',()=>{
   assert.throws(()=>resolveRuntime({hostname:'fictional-qualification.web.app',origin:env.VITE_JUSTELLE_ORIGIN}),/locally/);
   assert.throws(()=>resolveRuntime({hostname:'justelle.life',origin:'https://justelle.life',env}),/origin/);

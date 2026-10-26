@@ -3,6 +3,14 @@ export function buildEnvironment(c){
   if(!['hosted-fictional','production'].includes(c.mode)||c.projectId===c.otherProjectId||
     !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(c.otherProjectId||'')||
     !/^[a-z0-9-]{4,63}$/.test(c.site||''))throw Error('Separate deployment projects and site are required');
+  const expectedProjects=c.mode==='hosted-fictional'
+    ? {projectId:'justelle-qualification',otherProjectId:'justelle-production'}
+    : {projectId:'justelle-production',otherProjectId:'justelle-qualification'};
+  if(c.projectId!==expectedProjects.projectId||c.otherProjectId!==expectedProjects.otherProjectId)
+    throw Error('Deployment mode does not match its dedicated Justelle project pair');
+  if(c.mode==='hosted-fictional'&&
+    (c.site!=='justelle-qualification'||c.origin!=='https://justelle-qualification.web.app'))
+    throw Error('Fictional deployment must use the isolated qualification Hosting site');
   const env={VITE_JUSTELLE_MODE:c.mode,VITE_JUSTELLE_ORIGIN:c.origin,VITE_JUSTELLE_ROOM:c.roomId,
     VITE_FIREBASE_PROJECT_ID:c.projectId,VITE_FIREBASE_AUTH_DOMAIN:c.projectId+'.firebaseapp.com',
     VITE_FIREBASE_STORAGE_BUCKET:c.projectId+'.firebasestorage.app',VITE_FIREBASE_API_KEY:c.apiKey,
