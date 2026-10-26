@@ -19,8 +19,9 @@ function within(parent,child){
 export function validateProductionMemberConfig(config){
   if(!config||typeof config!=='object'||config.mode!=='production'||
      config.projectId!==project||config.otherProjectId!==other||
-     config.site!=='justelle-production'||config.origin!=='https://app.justelle.life')
-    throw Error('Owner production member setup requires only the approved Justelle projects and site');
+     config.site!=='justelle-production'||config.origin!=='https://app.justelle.life'||
+     config.roomId!=='justelle-primary')
+    throw Error('Owner production member setup requires only the approved Justelle projects, site and room');
   buildEnvironment(config);
   if(!Array.isArray(config.members)||config.members.length!==2||
      config.members.some((m,i)=>!safeEmail(m?.email)||typeof m.password!=='string'||

@@ -11,7 +11,7 @@ import {validateProductionMemberConfig,provisionProductionMembers,readOwnerConfi
 
 const config=()=>({
   mode:'production',projectId:'justelle-production',otherProjectId:'justelle-qualification',
-  site:'justelle-production',origin:'https://app.justelle.life',roomId:'shared-life',
+  site:'justelle-production',origin:'https://app.justelle.life',roomId:'justelle-primary',
   apiKey:'public-synthetic-key',
   gatewayServiceAccount:'gateway@justelle-production.iam.gserviceaccount.com',
   backupServiceAccount:'backup@justelle-production.iam.gserviceaccount.com',
@@ -64,7 +64,7 @@ function scenario({existingRoom=null,existingEmails=[],failLookupAt=0,failRoomRe
     }
   };
   const db={doc(path){
-    assert.equal(path,'rooms/shared-life');
+    assert.equal(path,'rooms/justelle-primary');
     return {
       async get(){events.push(['read-room']);if(failRoomRead)throw Object.assign(Error('Synthetic private token'),{code:7});return {exists:room!==null,data:()=>room};},
       async create(value){
@@ -88,7 +88,7 @@ async function diagnosticOf(operation,defaultPhase='PROVISIONER'){
 
 test('real member setup is pinned to Justelle production and two unique private credentials',()=>{
   const good=validateProductionMemberConfig(config());
-  assert.equal(good.roomId,'shared-life');
+  assert.equal(good.roomId,'justelle-primary');
   assert.equal(good.members.length,2);
   for(const bad of [
     {...config(),mode:'hosted-fictional'},
@@ -133,8 +133,8 @@ test('creates exactly two separate Auth accounts with matching claims and privat
   assert.deepEqual(s.room.labels,{'uid-1':'Person A','uid-2':'Person B'});
   assert.deepEqual(s.room.revoked_auth_before,{});
   assert.deepEqual(s.users.map(u=>u.customClaims),[
-    {justelle_member:true,justelle_room:'shared-life'},
-    {justelle_member:true,justelle_room:'shared-life'}
+    {justelle_member:true,justelle_room:'justelle-primary'},
+    {justelle_member:true,justelle_room:'justelle-primary'}
   ]);
   assert.equal(s.events.filter(x=>x[0]==='create-room').length,1);
 });
@@ -147,8 +147,8 @@ test('a matching existing member room is read-only and preserves historical mapp
     revoked_auth_before:{'uid-first':42}
   };
   const s=scenario({existingRoom:prior,existingEmails:[
-    {uid:'uid-first',email:'a@example.invalid',claims:{justelle_member:true,justelle_room:'shared-life'}},
-    {uid:'uid-second',email:'b@example.invalid',claims:{justelle_member:true,justelle_room:'shared-life'}}
+    {uid:'uid-first',email:'a@example.invalid',claims:{justelle_member:true,justelle_room:'justelle-primary'}},
+    {uid:'uid-second',email:'b@example.invalid',claims:{justelle_member:true,justelle_room:'justelle-primary'}}
   ]});
   const result=await provisionProductionMembers({config:config(),auth:s.auth,db:s.db,
     newPersonId:s.newPersonId});
