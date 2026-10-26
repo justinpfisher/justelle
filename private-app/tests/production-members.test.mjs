@@ -91,6 +91,25 @@ test('real member setup is pinned to Justelle production and two unique private 
   ])assert.throws(()=>validateProductionMemberConfig(bad));
 });
 
+test('member password length accepts 8 through 128 characters and rejects outside that range',()=>{
+  for(const length of [8,128]){
+    const candidate=config();
+    candidate.members[0].password='a'.repeat(length);
+    candidate.members[1].password='b'.repeat(length);
+    assert.equal(validateProductionMemberConfig(candidate).members.length,2);
+  }
+  for(const length of [7,129]){
+    const candidate=config();
+    candidate.members[0].password='a'.repeat(length);
+    candidate.members[1].password='b'.repeat(length);
+    assert.throws(()=>validateProductionMemberConfig(candidate));
+  }
+  const duplicate=config();
+  duplicate.members[0].password='same-password';
+  duplicate.members[1].password='same-password';
+  assert.throws(()=>validateProductionMemberConfig(duplicate),/independent/);
+});
+
 test('creates exactly two separate Auth accounts with matching claims and private immutable room IDs',async()=>{
   const s=scenario();
   const result=await provisionProductionMembers({config:config(),auth:s.auth,db:s.db,

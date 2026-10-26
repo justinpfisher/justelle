@@ -24,7 +24,7 @@ export function validateProductionMemberConfig(config){
   buildEnvironment(config);
   if(!Array.isArray(config.members)||config.members.length!==2||
      config.members.some((m,i)=>!safeEmail(m?.email)||typeof m.password!=='string'||
-       m.password.length<12||m.password.length>128||
+       m.password.length<8||m.password.length>128||
        (m.label!==undefined&&(typeof m.label!=='string'||!m.label.trim()||
          m.label.length>40||m.label!==m.label.trim())))||
      new Set(config.members.map(m=>m.email.toLowerCase())).size!==2)
