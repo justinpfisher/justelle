@@ -7,8 +7,8 @@ const env={VITE_JUSTELLE_MODE:'hosted-fictional',VITE_JUSTELLE_ORIGIN:'https://f
 test('Deployment configuration pins each mode to its dedicated Justelle project pair and qualification site',()=>{
   const qualification={mode:'hosted-fictional',projectId:'justelle-qualification',otherProjectId:'justelle-production',
     site:'justelle-qualification',origin:'https://justelle-qualification.web.app',roomId:'fictional-room',apiKey:'synthetic-public-key',
-    gatewayServiceAccount:'justelle-gateway@justelle-qualification.iam.gserviceaccount.com',
-    backupServiceAccount:'justelle-backup@justelle-qualification.iam.gserviceaccount.com'};
+    gatewayServiceAccount:'gateway@justelle-qualification.iam.gserviceaccount.com',
+    backupServiceAccount:'backup@justelle-qualification.iam.gserviceaccount.com'};
   assert.equal(buildEnvironment(qualification).VITE_FIREBASE_PROJECT_ID,'justelle-qualification');
   assert.throws(()=>buildEnvironment({...qualification,projectId:'justelle-production',otherProjectId:'justelle-qualification'}),/dedicated Justelle project pair/);
   assert.throws(()=>buildEnvironment({...qualification,otherProjectId:'another-project'}),/dedicated Justelle project pair/);
@@ -16,8 +16,8 @@ test('Deployment configuration pins each mode to its dedicated Justelle project 
   assert.throws(()=>buildEnvironment({...qualification,origin:'https://app.justelle.life'}),/isolated qualification Hosting site/);
   const production={...qualification,mode:'production',projectId:'justelle-production',otherProjectId:'justelle-qualification',
     site:'private-production-site',origin:'https://app.justelle.life',roomId:'fictional-production-room',
-    gatewayServiceAccount:'justelle-gateway@justelle-production.iam.gserviceaccount.com',
-    backupServiceAccount:'justelle-backup@justelle-production.iam.gserviceaccount.com'};
+    gatewayServiceAccount:'gateway@justelle-production.iam.gserviceaccount.com',
+    backupServiceAccount:'backup@justelle-production.iam.gserviceaccount.com'};
   assert.equal(buildEnvironment(production).VITE_FIREBASE_PROJECT_ID,'justelle-production');
   assert.throws(()=>buildEnvironment({...production,projectId:'justelle-qualification',otherProjectId:'justelle-production'}),/dedicated Justelle project pair/);
 });
