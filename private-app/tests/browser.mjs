@@ -86,6 +86,11 @@ async function assertPrivateUiCleared(page){
   const tripDataset=await page.locator('#planner-trip-form').evaluate(form=>({...form.dataset}));
   for(const key of ['planId','baseRevision','dirty'])assert.equal(tripDataset[key],undefined,key+' must clear on sign-out');
 }
+async function openTripBasics(page){
+  const section=page.locator('#planner-detail > details').first();
+  if(!(await section.evaluate(node=>node.open)))await section.locator('summary').click();
+  await section.locator('#planner-trip-title').waitFor({state:'visible'});
+}
 async function openPlans(page){
   const panel=page.locator('#agreements-tab');
   if(!(await panel.isVisible()))await page.locator('#plans-toggle').click();
@@ -972,7 +977,7 @@ try{
   await B.locator('[data-tab="adventures"]').click();
   const sharedCard=B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'});
   await sharedCard.getByRole('button',{name:'Open plan'}).click();
-  await B.getByText('Dates and trip basics',{exact:true}).click();
+  await openTripBasics(B);
   await B.locator('#planner-trip-title').fill('Fictional unsaved session draft');
   assert.equal(await B.locator('#planner-trip-form').evaluate(form=>form.dataset.dirty),'true');
   const oldStay=B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'});
@@ -992,7 +997,7 @@ try{
   await B.locator('[data-tab="adventures"]').click();
   await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
     .getByRole('button',{name:'Open plan'}).click();
-  await B.getByText('Dates and trip basics',{exact:true}).click();
+  await openTripBasics(B);
   assert.equal(await B.locator('#planner-trip-title').inputValue(),'Fictional Coast Updated',
     'reopening the same plan repopulates trip details after clearing the old dirty draft');
   assert.equal(await B.locator('#planner-trip-form').evaluate(form=>form.dataset.dirty),'false');
