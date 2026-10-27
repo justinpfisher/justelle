@@ -445,8 +445,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       const sourceId=await planner.addSource(user,{adventureId:p.id,kind:'note',
         title:'Original planning request',notes:instruction,documentId});
       if(!isCurrentRequest())return;
+      const token=await getToken();
+      if(!isCurrentRequest())return;
       const response=await fetch(planAiUrl,{method:'POST',cache:'no-store',redirect:'error',
-        headers:{Authorization:'Bearer '+await getToken(),'Content-Type':'application/json'},
+        headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
         body:JSON.stringify({plan_id:p.id,revision:p.revision,source_id:sourceId})});
       const result=await response.json();
       if(!isCurrentRequest())return;
