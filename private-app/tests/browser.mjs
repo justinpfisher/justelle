@@ -888,7 +888,7 @@ try{
 
   // Hold a member bootstrap read, then switch to an unprivileged fictional
   // account. Releasing the old response must not reopen the previous session.
-  const oldMemberRead=await holdFirstRequest(again,'**/documents:batchGet*','POST');
+  const oldMemberRead=await holdFirstRequest(again,'http://127.0.0.1:8081/**','POST');
   await again.locator('#email').fill(fixture.a.email);
   await again.locator('#password').fill(fixture.a.password);
   await again.locator('#login-form button').click();
