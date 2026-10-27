@@ -191,26 +191,36 @@ try{
     assert.equal(response.status(),200,'the local deterministic gateway must return a successful response');
     assert.ok(['preview','needs_detail'].includes(payload.kind),
       'the delayed reply must come from the fictional planner gateway');
-    let release;
+    let release,finish;
     const gate=new Promise(resolve=>{release=resolve;});
-    const entry={release,payload,fail:false};
+    const completed=new Promise(resolve=>{finish=resolve;});
+    const entry={release,payload,fail:false,responseStatus:null,response:completed};
     delayedPlanReplies.push(entry);
     await gate;
-    if(entry.fail)return route.fulfill({status:500,headers:{'content-type':'application/json; charset=utf-8'},
-      body:JSON.stringify({error:'Synthetic local gateway failure'})});
-    await route.fulfill({response});
+    try{
+      if(entry.fail){
+        const responseHeaders=response.headers();
+        const corsHeaders=Object.fromEntries(['access-control-allow-origin',
+          'access-control-allow-credentials','vary'].filter(name=>responseHeaders[name])
+          .map(name=>[name,responseHeaders[name]]));
+        await route.fulfill({status:500,headers:{...corsHeaders,
+          'content-type':'application/json; charset=utf-8'},
+          body:JSON.stringify({error:'Synthetic local gateway failure'})});
+        entry.responseStatus=500;
+      }else{
+        await route.fulfill({response});
+        entry.responseStatus=response.status();
+      }
+    }finally{finish();}
   });
   await installDelayedPlanRoute(A);
   await installDelayedPlanRoute(B);
   const startDelayedPlanRequest=async(page=A,expectedKind='preview')=>{
     const index=delayedPlanReplies.length;
-    const response=page.waitForResponse(r=>r.url()===planSuggestionUrl&&r.request().method()==='POST');
     await page.locator('#planner-ask-ai').click();
     await poll(async()=>delayedPlanReplies.length>index);
     const entry=delayedPlanReplies[index];
     assert.equal(entry.payload.kind,expectedKind);
-    entry.responseStatus=response.then(r=>r.status());
-    entry.response=response.then(r=>r.finished());
     return entry;
   };
 
@@ -306,6 +316,8 @@ try{
   await olderFailure.response;
   assert.equal(await olderFailure.responseStatus,500,
     'the delayed stale-error fixture must actually return the synthetic gateway failure');
+  assert.equal((await B.locator('#error').textContent()).trim(),'',
+    'a stale gateway error cannot surface in the member error area');
   assert.equal(await B.locator('#planner-instruction-apply').isVisible(),true,
     'an older failure cannot discard a newer preview');
   assert.match(await B.locator('#planner-instruction-message').textContent(),/Fictional Latest Cove/);
