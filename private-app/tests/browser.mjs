@@ -389,20 +389,28 @@ try{
   // Hold one Firestore Commit RPC so UI intent can change while an already
   // authorized transaction save is in flight. The emulator request resumes unchanged.
   const holdNextPlannerSave=async page=>{
-    let waiting=true,startedResolve,releaseResolve;
+    let waiting=true,startedResolve,committedResolve,releaseResolve;
     const started=new Promise((resolve,reject)=>{
       const timeout=setTimeout(()=>reject(Error('Timed out waiting for the fictional Firestore save')),15000);
       startedResolve=url=>{clearTimeout(timeout);resolve(url);};
     });
+    const committed=new Promise(resolve=>{committedResolve=resolve;});
     const held=new Promise(resolve=>{releaseResolve=resolve;});
     await page.route('http://127.0.0.1:8081/**',async route=>{
       const request=route.request();
       if(waiting&&request.method()==='POST'&&request.url().includes(':commit')){
-        waiting=false;startedResolve(request.url());await held;
+        waiting=false;startedResolve(request.url());
+        // Let the emulator commit while holding only the browser's response.
+        // This keeps subsequent membership reads available during re-login.
+        const response=await route.fetch();
+        committedResolve(response.status());
+        await held;
+        await route.fulfill({response});
+        return;
       }
       await route.continue();
     });
-    return {started,release:releaseResolve,remove:()=>page.unroute('http://127.0.0.1:8081/**')};
+    return {started,committed,release:releaseResolve,remove:()=>page.unroute('http://127.0.0.1:8081/**')};
   };
 
   await A.locator('#planner-instruction').fill('Plan 1 night in Fictional Annex starting day 2');
@@ -1001,6 +1009,8 @@ try{
   await B.locator('#login').waitFor({state:'visible'});
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await assertPrivateUiCleared(B);
+  assert.equal(await oldSessionSave.committed,200,
+    'the local emulator accepts the old write while its browser response remains delayed');
 
   await signInOnCurrentPage(B,fixture.b);
   await B.locator('[data-tab="adventures"]').click();
