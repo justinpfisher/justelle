@@ -12,7 +12,7 @@ import {restoreArchive} from '../memory/restore.mjs';
 const fixtureFile=process.argv[2];
 if(!fixtureFile)throw Error('Need disposable emulator credentials file');
 const fixture=JSON.parse(await readFile(fixtureFile,'utf8'));
-const base='http://127.0.0.1:5173/';
+const base='http://127.0.0.1:5173/?test-session-races=1';
 const app=spawn(process.execPath,['node_modules/vite/bin/vite.js','web','--host','127.0.0.1','--port','5173','--strictPort'],{
   cwd:fileURLToPath(new URL('../',import.meta.url)),env:process.env,stdio:'ignore'
 });
@@ -27,17 +27,78 @@ async function waitFor(url){
     await new Promise(r=>setTimeout(r,450));}
   throw Error('Local service not ready: '+url);
 }
-async function login(page,account){
-  await page.goto(base);
+async function signInOnCurrentPage(page,account){
+  const authResponse=page.waitForResponse(response=>
+    response.url().includes('/accounts:signInWithPassword'),{timeout:15000});
   await page.locator('#email').fill(account.email);
   await page.locator('#password').fill(account.password);
   await page.locator('#login-form button').click();
+  const response=await authResponse;
+  if(response.status()!==200)
+    throw Error('Fictional Auth sign-in returned HTTP '+response.status());
   try{await page.locator('#private-app').waitFor({state:'visible',timeout:25000});}
-  catch{throw Error('Could not sign in; '+await page.locator('#error').textContent()+'; '+pageErrors.join('; '));}
+  catch{throw Error('Could not open the fictional member session after Auth HTTP '+
+    response.status()+'; login visible: '+await page.locator('#login').isVisible()+
+    '; private app visible: '+await page.locator('#private-app').isVisible()+
+    '; notice: '+await page.locator('#notice').textContent()+
+    '; error: '+await page.locator('#error').textContent()+'; '+pageErrors.join('; '));}
+}
+async function login(page,account){
+  await page.goto(base);
+  await signInOnCurrentPage(page,account);
 }
 async function openDiscussion(page,id){
   await page.locator('#topic-list [data-topic-id="'+id+'"]').click();
   await poll(async()=>await page.locator('#topic-list [data-topic-id="'+id+'"]').getAttribute('aria-pressed')==='true');
+}
+async function holdFirstRequest(page,url,method){
+  let captured=false,releaseResolve,startedResolve,continuedResolve;
+  let responseStatus=null,responseFinished=false;
+  const gate=new Promise(resolve=>{releaseResolve=resolve;});
+  const started=new Promise(resolve=>{startedResolve=resolve;});
+  const continued=new Promise(resolve=>{continuedResolve=resolve;});
+  await page.route(url,async route=>{
+    if(!captured&&route.request().method()===method){
+      captured=true;startedResolve();
+      await gate;
+      try{
+        await route.continue();
+        const response=await route.request().response();
+        if(response){
+          responseStatus=response.status();
+          responseFinished=!(await response.finished());
+        }
+      }catch{}finally{continuedResolve();}
+      return;
+    }
+    await route.continue();
+  });
+  return {started,continued,release:releaseResolve,captured:()=>captured,
+    get responseStatus(){return responseStatus;},get responseFinished(){return responseFinished;}};
+}
+async function assertPrivateUiCleared(page){
+  assert.equal(await page.locator('#private-app').isVisible(),false);
+  assert.doesNotMatch(await page.locator('#private-app').textContent(),
+    /Fictional correction source|Fictional Shared Coast|Fictional spontaneous memory/,
+    'the hidden shell must not retain prior member content');
+  for(const selector of ['#messages .bubble','#decisions .record-card','#adventures .record-card',
+    '#planner-list .planner-card','#planner-stays .planner-stay','#messages img'])
+    assert.equal(await page.locator(selector).count(),0,selector+' must not retain signed-in content');
+  assert.equal(await page.locator('#image-viewer').isVisible(),false);
+  assert.equal(await page.locator('#full-image').getAttribute('src'),null);
+  assert.equal(await page.locator('#planner-booking-source').textContent(),'');
+  assert.deepEqual(await page.locator('#planner-booking-stop option').allTextContents(),['No specific place']);
+  assert.equal(await page.locator('#planner-edit-status').textContent(),'');
+  assert.equal(await page.locator('#planner-experience-edit-status').textContent(),'');
+  assert.equal(await page.locator('#planner-edit-stay').isVisible(),false);
+  assert.equal(await page.locator('#planner-edit-experience').isVisible(),false);
+  const tripDataset=await page.locator('#planner-trip-form').evaluate(form=>({...form.dataset}));
+  for(const key of ['planId','baseRevision','dirty'])assert.equal(tripDataset[key],undefined,key+' must clear on sign-out');
+}
+async function openTripBasics(page){
+  const section=page.locator('#planner-detail > details').first();
+  if(!(await section.evaluate(node=>node.open)))await section.locator('summary').click();
+  await section.locator('#planner-trip-title').waitFor({state:'visible'});
 }
 async function openPlans(page){
   const panel=page.locator('#agreements-tab');
@@ -60,6 +121,9 @@ try{
   const A=await ctxA.newPage(),B=await ctxB.newPage();
   A.on('pageerror',e=>pageErrors.push('A: '+e.message));
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
+  await A.goto(base);
+  assert.equal(await A.locator('#login').isVisible(),true,'an unauthenticated visitor sees the sign-in screen');
+  assert.equal(await A.locator('#private-app').isVisible(),false,'an unauthenticated visitor cannot see private panels');
   await login(A,fixture.a);await login(B,fixture.b);
   assert.equal(await A.locator('.pilot').isVisible(),true);
   assert.match(await A.locator('.pilot').textContent(),/Local fictional-data pilot/);
@@ -325,20 +389,28 @@ try{
   // Hold one Firestore Commit RPC so UI intent can change while an already
   // authorized transaction save is in flight. The emulator request resumes unchanged.
   const holdNextPlannerSave=async page=>{
-    let waiting=true,startedResolve,releaseResolve;
+    let waiting=true,startedResolve,committedResolve,releaseResolve;
     const started=new Promise((resolve,reject)=>{
       const timeout=setTimeout(()=>reject(Error('Timed out waiting for the fictional Firestore save')),15000);
       startedResolve=url=>{clearTimeout(timeout);resolve(url);};
     });
+    const committed=new Promise(resolve=>{committedResolve=resolve;});
     const held=new Promise(resolve=>{releaseResolve=resolve;});
     await page.route('http://127.0.0.1:8081/**',async route=>{
       const request=route.request();
       if(waiting&&request.method()==='POST'&&request.url().includes(':commit')){
-        waiting=false;startedResolve(request.url());await held;
+        waiting=false;startedResolve(request.url());
+        // Let the emulator commit while holding only the browser's response.
+        // This keeps subsequent membership reads available during re-login.
+        const response=await route.fetch();
+        committedResolve(response.status());
+        await held;
+        await route.fulfill({response});
+        return;
       }
       await route.continue();
     });
-    return {started,release:releaseResolve,remove:()=>page.unroute('http://127.0.0.1:8081/**')};
+    return {started,committed,release:releaseResolve,remove:()=>page.unroute('http://127.0.0.1:8081/**')};
   };
 
   await A.locator('#planner-instruction').fill('Plan 1 night in Fictional Annex starting day 2');
@@ -471,6 +543,8 @@ try{
     await B.getByText('Explore days',{exact:true}).click();
   await B.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
   await B.locator('#planner-day-detail').getByRole('button',{name:/View booking · Fictional inn confirmation/}).click();
+  assert.equal(await B.locator('#planner-booking-source').textContent(),'',
+    'opening a new booking clears the previous source while current details load');
   await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   const downloadPromise=B.waitForEvent('download',{timeout:12000});
   await B.getByRole('button',{name:'Open protected original'}).click();
@@ -839,8 +913,159 @@ try{
   await again.setViewportSize({width:1280,height:900});
   assert.ok(await again.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Desktop layout should fit its viewport');
   await again.screenshot({path:join(screenshots,'fictional-desktop.png'),fullPage:true});
+  await again.locator('[data-tab="conversation"]').click();
+
+  // Signing out clears rendered private content and image URLs, not just the
+  // visibility of the app shell.
+  await again.locator('[data-topic-id="conversation-shared"]').click();
+  const privateImage=again.locator('#messages .image-preview-button').first();
+  await privateImage.waitFor({state:'visible'});
+  await poll(async()=>privateImage.locator('img').evaluate(img=>img.complete&&img.naturalWidth>0));
+  await privateImage.click();
+  await again.locator('#image-viewer').waitFor({state:'visible'});
+  await poll(async()=>Boolean(await again.locator('#full-image').getAttribute('src')));
+  await again.locator('#close-image').click();
+  await again.locator('#image-viewer').waitFor({state:'hidden'});
+  await again.locator('#sign-out').click();
+  await again.locator('#login').waitFor({state:'visible'});
+  await assertPrivateUiCleared(again);
+
+  // Hold a member bootstrap read, then switch to an unprivileged fictional
+  // account. Releasing the old response must not reopen the previous session.
+  const oldMemberRead=await holdFirstRequest(again,'http://127.0.0.1:8081/**','POST');
+  await again.locator('#email').fill(fixture.a.email);
+  await again.locator('#password').fill(fixture.a.password);
+  await again.locator('#login-form button').click();
+  await poll(async()=>oldMemberRead.captured(),15000);
+  await again.locator('#sign-out').waitFor({state:'visible'});
+  await again.locator('#sign-out').click();
+  await again.locator('#login').waitFor({state:'visible'});
+  await again.locator('#email').fill(fixture.outsider.email);
+  await again.locator('#password').fill(fixture.outsider.password);
+  const outsiderAuthResponse=again.waitForResponse(response=>
+    response.url().includes('/accounts:signInWithPassword'),{timeout:15000});
+  await again.locator('#login-form button').click();
+  assert.equal((await outsiderAuthResponse).status(),200,
+    'the synthetic outsider must authenticate before membership rejection is tested');
+  await poll(async()=>{
+    const message=(await again.locator('#error').textContent()).toLowerCase();
+    return await again.locator('#login').isVisible()&&
+      !(await again.locator('#private-app').isVisible())&&
+      /permission|access|member|claim/.test(message);
+  });
+  const outsiderError=(await again.locator('#error').textContent()).toLowerCase();
+  const denialCategory=outsiderError.includes('permission')?'permission':
+    /access|member|claim/.test(outsiderError)?'access':outsiderError?'other':'empty';
+  assert.ok(['access','permission'].includes(denialCategory),
+    'outsider rejection category should identify an access denial; received '+denialCategory);
+  await assertPrivateUiCleared(again);
+  oldMemberRead.release();await oldMemberRead.continued;
+  await again.unroute('http://127.0.0.1:8081/**');
+  await assertPrivateUiCleared(again);
+
+  // Revoking one fictional member's auth_time invalidates the next protected
+  // request. An already-started image response is released only after logout
+  // and must not restore its image into the new unauthenticated UI.
+  const delayedImage=await holdFirstRequest(again,'http://127.0.0.1:9199/**','GET');
+  await again.locator('#email').fill(fixture.a.email);
+  await again.locator('#password').fill(fixture.a.password);
+  await again.locator('#login-form button').click();
+  await again.locator('#private-app').waitFor({state:'visible',timeout:25000});
+  await poll(async()=>delayedImage.captured(),15000);
+  const revokeApp=initializeApp({projectId:'demo-justelle-pilot'},'justelle-browser-session-revocation');
+  const revokeDb=getFirestore(revokeApp);
+  try{
+    await revokeDb.doc('rooms/fictional-room').update({
+      revoked_auth_before:{'fictional-a':Math.floor(Date.now()/1000)+120}
+    });
+  }finally{await revokeDb.terminate();await deleteApp(revokeApp);}
+  await again.locator('#message-input').fill('Fictional request after membership revocation');
+  await again.locator('#send-button').click();
+  await again.locator('#login').waitFor({state:'visible',timeout:15000});
+  await assertPrivateUiCleared(again);
+  delayedImage.release();await delayedImage.continued;
+  await again.unroute('http://127.0.0.1:9199/**');
+  await assertPrivateUiCleared(again);
+  assert.equal(await B.locator('#private-app').isVisible(),true,
+    'revoking Fictional A does not sign out the other fictional room member');
+
+  // An already accepted Firestore write may finish after sign-out, but its
+  // stale completion must not repopulate the signed-out UI. The emulator response
+  // is released before re-authentication so membership bootstrap can complete.
+  await B.locator('[data-tab="adventures"]').click();
+  const sharedCard=B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'});
+  await sharedCard.getByRole('button',{name:'Open plan'}).click();
+  await openTripBasics(B);
+  await B.locator('#planner-trip-title').fill('Fictional unsaved session draft');
+  assert.equal(await B.locator('#planner-trip-form').evaluate(form=>form.dataset.dirty),'true');
+  const oldStay=B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'});
+  await oldStay.getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-edit-title').fill('Fictional old-session save');
+  await B.evaluate(()=>window.__justelleTestSessionRaces.installEditGate('old'));
+  await B.locator('#planner-edit-stay button[type=submit]').click();
+  await B.waitForFunction(()=>window.__justelleTestSessionRaces?.gates.old?.committed===true,
+    null,{timeout:15000});
+  await B.locator('#sign-out').click();
+  await B.locator('#login').waitFor({state:'visible'});
+  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
+  await assertPrivateUiCleared(B);
+
+  await signInOnCurrentPage(B,fixture.b);
+  await B.locator('[data-tab="adventures"]').click();
+  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await openTripBasics(B);
+  assert.equal(await B.locator('#planner-trip-title').inputValue(),'Fictional Coast Updated',
+    'reopening the same plan repopulates trip details after clearing the old dirty draft');
+  assert.equal(await B.locator('#planner-trip-form').evaluate(form=>form.dataset.dirty),'false');
+  const committedStay=B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional old-session save'});
+  await committedStay.getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-edit-title').fill('Fictional new-session draft');
+  await B.evaluate(()=>window.__justelleTestSessionRaces.installEditGate('new'));
+  await B.locator('#planner-edit-stay button[type=submit]').click();
+  await B.waitForFunction(()=>window.__justelleTestSessionRaces?.gates.new?.committed===true,
+    null,{timeout:15000});
+  await B.evaluate(()=>window.__justelleTestSessionRaces.gates.old.release());
+  assert.equal(await B.locator('#planner-edit-stay').isVisible(),true,
+    'old-session completion cannot close the new session editor');
+  assert.equal(await B.locator('#planner-edit-title').inputValue(),'Fictional new-session draft',
+    'old-session completion cannot clear the newer session draft');
+  assert.equal(await B.locator('#planner-edit-stay button[type=submit]').isDisabled(),true,
+    'old-session finally cannot re-enable the newer pending save');
+  await B.evaluate(()=>window.__justelleTestSessionRaces.gates.new.release());
+  await poll(async()=>!await B.locator('#planner-edit-stay button[type=submit]').isDisabled());
+  await poll(async()=>!await B.locator('#planner-edit-stay').isVisible());
+
+  // Closing a session during a protected-original read suppresses the
+  // completion, clears member-recorded source fields/options and creates no download.
+  await B.getByText('Booking anchors',{exact:true}).click();
+  const originalEntry=B.locator('#planner-bookings .planner-booking-entry')
+    .filter({hasText:'Fictional inn confirmation'});
+  await originalEntry.getByRole('button',{name:'Show original details'}).click();
+  await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
+  const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
+  let staleDownloadCount=0;
+  const recordStaleDownload=()=>{staleDownloadCount++;};
+  B.on('download',recordStaleDownload);
+  await B.getByRole('button',{name:'Open protected original'}).click();
+  await poll(async()=>delayedOriginal.captured(),15000);
+  await B.locator('#sign-out').click();
+  await B.locator('#login').waitFor({state:'visible'});
+  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
+  await assertPrivateUiCleared(B);
+  delayedOriginal.release();
+  await delayedOriginal.continued;
+  assert.ok([200,206].includes(delayedOriginal.responseStatus),
+    'the protected original request completed successfully before checking stale-download suppression');
+  assert.equal(delayedOriginal.responseFinished,true,
+    'the protected original response body completed without a network error');
+  await B.waitForTimeout(250);
+  B.off('download',recordStaleDownload);
+  assert.equal(staleDownloadCount,0,
+    'a protected original response from the signed-out session cannot trigger a download');
+  await B.unroute('http://127.0.0.1:9199/**');
   assert.deepEqual(pageErrors,[]);
-  console.log('BROWSER PASS: scoped chats, 40-message pages, jump to latest, source-linked adventures, two-member plans, decline/revision history, transparent AI, image preview, independent restore and session persistence');
+  console.log('BROWSER PASS: scoped chats, two-member plans, stale AI protection, archive restore, outsider denial, session revocation, sign-out clearing, stale auth/image response suppression and persistence');
 }finally{
   await ctxA?.close();await ctxB?.close();app.kill('SIGTERM');await unlink(fixtureFile).catch(()=>{});
 }
