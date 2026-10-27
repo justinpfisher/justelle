@@ -181,6 +181,8 @@ try{
   const planSuggestionUrl='http://127.0.0.1:8787/plan/suggest';
   await A.route(planSuggestionUrl,async route=>{
     const response=await route.fetch();
+    assert.equal(response.status(),200,'the local deterministic gateway must return a successful response');
+    assert.equal((await response.json()).kind,'preview','the delayed reply must contain a valid fictional preview');
     let release;
     const gate=new Promise(resolve=>{release=resolve;});
     delayedPlanReplies.push({release});
