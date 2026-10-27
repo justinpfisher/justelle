@@ -44,6 +44,7 @@ async function openDiscussion(page,id){
 }
 async function holdFirstRequest(page,url,method){
   let captured=false,releaseResolve,startedResolve,continuedResolve;
+  let responseStatus=null,responseFinished=false;
   const gate=new Promise(resolve=>{releaseResolve=resolve;});
   const started=new Promise(resolve=>{startedResolve=resolve;});
   const continued=new Promise(resolve=>{continuedResolve=resolve;});
@@ -54,13 +55,17 @@ async function holdFirstRequest(page,url,method){
       try{
         await route.continue();
         const response=await route.request().response();
-        if(response)await response.finished();
+        if(response){
+          responseStatus=response.status();
+          responseFinished=!(await response.finished());
+        }
       }catch{}finally{continuedResolve();}
       return;
     }
     await route.continue();
   });
-  return {started,continued,release:releaseResolve,captured:()=>captured};
+  return {started,continued,release:releaseResolve,captured:()=>captured,
+    get responseStatus(){return responseStatus;},get responseFinished(){return responseFinished;}};
 }
 async function assertPrivateUiCleared(page){
   assert.equal(await page.locator('#private-app').isVisible(),false);
@@ -1032,6 +1037,10 @@ try{
   await assertPrivateUiCleared(B);
   delayedOriginal.release();
   await delayedOriginal.continued;
+  assert.equal(delayedOriginal.responseStatus,200,
+    'the protected original request completed successfully before checking stale-download suppression');
+  assert.equal(delayedOriginal.responseFinished,true,
+    'the protected original response body completed without a network error');
   await B.waitForTimeout(250);
   B.off('download',recordStaleDownload);
   assert.equal(staleDownloadCount,0,
