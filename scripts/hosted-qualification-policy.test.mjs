@@ -31,6 +31,20 @@ test('hold blocks hosted qualification and production regardless of acceptance o
   }
 });
 
+test('hold matching is case-insensitive like GitHub expressions and does not trim whitespace',()=>{
+  for(const hold of ['TRUE','TrUe']){
+    assert.deepEqual(hostedQualificationPolicy({hold,hostedConfigured:'TRUE',initialAcceptance:'VERIFIED',
+      hostedChanges:false,qualificationResult:'skipped'}),
+    {qualification:'skipped',holdReport:'held',production:'skipped'});
+  }
+  assert.deepEqual(hostedQualificationPolicy({hold:' true ',hostedConfigured:'true',initialAcceptance:'',
+    hostedChanges:false,qualificationResult:'skipped'}),
+  {qualification:'run',holdReport:'not-applicable',production:'skipped'});
+  assert.deepEqual(hostedQualificationPolicy({hostedConfigured:'true',initialAcceptance:'',
+    qualificationResult:'skipped'}),
+  {qualification:'run',holdReport:'not-applicable',production:'skipped'});
+});
+
 test('unpaused first qualification runs but cannot release production before acceptance',()=>{
   assert.deepEqual(hostedQualificationPolicy({hostedConfigured:'true',initialAcceptance:'',
     qualificationResult:'skipped'}),
