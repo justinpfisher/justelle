@@ -158,6 +158,11 @@ try{
   assert.equal(await A.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,
     'The journey must not require horizontal scrolling on a 390px phone');
 
+  // Establish a planned stay as the overlap baseline for the delayed add_stop
+  // regression below. Earlier steps exercised Undo and restored it to possible.
+  await B.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).click();
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Keep as possible'}).waitFor();
+
   // Test the entire source-backed planner AI boundary on two fictional phones.
   // This uses only a deterministic local interpreter; it never calls a model.
   assert.equal(await A.locator('#planner-ask-ai').isVisible(),true);
@@ -174,6 +179,230 @@ try{
   await A.locator('#planner-undo').click();
   await poll(async()=>await B.locator('#planner-experiences').getByText('Fictional lookout').count()===0);
   assert.match(await A.locator('#planner-history').textContent(),/Original planning source retained/);
+
+  // A stale deterministic local gateway response must not restore Preview or Apply
+  // after newer input, or after closing and reopening the same plan.
+  const delayedPlanReplies=[];
+  const planSuggestionUrl='http://127.0.0.1:8787/plan/suggest';
+  const installDelayedPlanRoute=async page=>page.route(planSuggestionUrl,async route=>{
+    if(route.request().method()!=='POST')return route.continue();
+    const response=await route.fetch();
+    const payload=await response.json();
+    assert.equal(response.status(),200,'the local deterministic gateway must return a successful response');
+    assert.ok(['preview','needs_detail'].includes(payload.kind),
+      'the delayed reply must come from the fictional planner gateway');
+    let release,finish;
+    const gate=new Promise(resolve=>{release=resolve;});
+    const completed=new Promise(resolve=>{finish=resolve;});
+    const entry={release,payload,fail:false,responseStatus:null,response:completed};
+    delayedPlanReplies.push(entry);
+    await gate;
+    try{
+      if(entry.fail){
+        const responseHeaders=response.headers();
+        const corsHeaders=Object.fromEntries(['access-control-allow-origin',
+          'access-control-allow-credentials','vary'].filter(name=>responseHeaders[name])
+          .map(name=>[name,responseHeaders[name]]));
+        await route.fulfill({status:500,headers:{...corsHeaders,
+          'content-type':'application/json; charset=utf-8'},
+          body:JSON.stringify({error:'Synthetic local gateway failure'})});
+        entry.responseStatus=500;
+      }else{
+        await route.fulfill({response});
+        entry.responseStatus=response.status();
+      }
+    }finally{finish();}
+  });
+  await installDelayedPlanRoute(A);
+  await installDelayedPlanRoute(B);
+  const startDelayedPlanRequest=async(page=A,expectedKind='preview')=>{
+    const index=delayedPlanReplies.length;
+    await page.locator('#planner-ask-ai').click();
+    await poll(async()=>delayedPlanReplies.length>index);
+    const entry=delayedPlanReplies[index];
+    assert.equal(entry.payload.kind,expectedKind);
+    return entry;
+  };
+
+  await A.locator('#planner-instruction').fill('Consider a visit to Fictional lookout on day 6');
+  const afterNewInput=await startDelayedPlanRequest();
+  await A.locator('#planner-instruction').fill('A newer fictional planning request');
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false);
+  afterNewInput.release();
+  await afterNewInput.response;
+  await poll(async()=>await A.locator('#planner-ask-ai').isEnabled());
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false,
+    'an old response cannot restore Apply after the instruction changes');
+  assert.equal(await A.locator('#planner-instruction-result').isVisible(),false,
+    'an old response cannot restore the preview after the instruction changes');
+
+  await A.locator('#planner-instruction').fill('Plan 1 night in Fictional Annex starting day 2');
+  const afterLocalPreviewDiscard=await startDelayedPlanRequest();
+  await A.locator('#planner-instruction-form button[type="submit"]').click();
+  await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
+  assert.match(await A.locator('#planner-instruction-message').textContent(),/Nothing has changed yet/);
+  await A.locator('#planner-instruction-cancel').click();
+  afterLocalPreviewDiscard.release();
+  await afterLocalPreviewDiscard.response;
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false,
+    'a discarded local preview cannot be replaced by an older AI response');
+  assert.equal(await A.locator('#planner-instruction-result').isVisible(),false,
+    'discarding the local preview also invalidates the older AI result');
+
+  // A delayed AI response also cannot replace a newer local preview created by
+  // submitting an overlapping stop and then explicitly discarding that preview.
+  await A.locator('#planner-instruction').fill('Add 1 night in Fictional Annex starting day 2');
+  const beforeLocalDiscard=await startDelayedPlanRequest();
+  assert.equal(beforeLocalDiscard.payload.change?.type,'add_stop',
+    'the held fictional AI reply must propose an add_stop');
+  assert.equal(beforeLocalDiscard.payload.change.stop.title,'Fictional Annex');
+  assert.ok(beforeLocalDiscard.payload.change.stop.from_day<4&&
+    beforeLocalDiscard.payload.change.stop.through_day>2,
+    'the held AI stop must overlap the existing planned Fictional Harbour stay');
+  await A.locator('#planner-instruction-form button[type="submit"]').click();
+  await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
+  assert.match(await A.locator('#planner-instruction-message').textContent(),/Fictional Annex/);
+  await A.locator('#planner-instruction-cancel').click();
+  beforeLocalDiscard.release();
+  await beforeLocalDiscard.response;
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false,
+    'discarding a newer local overlapping-stop preview invalidates the earlier AI response');
+  assert.equal(await A.locator('#planner-instruction-result').isVisible(),false,
+    'the discarded local preview remains cleared after the old AI response completes');
+
+  // Replacing an uploaded fictional screenshot invalidates a pending clarification.
+  await B.locator('#planner-instruction').fill('What can this fictional image tell us?');
+  const screenshotBytes=await readFile(new URL('./fictional-landscape.png',import.meta.url));
+  await B.locator('#planner-ai-screenshot').setInputFiles({
+    name:'synthetic-first.png',mimeType:'image/png',buffer:screenshotBytes
+  });
+  const afterScreenshotReplacement=await startDelayedPlanRequest(B,'needs_detail');
+  await B.locator('#planner-ai-screenshot').setInputFiles({
+    name:'synthetic-replacement.png',mimeType:'image/png',buffer:screenshotBytes
+  });
+  afterScreenshotReplacement.release();
+  await afterScreenshotReplacement.response;
+  assert.equal(await B.locator('#planner-instruction-result').isVisible(),false,
+    'replacing the screenshot cannot restore a response tied to the earlier image');
+
+  // An older successful reply cannot overwrite a newer request, and its finally
+  // cannot re-enable Ask AI while that newer request is still pending.
+  await B.locator('#planner-ai-screenshot').setInputFiles([]);
+  await B.locator('#planner-instruction').fill('Consider 1 night in Fictional Earlier Cove starting day 6');
+  const olderSuccess=await startDelayedPlanRequest(B);
+  await B.locator('#planner-instruction').fill('Consider 1 night in Fictional Current Cove starting day 7');
+  const currentSuccess=await startDelayedPlanRequest(B);
+  olderSuccess.release();
+  await olderSuccess.response;
+  assert.equal(await B.locator('#planner-ask-ai').isDisabled(),true,
+    'an older request cannot enable the control while a newer request is pending');
+  assert.equal(await B.locator('#planner-instruction-apply').isVisible(),false,
+    'an older success cannot show Apply while a newer request is pending');
+  currentSuccess.release();
+  await currentSuccess.response;
+  await B.locator('#planner-instruction-apply').waitFor({state:'visible'});
+  assert.match(await B.locator('#planner-instruction-message').textContent(),/Fictional Current Cove/);
+
+  // A stale failure after the newer success must not replace its preview or surface an error.
+  await B.locator('#planner-instruction').fill('Consider 1 night in Fictional Error Cove starting day 6');
+  const olderFailure=await startDelayedPlanRequest(B);
+  await B.locator('#planner-instruction').fill('Consider 1 night in Fictional Latest Cove starting day 7');
+  const latestSuccess=await startDelayedPlanRequest(B);
+  latestSuccess.release();
+  await latestSuccess.response;
+  await B.locator('#planner-instruction-apply').waitFor({state:'visible'});
+  olderFailure.fail=true;
+  olderFailure.release();
+  await olderFailure.response;
+  assert.equal(await olderFailure.responseStatus,500,
+    'the delayed stale-error fixture must actually return the synthetic gateway failure');
+  assert.equal((await B.locator('#error').textContent()).trim(),'',
+    'a stale gateway error cannot surface in the member error area');
+  assert.equal(await B.locator('#planner-instruction-apply').isVisible(),true,
+    'an older failure cannot discard a newer preview');
+  assert.match(await B.locator('#planner-instruction-message').textContent(),/Fictional Latest Cove/);
+
+  // Hold one Firestore Commit RPC so UI intent can change while an already
+  // authorized transaction save is in flight. The emulator request resumes unchanged.
+  const holdNextPlannerSave=async page=>{
+    let waiting=true,startedResolve,releaseResolve;
+    const started=new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>reject(Error('Timed out waiting for the fictional Firestore save')),15000);
+      startedResolve=url=>{clearTimeout(timeout);resolve(url);};
+    });
+    const held=new Promise(resolve=>{releaseResolve=resolve;});
+    await page.route('http://127.0.0.1:8081/**',async route=>{
+      const request=route.request();
+      if(waiting&&request.method()==='POST'&&request.url().includes(':commit')){
+        waiting=false;startedResolve(request.url());await held;
+      }
+      await route.continue();
+    });
+    return {started,release:releaseResolve,remove:()=>page.unroute('http://127.0.0.1:8081/**')};
+  };
+
+  await A.locator('#planner-instruction').fill('Plan 1 night in Fictional Annex starting day 2');
+  await A.locator('#planner-instruction-form button[type="submit"]').click();
+  await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
+  const saveThenNewInput=await holdNextPlannerSave(A);
+  await A.locator('#planner-instruction-apply').click();
+  assert.match(await saveThenNewInput.started,/\/documents:commit(?:\?|$)/,
+    'the gate must hold the transaction Commit RPC, not a WebChannel request');
+  await A.locator('#planner-instruction').fill('Keep this newer fictional request for later');
+  saveThenNewInput.release();
+  await B.locator('#planner-stays').getByText('Fictional Annex').waitFor({timeout:15000});
+  assert.equal(await A.locator('#planner-instruction').inputValue(),
+    'Keep this newer fictional request for later',
+    'completion of an older Apply cannot clear a newer instruction');
+  assert.equal(await A.locator('#planner-instruction-message').textContent().then(t=>t.includes('Saved:')),false,
+    'completion of an older Apply cannot replace the newer request status');
+  await saveThenNewInput.remove();
+
+  await A.locator('#planner-title').fill('Fictional Alternate Coast');
+  await A.locator('#planner-date').fill('2026-12-01');
+  await A.locator('#planner-days').fill('5');
+  await A.locator('#planner-create button[type="submit"]').click();
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Alternate Coast'}).waitFor();
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail-title').getByText('Fictional Shared Coast',{exact:true}).waitFor();
+  await A.locator('#planner-instruction').fill('Plan 1 night in Fictional Peninsula starting day 3');
+  await A.locator('#planner-instruction-form button[type="submit"]').click();
+  await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
+  const saveThenSwitchPlan=await holdNextPlannerSave(A);
+  await A.locator('#planner-instruction-apply').click();
+  assert.match(await saveThenSwitchPlan.started,/\/documents:commit(?:\?|$)/,
+    'the plan-switch race must hold the transaction Commit RPC');
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Alternate Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail-title').getByText('Fictional Alternate Coast',{exact:true}).waitFor();
+  await A.locator('#planner-instruction').fill('Draft for the alternate fictional plan');
+  saveThenSwitchPlan.release();
+  await B.locator('#planner-stays').getByText('Fictional Peninsula').waitFor({timeout:15000});
+  assert.equal(await A.locator('#planner-detail-title').textContent(),'Fictional Alternate Coast',
+    'completion of an older Apply cannot switch the currently selected plan');
+  assert.equal(await A.locator('#planner-instruction').inputValue(),
+    'Draft for the alternate fictional plan',
+    'completion of an older Apply cannot erase the new plan’s draft');
+  await saveThenSwitchPlan.remove();
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail-title').getByText('Fictional Shared Coast',{exact:true}).waitFor();
+
+  await A.locator('#planner-instruction').fill('Consider a visit to Fictional lookout on day 6');
+  const afterCloseReopen=await startDelayedPlanRequest();
+  await A.locator('#planner-close').click();
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail').waitFor({state:'visible'});
+  afterCloseReopen.release();
+  await afterCloseReopen.response;
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false,
+    'closing and reopening the same plan invalidates its earlier response');
+  assert.equal(await A.locator('#planner-instruction-result').isVisible(),false,
+    'closing and reopening the same plan cannot restore its earlier preview');
+  await A.unroute(planSuggestionUrl);
+  await B.unroute(planSuggestionUrl);
 
   // A saved screenshot is protected and retained but the fictional interpreter
   // explicitly declines to describe pixels or manufacture a booking.
@@ -289,9 +518,11 @@ try{
   await B.setViewportSize({width:390,height:844});
   // A stay edit drafted before another member's save must not overwrite their
   // newer changes, even when live updates arrive during the draft.
-  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
+  await A.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Harbour Revised'})
+    .getByRole('button',{name:'Edit details'}).click();
   await A.locator('#planner-edit-title').fill('Unsaved outdated name');
-  await B.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Harbour Revised'})
+    .getByRole('button',{name:'Edit details'}).click();
   await B.locator('#planner-edit-title').fill('Fictional Coast Harbour');
   await B.locator('#planner-edit-stay button[type=submit]').click();
   await A.locator('#planner-stays').getByText('Fictional Coast Harbour').waitFor({timeout:15000});
@@ -537,7 +768,7 @@ try{
   const bundle=JSON.parse(await readFile(await download.path(),'utf8'));
   assert.equal(bundle.records.conversations.length,3);
   assert.ok(bundle.records.messages.length>=53);
-  assert.equal(bundle.records.adventure_plans.length,2);
+  assert.equal(bundle.records.adventure_plans.length,3);
   const roughMonth=bundle.records.adventure_plans.find(p=>
     p.state.title==='Fictional December possibility');
   assert.ok(roughMonth,'Month-only adventures remain in a portable export');
@@ -545,7 +776,7 @@ try{
   assert.equal(roughMonth.state.starts_on,null);
   assert.ok(bundle.records.plan_events.some(e=>
     e.adventure_id===roughMonth.id&&e.after_state.starts_month==='2027-12'));
-  assert.equal(bundle.records.plan_documents.length,2,
+  assert.equal(bundle.records.plan_documents.length,3,
     'Both protected supplier PDF and original AI screenshot remain in the portable archive');
   assert.ok(bundle.media.some(f=>f.mime==='application/pdf'));
   assert.ok(bundle.media.some(f=>f.mime==='image/png'));

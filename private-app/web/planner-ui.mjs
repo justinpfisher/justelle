@@ -12,7 +12,8 @@ const el=(tag,className='',content='')=>{
   if(content)node.textContent=content;return node;
 };
 export function mountPlannerUI({planner,user,membership,onError,announce,planAiUrl=null,getToken=null}){
-  let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,stopped=false;
+  let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,
+    stopped=false,instructionVersion=0;
   const aiAvailable=Boolean(planAiUrl&&getToken);
   $('planner-ask-ai').hidden=!aiAvailable;
   $('planner-ai-screenshot').closest('details').hidden=!aiAvailable;
@@ -83,7 +84,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       const planned=p.stops.filter(s=>s.status==='planned').length,possible=p.stops.length-planned;
       card.append(el('p','meta',planned+' planned places · '+possible+' possibilities'));
       const open=el('button','secondary','Open plan');open.type='button';
-      open.onclick=()=>{if(selected!==p.id){selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
+      open.onclick=()=>{invalidateAiSuggestion();if(selected!==p.id){selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
       card.append(open);list.append(card);
       }
     }
@@ -396,13 +397,15 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       }
     }catch(error){onError(error);}
   }
-  async function edit(p,change,options={}){
+  async function edit(p,change,options={},uiIsCurrent=()=>true){
     try{
       await planner.editPlan(user,p.id,change,p.revision,options);
-      announce('Saved for both of you. Undo remains available.');
-      await renderHistory();
+      if(uiIsCurrent()){
+        announce('Saved for both of you. Undo remains available.');
+        await renderHistory();
+      }
       return true;
-    }catch(error){onError(error);return false;}
+    }catch(error){if(uiIsCurrent())onError(error);return false;}
   }
   function clearInstruction(){
     instructionPreview=null;
@@ -410,6 +413,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-instruction-apply').hidden=true;
     $('planner-instruction-apply').disabled=false;
     $('planner-instruction-cancel').hidden=true;
+  }
+  function invalidateAiSuggestion(){
+    instructionVersion++;
+    $('planner-ask-ai').disabled=false;
   }
   function instructionMessage(message,{preview=false}={}){
     $('planner-instruction-message').textContent=message;
@@ -426,19 +433,28 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     if(!instruction&&!file)return instructionMessage('Enter a request or attach a PNG/JPEG screenshot.');
     if(file&&(!['image/png','image/jpeg'].includes(file.type)||file.size>12*1024*1024||
       file.size<=0))return instructionMessage('Use a PNG or JPEG screenshot under 12 MB.');
+    const requestVersion=++instructionVersion;
+    const isCurrentRequest=()=>requestVersion===instructionVersion&&!stopped&&selected===p.id&&
+      plans.find(x=>x.id===p.id)?.revision===p.revision&&
+      $('planner-instruction').value.trim()===instruction&&
+      ($('planner-ai-screenshot').files?.[0]||null)===file;
     const button=$('planner-ask-ai');button.disabled=true;clearInstruction();
     try{
       // Originals are immutable private member records, not uploaded into the
       // model directly from a public URL or used to change a supplier booking.
       const documentId=file?await planner.addDocument(user,{adventureId:p.id,file}):null;
+      if(!isCurrentRequest())return;
       const sourceId=await planner.addSource(user,{adventureId:p.id,kind:'note',
         title:'Original planning request',notes:instruction,documentId});
+      if(!isCurrentRequest())return;
+      const token=await getToken();
+      if(!isCurrentRequest())return;
       const response=await fetch(planAiUrl,{method:'POST',cache:'no-store',redirect:'error',
-        headers:{Authorization:'Bearer '+await getToken(),'Content-Type':'application/json'},
+        headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
         body:JSON.stringify({plan_id:p.id,revision:p.revision,source_id:sourceId})});
       const result=await response.json();
+      if(!isCurrentRequest())return;
       if(!response.ok)throw Error(result?.error||'Justelle AI could not interpret this request.');
-      if(stopped||selected!==p.id)return;
       if(result.plan_id!==p.id||result.revision!==p.revision||result.source_id!==sourceId)
         throw Error('AI preview does not match the currently selected adventure.');
       if(result.kind==='needs_detail'){
@@ -457,10 +473,12 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         (result.uncertainty?'Check: '+result.uncertainty+'. ':'')+
         (warnings.length?'Potential conflicts: '+warnings.join(', ')+'. ':'')+
         'Review before Apply. No booking or supplier has changed.',{preview:true});
-    }catch(error){onError(error);}finally{button.disabled=false;}
+    }catch(error){if(isCurrentRequest())onError(error);}
+    finally{if(requestVersion===instructionVersion)button.disabled=false;}
   };
   const submitInstruction=async event=>{
     event.preventDefault();
+    invalidateAiSuggestion();
     const p=plans.find(x=>x.id===selected);if(!p)return;
     const text=$('planner-instruction').value.trim();
     clearInstruction();
@@ -480,8 +498,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }
     const button=$('planner-instruction-form').querySelector('[type=submit]');
     button.disabled=true;
+    const submitVersion=instructionVersion;
+    const isCurrentSubmit=()=>submitVersion===instructionVersion&&!stopped&&selected===p.id&&
+      $('planner-instruction').value.trim()===text;
     try{
-      if(await edit(p,interpreted.change,{instructionText:text})){
+      if(await edit(p,interpreted.change,{instructionText:text},isCurrentSubmit)&&isCurrentSubmit()){
         $('planner-instruction').value='';
         instructionMessage('Saved: '+interpreted.summary+' Undo is available.');
       }
@@ -494,17 +515,31 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       $('planner-instruction-apply').disabled=true;
       return onError(Error('The shared plan changed. Review your instruction again.'));
     }
+    const applyVersion=instructionVersion;
+    const instructionText=$('planner-instruction').value;
+    const screenshot=$('planner-ai-screenshot').files?.[0]||null;
+    const isCurrentApply=()=>applyVersion===instructionVersion&&!stopped&&selected===p.id&&
+      $('planner-instruction').value===instructionText&&
+      ($('planner-ai-screenshot').files?.[0]||null)===screenshot;
     const button=$('planner-instruction-apply');button.disabled=true;
     try{
-      if(await edit(p,pending.change,pending.ai?
-        {sourceId:pending.sourceId}:{instructionText:pending.text})){
+      const editOptions=pending.ai?{sourceId:pending.sourceId}:{instructionText:pending.text};
+      if(await edit(p,pending.change,editOptions,isCurrentApply)){
+        if(!isCurrentApply())return;
         clearInstruction();
         $('planner-instruction').value='';$('planner-ai-screenshot').value='';
         instructionMessage('Saved: '+pending.summary+' Undo is available. Supplier reservations remain unchanged.');
       }
-    }finally{button.disabled=false;}
+    }finally{if(isCurrentApply())button.disabled=false;}
   };
-  const instructionInput=()=>{if(instructionPreview)clearInstruction();};
+  const instructionInput=()=>{
+    invalidateAiSuggestion();
+    if(instructionPreview)clearInstruction();
+  };
+  const discardInstructionPreview=()=>{
+    invalidateAiSuggestion();
+    clearInstruction();
+  };
   const created=async event=>{
     event.preventDefault();try{
       const form=$('planner-create'),button=form.querySelector('button[type=submit]');
@@ -712,7 +747,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }finally{button.disabled=false;}
   };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
-  const close=()=>{selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
+  const close=()=>{invalidateAiSuggestion();selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
   $('planner-date').addEventListener('input',createExactDate);
   $('planner-month').addEventListener('input',createApproxMonth);
   $('planner-trip-date').addEventListener('input',editExactDate);
@@ -723,7 +758,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
   $('planner-ai-screenshot').addEventListener('change',instructionInput);
   $('planner-instruction').addEventListener('input',instructionInput);
   $('planner-instruction-apply').addEventListener('click',applyInstruction);
-  $('planner-instruction-cancel').addEventListener('click',clearInstruction);
+  $('planner-instruction-cancel').addEventListener('click',discardInstructionPreview);
   $('planner-trip-form').addEventListener('input',tripDirty);
   $('planner-trip-form').addEventListener('submit',saveTrip);
   $('planner-archive').addEventListener('click',archive);
@@ -753,7 +788,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }
   },onError);
   return ()=>{
-    stopped=true;unsubscribe();bookingUI.dispose();
+    stopped=true;invalidateAiSuggestion();unsubscribe();bookingUI.dispose();
     $('planner-date').removeEventListener('input',createExactDate);
     $('planner-month').removeEventListener('input',createApproxMonth);
     $('planner-trip-date').removeEventListener('input',editExactDate);
@@ -764,7 +799,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-ai-screenshot').removeEventListener('change',instructionInput);
     $('planner-instruction').removeEventListener('input',instructionInput);
     $('planner-instruction-apply').removeEventListener('click',applyInstruction);
-    $('planner-instruction-cancel').removeEventListener('click',clearInstruction);
+    $('planner-instruction-cancel').removeEventListener('click',discardInstructionPreview);
     $('planner-trip-form').removeEventListener('input',tripDirty);
     $('planner-trip-form').removeEventListener('submit',saveTrip);
     $('planner-archive').removeEventListener('click',archive);
