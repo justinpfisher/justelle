@@ -28,11 +28,20 @@ async function waitFor(url){
   throw Error('Local service not ready: '+url);
 }
 async function signInOnCurrentPage(page,account){
+  const authResponse=page.waitForResponse(response=>
+    response.url().includes('/accounts:signInWithPassword'),{timeout:15000});
   await page.locator('#email').fill(account.email);
   await page.locator('#password').fill(account.password);
   await page.locator('#login-form button').click();
+  const response=await authResponse;
+  if(response.status()!==200)
+    throw Error('Fictional Auth sign-in returned HTTP '+response.status());
   try{await page.locator('#private-app').waitFor({state:'visible',timeout:25000});}
-  catch{throw Error('Could not sign in; '+await page.locator('#error').textContent()+'; '+pageErrors.join('; '));}
+  catch{throw Error('Could not open the fictional member session after Auth HTTP '+
+    response.status()+'; login visible: '+await page.locator('#login').isVisible()+
+    '; private app visible: '+await page.locator('#private-app').isVisible()+
+    '; notice: '+await page.locator('#notice').textContent()+
+    '; error: '+await page.locator('#error').textContent()+'; '+pageErrors.join('; '));}
 }
 async function login(page,account){
   await page.goto(base);
