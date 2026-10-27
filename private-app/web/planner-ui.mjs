@@ -13,7 +13,7 @@ const el=(tag,className='',content='')=>{
 };
 export function mountPlannerUI({planner,user,membership,onError,announce,planAiUrl=null,getToken=null}){
   let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,
-    stopped=false,aiRequestVersion=0;
+    stopped=false,instructionVersion=0;
   const aiAvailable=Boolean(planAiUrl&&getToken);
   $('planner-ask-ai').hidden=!aiAvailable;
   $('planner-ai-screenshot').closest('details').hidden=!aiAvailable;
@@ -397,13 +397,15 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       }
     }catch(error){onError(error);}
   }
-  async function edit(p,change,options={}){
+  async function edit(p,change,options={},uiIsCurrent=()=>true){
     try{
       await planner.editPlan(user,p.id,change,p.revision,options);
-      announce('Saved for both of you. Undo remains available.');
-      await renderHistory();
+      if(uiIsCurrent()){
+        announce('Saved for both of you. Undo remains available.');
+        await renderHistory();
+      }
       return true;
-    }catch(error){onError(error);return false;}
+    }catch(error){if(uiIsCurrent())onError(error);return false;}
   }
   function clearInstruction(){
     instructionPreview=null;
@@ -413,7 +415,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-instruction-cancel').hidden=true;
   }
   function invalidateAiSuggestion(){
-    aiRequestVersion++;
+    instructionVersion++;
     $('planner-ask-ai').disabled=false;
   }
   function instructionMessage(message,{preview=false}={}){
@@ -431,8 +433,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     if(!instruction&&!file)return instructionMessage('Enter a request or attach a PNG/JPEG screenshot.');
     if(file&&(!['image/png','image/jpeg'].includes(file.type)||file.size>12*1024*1024||
       file.size<=0))return instructionMessage('Use a PNG or JPEG screenshot under 12 MB.');
-    const requestVersion=++aiRequestVersion;
-    const isCurrentRequest=()=>requestVersion===aiRequestVersion&&!stopped&&selected===p.id&&
+    const requestVersion=++instructionVersion;
+    const isCurrentRequest=()=>requestVersion===instructionVersion&&!stopped&&selected===p.id&&
       plans.find(x=>x.id===p.id)?.revision===p.revision&&
       $('planner-instruction').value.trim()===instruction&&
       ($('planner-ai-screenshot').files?.[0]||null)===file;
@@ -472,10 +474,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         (warnings.length?'Potential conflicts: '+warnings.join(', ')+'. ':'')+
         'Review before Apply. No booking or supplier has changed.',{preview:true});
     }catch(error){if(isCurrentRequest())onError(error);}
-    finally{if(requestVersion===aiRequestVersion)button.disabled=false;}
+    finally{if(requestVersion===instructionVersion)button.disabled=false;}
   };
   const submitInstruction=async event=>{
     event.preventDefault();
+    invalidateAiSuggestion();
     const p=plans.find(x=>x.id===selected);if(!p)return;
     const text=$('planner-instruction').value.trim();
     clearInstruction();
@@ -495,8 +498,11 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }
     const button=$('planner-instruction-form').querySelector('[type=submit]');
     button.disabled=true;
+    const submitVersion=instructionVersion;
+    const isCurrentSubmit=()=>submitVersion===instructionVersion&&!stopped&&selected===p.id&&
+      $('planner-instruction').value.trim()===text;
     try{
-      if(await edit(p,interpreted.change,{instructionText:text})){
+      if(await edit(p,interpreted.change,{instructionText:text},isCurrentSubmit)&&isCurrentSubmit()){
         $('planner-instruction').value='';
         instructionMessage('Saved: '+interpreted.summary+' Undo is available.');
       }
@@ -509,19 +515,30 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       $('planner-instruction-apply').disabled=true;
       return onError(Error('The shared plan changed. Review your instruction again.'));
     }
+    const applyVersion=instructionVersion;
+    const instructionText=$('planner-instruction').value;
+    const screenshot=$('planner-ai-screenshot').files?.[0]||null;
+    const isCurrentApply=()=>applyVersion===instructionVersion&&!stopped&&selected===p.id&&
+      $('planner-instruction').value===instructionText&&
+      ($('planner-ai-screenshot').files?.[0]||null)===screenshot;
     const button=$('planner-instruction-apply');button.disabled=true;
     try{
-      if(await edit(p,pending.change,pending.ai?
-        {sourceId:pending.sourceId}:{instructionText:pending.text})){
+      const editOptions=pending.ai?{sourceId:pending.sourceId}:{instructionText:pending.text};
+      if(await edit(p,pending.change,editOptions,isCurrentApply)){
+        if(!isCurrentApply())return;
         clearInstruction();
         $('planner-instruction').value='';$('planner-ai-screenshot').value='';
         instructionMessage('Saved: '+pending.summary+' Undo is available. Supplier reservations remain unchanged.');
       }
-    }finally{button.disabled=false;}
+    }finally{if(isCurrentApply())button.disabled=false;}
   };
   const instructionInput=()=>{
     invalidateAiSuggestion();
     if(instructionPreview)clearInstruction();
+  };
+  const discardInstructionPreview=()=>{
+    invalidateAiSuggestion();
+    clearInstruction();
   };
   const created=async event=>{
     event.preventDefault();try{
@@ -741,7 +758,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
   $('planner-ai-screenshot').addEventListener('change',instructionInput);
   $('planner-instruction').addEventListener('input',instructionInput);
   $('planner-instruction-apply').addEventListener('click',applyInstruction);
-  $('planner-instruction-cancel').addEventListener('click',clearInstruction);
+  $('planner-instruction-cancel').addEventListener('click',discardInstructionPreview);
   $('planner-trip-form').addEventListener('input',tripDirty);
   $('planner-trip-form').addEventListener('submit',saveTrip);
   $('planner-archive').addEventListener('click',archive);
@@ -782,7 +799,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-ai-screenshot').removeEventListener('change',instructionInput);
     $('planner-instruction').removeEventListener('input',instructionInput);
     $('planner-instruction-apply').removeEventListener('click',applyInstruction);
-    $('planner-instruction-cancel').removeEventListener('click',clearInstruction);
+    $('planner-instruction-cancel').removeEventListener('click',discardInstructionPreview);
     $('planner-trip-form').removeEventListener('input',tripDirty);
     $('planner-trip-form').removeEventListener('submit',saveTrip);
     $('planner-archive').removeEventListener('click',archive);
