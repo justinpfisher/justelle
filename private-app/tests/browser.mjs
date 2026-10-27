@@ -310,20 +310,19 @@ try{
     'an older failure cannot discard a newer preview');
   assert.match(await B.locator('#planner-instruction-message').textContent(),/Fictional Latest Cove/);
 
-  // Hold one Firestore Write request so UI intent can change while an already
-  // authorized Apply save is in flight. The emulator write is resumed unchanged.
+  // Hold one Firestore Commit RPC so UI intent can change while an already
+  // authorized transaction save is in flight. The emulator request resumes unchanged.
   const holdNextPlannerSave=async page=>{
     let waiting=true,startedResolve,releaseResolve;
     const started=new Promise((resolve,reject)=>{
       const timeout=setTimeout(()=>reject(Error('Timed out waiting for the fictional Firestore save')),15000);
-      startedResolve=()=>{clearTimeout(timeout);resolve();};
+      startedResolve=url=>{clearTimeout(timeout);resolve(url);};
     });
     const held=new Promise(resolve=>{releaseResolve=resolve;});
     await page.route('http://127.0.0.1:8081/**',async route=>{
       const request=route.request();
-      if(waiting&&request.method()==='POST'&&
-        request.url().includes('/google.firestore.v1.Firestore/Write/channel')){
-        waiting=false;startedResolve();await held;
+      if(waiting&&request.method()==='POST'&&request.url().includes(':commit')){
+        waiting=false;startedResolve(request.url());await held;
       }
       await route.continue();
     });
@@ -335,7 +334,8 @@ try{
   await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
   const saveThenNewInput=await holdNextPlannerSave(A);
   await A.locator('#planner-instruction-apply').click();
-  await saveThenNewInput.started;
+  assert.match(await saveThenNewInput.started,/\/documents:commit(?:\?|$)/,
+    'the gate must hold the transaction Commit RPC, not a WebChannel request');
   await A.locator('#planner-instruction').fill('Keep this newer fictional request for later');
   saveThenNewInput.release();
   await B.locator('#planner-stays').getByText('Fictional Annex').waitFor({timeout:15000});
@@ -359,7 +359,8 @@ try{
   await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
   const saveThenSwitchPlan=await holdNextPlannerSave(A);
   await A.locator('#planner-instruction-apply').click();
-  await saveThenSwitchPlan.started;
+  assert.match(await saveThenSwitchPlan.started,/\/documents:commit(?:\?|$)/,
+    'the plan-switch race must hold the transaction Commit RPC');
   await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Alternate Coast'})
     .getByRole('button',{name:'Open plan'}).click();
   await A.locator('#planner-detail-title').getByText('Fictional Alternate Coast',{exact:true}).waitFor();
@@ -505,9 +506,11 @@ try{
   await B.setViewportSize({width:390,height:844});
   // A stay edit drafted before another member's save must not overwrite their
   // newer changes, even when live updates arrive during the draft.
-  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
+  await A.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'})
+    .getByRole('button',{name:'Edit details'}).click();
   await A.locator('#planner-edit-title').fill('Unsaved outdated name');
-  await B.locator('#planner-stays .planner-stay').getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'})
+    .getByRole('button',{name:'Edit details'}).click();
   await B.locator('#planner-edit-title').fill('Fictional Coast Harbour');
   await B.locator('#planner-edit-stay button[type=submit]').click();
   await A.locator('#planner-stays').getByText('Fictional Coast Harbour').waitFor({timeout:15000});
@@ -753,7 +756,7 @@ try{
   const bundle=JSON.parse(await readFile(await download.path(),'utf8'));
   assert.equal(bundle.records.conversations.length,3);
   assert.ok(bundle.records.messages.length>=53);
-  assert.equal(bundle.records.adventure_plans.length,2);
+  assert.equal(bundle.records.adventure_plans.length,3);
   const roughMonth=bundle.records.adventure_plans.find(p=>
     p.state.title==='Fictional December possibility');
   assert.ok(roughMonth,'Month-only adventures remain in a portable export');
@@ -761,7 +764,7 @@ try{
   assert.equal(roughMonth.state.starts_on,null);
   assert.ok(bundle.records.plan_events.some(e=>
     e.adventure_id===roughMonth.id&&e.after_state.starts_month==='2027-12'));
-  assert.equal(bundle.records.plan_documents.length,2,
+  assert.equal(bundle.records.plan_documents.length,3,
     'Both protected supplier PDF and original AI screenshot remain in the portable archive');
   assert.ok(bundle.media.some(f=>f.mime==='application/pdf'));
   assert.ok(bundle.media.some(f=>f.mime==='image/png'));
