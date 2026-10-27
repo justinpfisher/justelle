@@ -39,6 +39,33 @@ async function openDiscussion(page,id){
   await page.locator('#topic-list [data-topic-id="'+id+'"]').click();
   await poll(async()=>await page.locator('#topic-list [data-topic-id="'+id+'"]').getAttribute('aria-pressed')==='true');
 }
+async function holdFirstRequest(page,url,method){
+  let captured=false,releaseResolve,startedResolve,continuedResolve;
+  const gate=new Promise(resolve=>{releaseResolve=resolve;});
+  const started=new Promise(resolve=>{startedResolve=resolve;});
+  const continued=new Promise(resolve=>{continuedResolve=resolve;});
+  await page.route(url,async route=>{
+    if(!captured&&route.request().method()===method){
+      captured=true;startedResolve();
+      await gate;
+      try{await route.continue();}catch{}finally{continuedResolve();}
+      return;
+    }
+    await route.continue();
+  });
+  return {started,continued,release:releaseResolve,captured:()=>captured};
+}
+async function assertPrivateUiCleared(page){
+  assert.equal(await page.locator('#private-app').isVisible(),false);
+  assert.doesNotMatch(await page.locator('#private-app').textContent(),
+    /Fictional correction source|Fictional Shared Coast|Fictional spontaneous memory/,
+    'the hidden shell must not retain prior member content');
+  for(const selector of ['#messages .bubble','#decisions .record-card','#adventures .record-card',
+    '#planner-list .planner-card','#planner-stays .planner-stay','#messages img'])
+    assert.equal(await page.locator(selector).count(),0,selector+' must not retain signed-in content');
+  assert.equal(await page.locator('#image-viewer').isVisible(),false);
+  assert.equal(await page.locator('#full-image').getAttribute('src'),null);
+}
 async function openPlans(page){
   const panel=page.locator('#agreements-tab');
   if(!(await panel.isVisible()))await page.locator('#plans-toggle').click();
@@ -60,6 +87,9 @@ try{
   const A=await ctxA.newPage(),B=await ctxB.newPage();
   A.on('pageerror',e=>pageErrors.push('A: '+e.message));
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
+  await A.goto(base);
+  assert.equal(await A.locator('#login').isVisible(),true,'an unauthenticated visitor sees the sign-in screen');
+  assert.equal(await A.locator('#private-app').isVisible(),false,'an unauthenticated visitor cannot see private panels');
   await login(A,fixture.a);await login(B,fixture.b);
   assert.equal(await A.locator('.pilot').isVisible(),true);
   assert.match(await A.locator('.pilot').textContent(),/Local fictional-data pilot/);
@@ -839,8 +869,67 @@ try{
   await again.setViewportSize({width:1280,height:900});
   assert.ok(await again.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Desktop layout should fit its viewport');
   await again.screenshot({path:join(screenshots,'fictional-desktop.png'),fullPage:true});
+
+  // Signing out clears rendered private content and image URLs, not just the
+  // visibility of the app shell.
+  await again.locator('[data-topic-id="conversation-shared"]').click();
+  const privateImage=again.locator('#messages .image-preview-button').first();
+  await privateImage.waitFor({state:'visible'});
+  await poll(async()=>privateImage.locator('img').evaluate(img=>img.complete&&img.naturalWidth>0));
+  await privateImage.click();
+  await again.locator('#image-viewer').waitFor({state:'visible'});
+  await poll(async()=>Boolean(await again.locator('#full-image').getAttribute('src')));
+  await again.locator('#sign-out').click();
+  await again.locator('#login').waitFor({state:'visible'});
+  await assertPrivateUiCleared(again);
+
+  // Hold a member bootstrap read, then switch to an unprivileged fictional
+  // account. Releasing the old response must not reopen the previous session.
+  const oldMemberRead=await holdFirstRequest(again,'**/documents:batchGet*','POST');
+  await again.locator('#email').fill(fixture.a.email);
+  await again.locator('#password').fill(fixture.a.password);
+  await again.locator('#login-form button').click();
+  await poll(async()=>oldMemberRead.captured(),15000);
+  await again.locator('#sign-out').waitFor({state:'visible'});
+  await again.locator('#sign-out').click();
+  await again.locator('#login').waitFor({state:'visible'});
+  await again.locator('#email').fill(fixture.outsider.email);
+  await again.locator('#password').fill(fixture.outsider.password);
+  await again.locator('#login-form button').click();
+  await poll(async()=>await again.locator('#login').isVisible()&&
+    /does not have access/.test(await again.locator('#error').textContent()),15000);
+  await assertPrivateUiCleared(again);
+  oldMemberRead.release();await oldMemberRead.continued;
+  await again.unroute('**/documents:batchGet*');
+  await assertPrivateUiCleared(again);
+
+  // Revoking one fictional member's auth_time invalidates the next protected
+  // request. An already-started image response is released only after logout
+  // and must not restore its image into the new unauthenticated UI.
+  const delayedImage=await holdFirstRequest(again,'http://127.0.0.1:9199/**','GET');
+  await again.locator('#email').fill(fixture.a.email);
+  await again.locator('#password').fill(fixture.a.password);
+  await again.locator('#login-form button').click();
+  await again.locator('#private-app').waitFor({state:'visible',timeout:25000});
+  await poll(async()=>delayedImage.captured(),15000);
+  const revokeApp=initializeApp({projectId:'demo-justelle-pilot'},'justelle-browser-session-revocation');
+  const revokeDb=getFirestore(revokeApp);
+  try{
+    await revokeDb.doc('rooms/fictional-room').update({
+      revoked_auth_before:{'fictional-a':Math.floor(Date.now()/1000)+120}
+    });
+  }finally{await revokeDb.terminate();await deleteApp(revokeApp);}
+  await again.locator('#message-input').fill('Fictional request after membership revocation');
+  await again.locator('#send-button').click();
+  await again.locator('#login').waitFor({state:'visible',timeout:15000});
+  await assertPrivateUiCleared(again);
+  delayedImage.release();await delayedImage.continued;
+  await again.unroute('http://127.0.0.1:9199/**');
+  await assertPrivateUiCleared(again);
+  assert.equal(await B.locator('#private-app').isVisible(),true,
+    'revoking Fictional A does not sign out the other fictional room member');
   assert.deepEqual(pageErrors,[]);
-  console.log('BROWSER PASS: scoped chats, 40-message pages, jump to latest, source-linked adventures, two-member plans, decline/revision history, transparent AI, image preview, independent restore and session persistence');
+  console.log('BROWSER PASS: scoped chats, two-member plans, stale AI protection, archive restore, outsider denial, session revocation, sign-out clearing, stale auth/image response suppression and persistence');
 }finally{
   await ctxA?.close();await ctxB?.close();app.kill('SIGTERM');await unlink(fixtureFile).catch(()=>{});
 }

@@ -16,6 +16,10 @@ for(const [name,label] of [['a','Fictional A'],['b','Fictional B']]) {
   await auth.setCustomUserClaims(uid,{justelle_member:true,justelle_room:'fictional-room'});
   fixture[name]={email,password};people[uid]='person-'+name;labels[uid]=label;
 }
+const outsiderUid='fictional-outsider',outsiderEmail='pilot-outsider@example.invalid';
+const outsiderPassword=randomBytes(18).toString('base64url');
+await auth.createUser({uid:outsiderUid,email:outsiderEmail,password:outsiderPassword});
+fixture.outsider={email:outsiderEmail,password:outsiderPassword};
 await db.doc('rooms/fictional-room').set({uids:['fictional-a','fictional-b'],people,labels});
 const file=join(tmpdir(),'justelle-local-accounts-'+process.pid+'.json');
 await writeFile(file,JSON.stringify(fixture),{mode:0o600,flag:'wx'});

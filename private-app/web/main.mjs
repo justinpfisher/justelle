@@ -53,11 +53,17 @@ const drafts=new Map(),sendAttempts=new Map();
 let backend=null,unsubscribers=[],stopTopic=()=>{},stopPlanner=()=>{},pending=[],sending=false;
 let records={adventures:[],decisions:[],messages:[]};
 let selectedAdventure=null,currentConversation=GENERAL_CONVERSATION,latest=[],older=[],before=null,hasOlder=false;
-let topicVersion=0,loadingOlder=false,startedTopic=false,selectedSourceMessage=null,replacesId=null;
+let authSessionVersion=0,topicVersion=0,loadingOlder=false,startedTopic=false,selectedSourceMessage=null,replacesId=null;
 let attachments=new Map(),loadingAttachments=new Set(),mediaUrls=new Map();
 const setNotice=text=>$('notice').textContent=text||'';
 const clearError=()=>{$('error').textContent='';};
-function error(e){$('error').textContent=e?.message||String(e)||'Something went wrong';setNotice('');if(e?.code==='permission-denied'||e?.code==='storage/unauthorized')void signOut(auth);}
+function error(e){
+  $('error').textContent=e?.message||String(e)||'Something went wrong';setNotice('');
+  if(e?.code==='permission-denied'||e?.code==='storage/unauthorized'){
+    invalidatePrivateSession();
+    void signOut(auth).catch(()=>{});
+  }
+}
 function element(tag,cls,text){
   const node=document.createElement(tag);
   if(cls)node.className=cls;
@@ -76,6 +82,9 @@ function authorName(id){
   if(id==='ai-justelle')return 'Justelle AI';
   const uid=backend?.membership?.uids?.find(u=>backend.person({uid:u})===id);
   return uid===auth.currentUser?.uid?'You':(labels()[uid]||'The other person');
+}
+function isCurrentAuthSession(version,uid){
+  return version===authSessionVersion&&Boolean(uid)&&auth.currentUser?.uid===uid;
 }
 function tab(name){
   const previous=document.querySelector('[data-tab].selected')?.dataset.tab;
@@ -174,6 +183,8 @@ function selectTopic(adventureId=null,{preserveTab=false}={}){
   $('topic-source-note').hidden=true;
   void renderSourceNote(topicVersion);
   const version=topicVersion;
+  const session=authSessionVersion,uid=auth.currentUser?.uid;
+  const sessionError=e=>{if(isCurrentAuthSession(session,uid))error(e);};
   stopTopic=backend.subscription('messages',payload=>{
     if(version!==topicVersion)return;
     const keepScroll=startedTopic&&!isNearLatest();
@@ -182,10 +193,10 @@ function selectTopic(adventureId=null,{preserveTab=false}={}){
     renderMessages();
     if(!keepScroll)requestAnimationFrame(scrollToLatest);
     startedTopic=true;
-  },error,scope.conversationId);
+  },sessionError,scope.conversationId);
   if(!preserveTab)tab('conversation');
 }
-function previewImage(slot,metadata){
+function previewImage(slot,metadata,session=authSessionVersion,uid=auth.currentUser?.uid){
   slot.replaceChildren();
   const path=metadata.preview_path||metadata.original_path;
   const img=element('img','image-tile');
@@ -196,38 +207,51 @@ function previewImage(slot,metadata){
     try{
       const bytes=await backend.imageBytes(path);
       const url=URL.createObjectURL(new Blob([bytes],{type:metadata.preview_path?'image/jpeg':metadata.mime}));
-      if(!backend||!slot.isConnected){URL.revokeObjectURL(url);return;}
+      if(!isCurrentAuthSession(session,uid)||!backend||!slot.isConnected){URL.revokeObjectURL(url);return;}
       mediaUrls.set(path,url);img.src=url;
-    }catch(e){if(slot.isConnected)img.replaceWith(element('p','media-note','Image preview unavailable. '+e.message));}
+    }catch(e){
+      if(isCurrentAuthSession(session,uid)&&slot.isConnected)
+        img.replaceWith(element('p','media-note','Image preview unavailable. '+e.message));
+    }
   })();
   const expand=element('button','image-preview-button');expand.type='button';expand.setAttribute('aria-label','Enlarge '+metadata.name);expand.append(img);
-  expand.onclick=()=>{if(!img.src)return;$('full-image').src=img.src;$('full-image').alt=img.alt;$('image-caption').textContent=metadata.name;$('image-viewer').showModal();};
+  expand.onclick=()=>{
+    if(!isCurrentAuthSession(session,uid)||!img.src)return;
+    $('full-image').src=img.src;$('full-image').alt=img.alt;
+    $('image-caption').textContent=metadata.name;$('image-viewer').showModal();
+  };
   slot.append(expand);
   const download=element('button','text-button','Open original');
   download.type='button';download.onclick=async()=>{
+    const requestSession=authSessionVersion,requestUid=auth.currentUser?.uid;
     try{
       const bytes=await backend.imageBytes(metadata.original_path);
+      if(!isCurrentAuthSession(requestSession,requestUid))return;
       const url=URL.createObjectURL(new Blob([bytes],{type:metadata.mime}));
       const a=document.createElement('a');a.href=url;a.download=metadata.name||'justelle-image';a.click();
       setTimeout(()=>URL.revokeObjectURL(url),5000);
-    }catch(e){error(e);}
+    }catch(e){if(isCurrentAuthSession(requestSession,requestUid))error(e);}
   };
   slot.append(download);
 }
 async function fetchAttachment(id,version){
   if(loadingAttachments.has(id)||attachments.has(id))return;
+  const session=authSessionVersion,uid=auth.currentUser?.uid;
   loadingAttachments.add(id);
   try{
     const metadata=await backend.getAttachment(id);
-    if(version!==topicVersion)return;
+    if(version!==topicVersion||!isCurrentAuthSession(session,uid))return;
     if(!metadata)throw Error('Image record is missing');
     attachments.set(id,metadata);
-    for(const slot of document.querySelectorAll('[data-attachment-id="'+id+'"]'))previewImage(slot,metadata);
+    for(const slot of document.querySelectorAll('[data-attachment-id="'+id+'"]'))
+      previewImage(slot,metadata,session,uid);
   }catch(e){
-    if(version===topicVersion)
+    if(version===topicVersion&&isCurrentAuthSession(session,uid))
       for(const slot of document.querySelectorAll('[data-attachment-id="'+id+'"]'))
         slot.textContent='Image unavailable: '+e.message;
-  }finally{loadingAttachments.delete(id);}
+  }finally{
+    if(isCurrentAuthSession(session,uid))loadingAttachments.delete(id);
+  }
 }
 function renderMessages(){
   if(!backend||!auth.currentUser)return;
@@ -490,16 +514,24 @@ function refreshPending(){
   }
 }
 $('image-input').addEventListener('change',async e=>{
+  const session=authSessionVersion,uid=auth.currentUser?.uid;
+  const current=()=>isCurrentAuthSession(session,uid);
   clearError();const choices=[...e.target.files];e.target.value='';
   if(pending.length+choices.length>3){error(Error('Choose no more than three images at a time.'));return;}
   for(const file of choices){
-    try{setNotice('Preparing image preview…');pending.push(await prepareImage(file));refreshPending();}
-    catch(e){error(e);break;}
+    try{
+      setNotice('Preparing image preview…');
+      const item=await prepareImage(file);
+      if(!current()){revokePrepared(item);return;}
+      pending.push(item);refreshPending();
+    }catch(e){if(current())error(e);break;}
   }
-  if(!$('error').textContent)setNotice('');
+  if(current()&&!$('error').textContent)setNotice('');
 });
 async function sendMessage(askAI=false){
   if(sending||!backend||!auth.currentUser)return;
+  const session=authSessionVersion,uid=auth.currentUser.uid;
+  const current=()=>isCurrentAuthSession(session,uid);
   clearError();const body=$('message-input').value,scope=selectedAdventure,thread=currentConversation,correctsId=correctionId,queued=[...pending];
   if(!body.trim()&&!pending.length){error(Error('Write something or add an image.'));return;}
   sending=true;const send=$('send-button'),ai=$('ask-ai-button');send.disabled=true;ai.disabled=true;
@@ -508,12 +540,14 @@ async function sendMessage(askAI=false){
     for(const item of queued){
       setNotice('Saving '+item.file.name+' securely…');
       item.savedId ||= await backend.uploadImage(auth.currentUser,item);
+      if(!current())return;
       ids.push(item.savedId);
     }
     const signature=JSON.stringify([body,ids,correctsId]);
     let attempt=sendAttempts.get(thread);
     if(attempt?.signature!==signature){attempt={signature,id:crypto.randomUUID()};sendAttempts.set(thread,attempt);}
     const id=await backend.addMessage(auth.currentUser,{body,attachmentIds:ids,adventureId:scope,correctsId,messageId:attempt.id});
+    if(!current())return;
     sendAttempts.delete(thread);
     if(thread===currentConversation && $('message-input').value===body){$('message-input').value='';correctionId=null;$('correction-note').hidden=true;}
     drafts.delete(thread);
@@ -521,8 +555,8 @@ async function sendMessage(askAI=false){
     pending=pending.filter(item=>!queued.includes(item));refreshPending();setNotice('Sent to both of you.');
     if(askAI)await requestAI(id);
     if(scope===selectedAdventure)requestAnimationFrame(scrollToLatest);
-  }catch(e){error(e);}
-  finally{sending=false;send.disabled=false;ai.disabled=false;}
+  }catch(e){if(current())error(e);}
+  finally{if(current()){sending=false;send.disabled=false;ai.disabled=false;}}
 }
 $('cancel-correction').onclick=()=>{correctionId=null;$('correction-note').hidden=true;};
 $('message-form').addEventListener('submit',e=>{e.preventDefault();void sendMessage();});
@@ -542,32 +576,41 @@ $('message-input').addEventListener('keydown',event=>{
 $('ask-ai-button').onclick=()=>sendMessage(true);
 async function requestAI(messageId){
   if(!auth.currentUser)return;
+  const session=authSessionVersion,uid=auth.currentUser.uid;
+  const current=()=>isCurrentAuthSession(session,uid);
   clearError();setNotice('Justelle is preparing a reply…');
   try{
     const token=await auth.currentUser.getIdToken();
+    if(!current())return;
     const res=await fetch(runtime.aiUrl,{
       method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
       redirect:'error',cache:'no-store',body:JSON.stringify({source_message_id:messageId})
     });
+    if(!current())return;
     const answer=await res.json();
-    if([401,403].includes(res.status))await signOut(auth);
+    if(!current())return;
+    if([401,403].includes(res.status)){invalidatePrivateSession();await signOut(auth);return;}
     if(!res.ok)throw Error(answer.error||'Justelle AI is unavailable. Your message is saved.');
     setNotice(answer.replayed?'Justelle already replied to that message.':
       answer.proposal_created?'Justelle shared a suggestion for you both to consider.':'Justelle replied in this discussion.');
-  }catch(e){error(e);}
+  }catch(e){if(current())error(e);}
 }
 $('export-button').addEventListener('click',async()=>{
+  if(!auth.currentUser)return;
+  const session=authSessionVersion,uid=auth.currentUser.uid;
+  const current=()=>isCurrentAuthSession(session,uid);
   clearError();$('export-button').disabled=true;
   try{
     setNotice('Collecting the full history and checking every original image…');
     const bundle=await backend.exportFictional();
+    if(!current())return;
     const blob=new Blob([JSON.stringify(bundle,null,2)],{type:'application/json'});
     const url=URL.createObjectURL(blob),a=document.createElement('a');
     a.href=url;a.download=runtime.mode==='production'?'justelle-memory.json':'justelle-fictional-memory.json';a.click();
     setTimeout(()=>URL.revokeObjectURL(url),5000);
     setNotice('Our full history is ready. This download is unencrypted; keep it private.');
-  }catch(e){error(e);}
-  finally{$('export-button').disabled=false;}
+  }catch(e){if(current())error(e);}
+  finally{if(current())$('export-button').disabled=false;}
 });
 $('login-form').addEventListener('submit',async e=>{
   e.preventDefault();clearError();
@@ -577,9 +620,7 @@ $('login-form').addEventListener('submit',async e=>{
     $('password').value='';
   }catch(e){error(e);}
 });
-$('sign-out').onclick=async()=>{clearError();await signOut(auth);};
-
-onAuthStateChanged(auth,async user=>{
+function clearPrivateSessionUi(){
   for(const unsub of unsubscribers)unsub();unsubscribers=[];
   stopTopic();stopTopic=()=>{};stopPlanner();stopPlanner=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
@@ -591,28 +632,87 @@ onAuthStateChanged(auth,async user=>{
   selectedAdventure=null;currentConversation=GENERAL_CONVERSATION;
   latest=[];older=[];before=null;hasOlder=false;startedTopic=false;
   for(const item of pending)revokePrepared(item);
-  pending=[];refreshPending();
+  pending=[];sending=false;refreshPending();
+  for(const id of [
+    'topic-list','topic-source-note','plans-preview','decisions','messages','staged-images',
+    'planner-list','planner-summary','planner-lessons','planner-journey','planner-alerts',
+    'planner-map','planner-days-view','planner-day-detail','planner-experiences',
+    'planner-bookings','planner-booking-extraction-feedback','planner-feedback-results',
+    'planner-today-result','planner-stays','planner-history','adventures'
+  ])$(id)?.replaceChildren();
+  for(const id of ['topic-title','topic-subtitle','topic-eyebrow','planner-detail-title',
+    'planner-instruction-message','planner-lesson-text','image-caption'])$(id).textContent='';
+  for(const input of $('private-app').querySelectorAll('input,textarea')){
+    if(input.type==='checkbox'||input.type==='radio')input.checked=false;
+    else input.value='';
+  }
+  for(const control of $('private-app').querySelectorAll('button,input,textarea,select'))control.disabled=false;
+  $('planner-detail').hidden=true;
+  $('planner-instruction-result').hidden=true;
+  $('topic-source-note').hidden=true;
+  $('plans-preview').hidden=true;
+  $('agreements-tab').hidden=true;
+  $('conversation-empty').hidden=false;
+  $('adventures-empty').hidden=false;
+  for(const details of $('private-app').querySelectorAll('details'))details.open=false;
+  for(const img of $('private-app').querySelectorAll('img[src]'))img.removeAttribute('src');
+  $('private-app').hidden=true;
+  $('sign-out').hidden=true;
+  $('send-button').disabled=false;$('ask-ai-button').disabled=false;$('export-button').disabled=false;
+  $('email').value='';$('password').value='';
+  tab('conversation');
+  renderTopicHeading();
+  setNotice('');
+}
+function invalidatePrivateSession(){
+  authSessionVersion++;
+  clearPrivateSessionUi();
+  $('login').hidden=false;
+}
+$('sign-out').onclick=async()=>{
+  clearError();invalidatePrivateSession();
+  try{await signOut(auth);}catch(e){error(e);}
+};
+
+onAuthStateChanged(auth,async user=>{
+  const session=++authSessionVersion;
+  const isCurrentSession=()=>session===authSessionVersion&&(!user||auth.currentUser?.uid===user.uid);
+  clearPrivateSessionUi();
   $('login').hidden=Boolean(user);$('private-app').hidden=true;$('sign-out').hidden=!user;
   if(!user){setNotice('Sign in once on a trusted browser. Sessions normally persist after reopening.');return;}
+  let denied=false;
+  const sessionError=e=>{if(isCurrentSession())error(e);};
   try{
     const claims=(await getIdTokenResult(user)).claims;
-    if(claims.justelle_member!==true||claims.justelle_room!==roomId)
+    if(!isCurrentSession())return;
+    if(claims.justelle_member!==true||claims.justelle_room!==roomId){
+      denied=true;
       throw Error('This account does not have access to this shared space.');
+    }
     const membership=await getDoc(doc(db,'rooms',roomId));
-    if(!membership.exists()||!membership.data().uids.includes(user.uid))
+    if(!isCurrentSession())return;
+    if(!membership.exists()||!membership.data().uids.includes(user.uid)){
+      denied=true;
       throw Error('Member access denied.');
+    }
     backend=firebaseBackend({db,storage,roomId,membership:membership.data(),mediaTransport:runtime.mode==='local'?null:protectedMediaTransport({baseUrl:runtime.mediaUrl,getToken:()=>auth.currentUser.getIdToken()})});
-    stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),onError:error,announce:setNotice,
+    stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),
+      onError:sessionError,announce:message=>{if(isCurrentSession())setNotice(message);},
       planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken()});
+    if(!isCurrentSession()){
+      stopPlanner();stopPlanner=()=>{};backend=null;return;
+    }
     $('private-app').hidden=false;tab(runtime.mode==='production'?'adventures':'conversation');
     setNotice('Signed in; your local session stays available when reopening.');
     let wanted=null;
     try{wanted=localStorage.getItem('justelle-last-topic:'+user.uid)||null;}catch{}
     unsubscribers.push(backend.subscription('decisions',rows=>{
+      if(!isCurrentSession())return;
       records.decisions=rows;renderDecisions();renderAdventures();
-    },error));
+    },sessionError));
     let first=true;
     unsubscribers.push(backend.subscription('adventures',rows=>{
+      if(!isCurrentSession())return;
       records.adventures=rows;
       if(first){
         first=false;
@@ -621,8 +721,13 @@ onAuthStateChanged(auth,async user=>{
       }else{
         renderAdventures();void renderSourceNote(topicVersion);
       }
-    },error));
-  }catch(e){error(e);$('private-app').hidden=true;}
+    },sessionError));
+  }catch(e){
+    if(!isCurrentSession())return;
+    error(e);
+    $('private-app').hidden=true;
+    if(denied){invalidatePrivateSession();void signOut(auth).catch(()=>{});}
+  }
 });
 // HTML stays inert until session persistence and every form handler are ready.
 // An early tap/Enter must never submit credentials through a native GET form.

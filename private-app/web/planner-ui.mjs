@@ -377,18 +377,22 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
             const open=el('button','text-button','Open protected source screenshot');
             open.type='button';
             open.onclick=async()=>{
+              const requestedPlan=id;
               open.disabled=true;
               try{
                 const doc=(await planner.readDocuments(id)).find(d=>d.id===source.document_id);
+                if(stopped||selected!==requestedPlan)return;
                 if(!doc)throw Error('Original screenshot is missing');
                 const bytes=await planner.documentBytes(doc.id);
+                if(stopped||selected!==requestedPlan)return;
                 if(bytes.length!==doc.size||await sha256(bytes)!==doc.sha256)
                   throw Error('Original screenshot failed integrity verification');
+                if(stopped||selected!==requestedPlan)return;
                 const url=URL.createObjectURL(new Blob([bytes],{type:doc.mime}));
                 const a=el('a');a.href=url;a.download=doc.name||'justelle-screenshot';
                 document.body.append(a);a.click();a.remove();
                 setTimeout(()=>URL.revokeObjectURL(url),15000);
-              }catch(error){onError(error);}finally{open.disabled=false;}
+              }catch(error){if(!stopped)onError(error);}finally{if(!stopped)open.disabled=false;}
             };
             row.append(open);
           }
@@ -397,7 +401,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       }
     }catch(error){onError(error);}
   }
-  async function edit(p,change,options={},uiIsCurrent=()=>true){
+  async function edit(p,change,options={},uiIsCurrent=()=>!stopped){
     try{
       await planner.editPlan(user,p.id,change,p.revision,options);
       if(uiIsCurrent()){
@@ -548,11 +552,12 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         const id=await planner.createPlan(user,{title:$('planner-title').value,
           durationDays:Number($('planner-days').value),startsOn:$('planner-date').value||null,
           startsMonth:$('planner-month').value||null});
+        if(stopped)return;
         selected=id;$('planner-title').value='';$('planner-date').value='';
         $('planner-month').value='';
         announce('Adventure added to our shared plans.');
-      }finally{button.disabled=false;}
-    }catch(error){onError(error);}
+      }finally{if(!stopped)button.disabled=false;}
+    }catch(error){if(!stopped)onError(error);}
   };
   const added=async event=>{
     event.preventDefault();
@@ -720,9 +725,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     const button=form.querySelector('[type=submit]');button.disabled=true;
     try{
       await planner.editPlan(user,p.id,{type:'edit_trip',patch},p.revision);
+      if(stopped)return;
       form.dataset.dirty='false';
       announce('Trip details saved for both of you. Undo is available.');
-    }catch(error){onError(error);}finally{button.disabled=false;}
+    }catch(error){if(!stopped)onError(error);}finally{if(!stopped)button.disabled=false;}
   };
   const refreshTrip=()=>{$('planner-trip-form').dataset.dirty='false';render();};
   const archive=()=>{
