@@ -281,17 +281,22 @@ function renderMessages(){
       const save=element('button',null,'Start an adventure');
       save.type='button';save.onclick=async()=>{
         clearError();
+        const session=authSessionVersion,owner=auth.currentUser,activeBackend=backend;
+        const isCurrent=()=>Boolean(owner)&&isCurrentAuthSession(session,owner.uid);
+        if(!owner||!activeBackend)return;
         try{
           const title=(message.body.trim()||'Explore an image').slice(0,160);
           if(historicalReadOnly){
-            await backend.planner.createPlan(auth.currentUser,{title});
+            await activeBackend.planner.createPlan(owner,{title});
+            if(!isCurrent())return;
             tab('adventures');
             setNotice('Saved as a new adventure. You can add places and dates in the shared plan.');
           }else{
-            const id=await backend.addIdea(auth.currentUser,{title,sourceMessageId:message.id});
+            const id=await activeBackend.addIdea(owner,{title,sourceMessageId:message.id});
+            if(!isCurrent())return;
             setNotice('We’ve saved an adventure for this idea.');selectTopic(id);
           }
-        }catch(e){error(e);}
+        }catch(e){if(isCurrent())error(e);}
       };
       const propose=element('button',null,'Suggest a plan');
       propose.type='button';propose.onclick=()=>{
@@ -318,19 +323,20 @@ function renderMessages(){
 }
 $('earlier-button').addEventListener('click',async()=>{
   if(loadingOlder||!before||!hasOlder)return;
-  const version=topicVersion,scroll=$('timeline-scroll');
+  const version=topicVersion,session=authSessionVersion,uid=auth.currentUser?.uid,scroll=$('timeline-scroll');
+  const isCurrent=()=>version===topicVersion&&isCurrentAuthSession(session,uid);
   loadingOlder=true;$('earlier-button').disabled=true;
   const oldHeight=scroll.scrollHeight,oldTop=scroll.scrollTop;
   try{
     const page=await backend.readPage(currentConversation,before);
-    if(version!==topicVersion)return;
+    if(!isCurrent())return;
     const seen=new Set([...older,...latest].map(x=>x.id));
     older.push(...page.items.filter(x=>!seen.has(x.id)));
     before=page.cursor;hasOlder=page.hasMore;
     renderMessages();
-    requestAnimationFrame(()=>{scroll.scrollTop=oldTop+(scroll.scrollHeight-oldHeight);});
-  }catch(e){error(e);}
-  finally{loadingOlder=false;$('earlier-button').disabled=false;}
+    requestAnimationFrame(()=>{if(isCurrent())scroll.scrollTop=oldTop+(scroll.scrollHeight-oldHeight);});
+  }catch(e){if(isCurrent())error(e);}
+  finally{if(isCurrent()){loadingOlder=false;$('earlier-button').disabled=false;}}
 });
 function decisionWording(d,extra={}){
   const me=auth.currentUser.uid,other=backend.membership.uids.find(uid=>uid!==me);
@@ -624,7 +630,8 @@ function clearPrivateSessionUi(){
   for(const unsub of unsubscribers)unsub();unsubscribers=[];
   stopTopic();stopTopic=()=>{};stopPlanner();stopPlanner=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
-  mediaUrls.clear();attachments.clear();loadingAttachments.clear();
+  mediaUrls.clear();attachments.clear();loadingAttachments.clear();loadingOlder=false;
+  $('earlier-button').disabled=false;
   for(const draft of drafts.values())for(const item of draft.pending||[])revokePrepared(item);
   drafts.clear();sendAttempts.clear();correctionId=null;$('message-input').value='';$('correction-note').hidden=true;
   $('image-viewer').close();$('full-image').removeAttribute('src');
@@ -637,16 +644,23 @@ function clearPrivateSessionUi(){
     'topic-list','topic-source-note','plans-preview','decisions','messages','staged-images',
     'planner-list','planner-summary','planner-lessons','planner-journey','planner-alerts',
     'planner-map','planner-days-view','planner-day-detail','planner-experiences',
-    'planner-bookings','planner-booking-extraction-feedback','planner-feedback-results',
+    'planner-bookings','planner-booking-source','planner-booking-extraction-feedback','planner-feedback-results',
     'planner-today-result','planner-stays','planner-history','adventures'
   ])$(id)?.replaceChildren();
   for(const id of ['topic-title','topic-subtitle','topic-eyebrow','planner-detail-title',
-    'planner-instruction-message','planner-lesson-text','image-caption'])$(id).textContent='';
+    'planner-instruction-message','planner-lesson-text','image-caption','planner-edit-status',
+    'planner-experience-edit-status'])$(id).textContent='';
   for(const input of $('private-app').querySelectorAll('input,textarea')){
     if(input.type==='checkbox'||input.type==='radio')input.checked=false;
     else input.value='';
   }
   for(const control of $('private-app').querySelectorAll('button,input,textarea,select'))control.disabled=false;
+  for(const id of ['planner-trip-form','planner-edit-stay','planner-edit-experience']){
+    const form=$(id);if(!form)continue;
+    for(const key of ['planId','stopId','experienceId','baseRevision','dirty'])delete form.dataset[key];
+  }
+  $('planner-edit-stay').hidden=true;$('planner-edit-experience').hidden=true;
+  $('planner-booking-stop')?.replaceChildren(new Option('No specific place',''));
   $('planner-detail').hidden=true;
   $('planner-instruction-result').hidden=true;
   $('topic-source-note').hidden=true;

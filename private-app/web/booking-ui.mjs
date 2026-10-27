@@ -7,8 +7,9 @@ const node=(tag,cls='',value='')=>{
   const n=document.createElement(tag);if(cls)n.className=cls;if(value)n.textContent=value;return n;
 };
 export function mountBookingUI({planner,user,getPlan,onError,announce}){
-  let stopped=false,request=0;
-  async function openSource(booking,source){
+  let stopped=false,request=0,sourceRequest=0,originalRequest=0;
+  async function openSource(booking,source,isCurrent){
+    if(stopped||!isCurrent())return;
     const out=$('planner-booking-source');out.replaceChildren();
     if(!source){out.append(node('p','planner-warning','Original source not available; this is not independently verified.'));return;}
     out.append(node('h4','',source.title));
@@ -19,19 +20,27 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     if(!source.document_id)return;
     const button=node('button','secondary','Open protected original');button.type='button';
     button.onclick=async()=>{
+      const ticket=++originalRequest;
+      const current=()=>!stopped&&ticket===originalRequest&&isCurrent();
       button.disabled=true;
       try{
+        if(!current())return;
         const p=getPlan();if(!p||p.id!==booking.adventure_id)return;
-        const d=(await planner.readDocuments(p.id)).find(x=>x.id===source.document_id);
+        const documents=await planner.readDocuments(p.id);
+        if(!current())return;
+        const d=documents.find(x=>x.id===source.document_id);
         if(!d)throw Error('The original document cannot be found');
         const bytes=await planner.documentBytes(d.id);
-        if(bytes.byteLength!==d.size||await sha256(bytes)!==d.sha256)
-          throw Error('Original document failed its integrity check');
+        if(!current())return;
+        if(bytes.byteLength!==d.size)throw Error('Original document failed its integrity check');
+        const digest=await sha256(bytes);
+        if(!current())return;
+        if(digest!==d.sha256)throw Error('Original document failed its integrity check');
         const url=URL.createObjectURL(new Blob([bytes],{type:d.mime}));
         const a=node('a');a.href=url;a.download=d.name||'justelle-original';
         document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
-      }catch(error){onError(error);}
-      finally{button.disabled=false;}
+      }catch(error){if(current())onError(error);}
+      finally{if(current())button.disabled=false;}
     };
     out.append(button);
   }
@@ -63,15 +72,18 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
   }
   async function openBooking(bookingId){
     const plan=getPlan(),booking=plan?.bookings.find(b=>b.id===bookingId);
-    if(!plan||!booking)return;
+    if(stopped||!plan||!booking)return;
+    const ticket=++sourceRequest;
+    const isCurrent=()=>!stopped&&ticket===sourceRequest&&getPlan()?.id===plan.id;
     $('planner-bookings-panel').open=true;
     try{
       const sources=await planner.readSources(plan.id);
-      if(stopped||getPlan()?.id!==plan.id)return;
+      if(!isCurrent())return;
       await openSource({...booking,adventure_id:plan.id},
-        sources.find(source=>source.id===booking.source_id));
+        sources.find(source=>source.id===booking.source_id),isCurrent);
+      if(!isCurrent())return;
       $('planner-booking-source').scrollIntoView({block:'nearest'});
-    }catch(error){onError(error);}
+    }catch(error){if(isCurrent())onError(error);}
   }
   const extract=()=>{
     const feedback=$('planner-booking-extraction-feedback');
@@ -105,7 +117,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     }catch(error){feedback.textContent=error.message||'Could not read the pasted booking.';}
   };
   const submit=async e=>{
-    e.preventDefault();const p=getPlan();if(!p)return;
+    e.preventDefault();const p=getPlan();if(stopped||!p)return;
     const button=$('planner-add-booking').querySelector('[type=submit]');button.disabled=true;
     try{
       const title=$('planner-booking-title').value.trim();
@@ -120,26 +132,29 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
          !$('planner-booking-reference').value.trim())
         throw Error('Add an original document, pasted confirmation or booking reference before marking this as confirmed. Otherwise keep it possible or unverified.');
       const documentId=file?await planner.addDocument(user,{adventureId:p.id,file}):null;
+      if(stopped)return;
       const sourceId=await planner.addSource(user,{adventureId:p.id,kind:'booking',title,
         notes:originalText,
         supplier:$('planner-booking-supplier').value,reference:$('planner-booking-reference').value,
         documentId});
+      if(stopped)return;
       await planner.editPlan(user,p.id,{type:'add_booking',booking:{
         id:crypto.randomUUID(),kind,stop_id:$('planner-booking-stop').value||null,
         starts_on:starts,ends_on:ends,
         status,source_id:sourceId,summary:title
       }},p.revision);
+      if(stopped)return;
       $('planner-add-booking').reset();
       $('planner-booking-extraction-feedback').textContent=
         'You can also save the original text without extraction. Extracted fields are suggestions only; review before saving.';
       announce('Booking details and original text saved privately. The supplier reservation was not changed.');
-    }catch(error){onError(error);}
-    finally{button.disabled=false;}
+    }catch(error){if(!stopped)onError(error);}
+    finally{if(!stopped)button.disabled=false;}
   };
   $('planner-booking-extract').addEventListener('click',extract);
   $('planner-add-booking').addEventListener('submit',submit);
   return {render,openBooking,dispose(){
-    stopped=true;request++;
+    stopped=true;request++;sourceRequest++;originalRequest++;
     $('planner-booking-extract').removeEventListener('click',extract);
     $('planner-add-booking').removeEventListener('submit',submit);
   }};

@@ -65,6 +65,14 @@ async function assertPrivateUiCleared(page){
     assert.equal(await page.locator(selector).count(),0,selector+' must not retain signed-in content');
   assert.equal(await page.locator('#image-viewer').isVisible(),false);
   assert.equal(await page.locator('#full-image').getAttribute('src'),null);
+  assert.equal(await page.locator('#planner-booking-source').textContent(),'');
+  assert.deepEqual(await page.locator('#planner-booking-stop option').allTextContents(),['No specific place']);
+  assert.equal(await page.locator('#planner-edit-status').textContent(),'');
+  assert.equal(await page.locator('#planner-experience-edit-status').textContent(),'');
+  assert.equal(await page.locator('#planner-edit-stay').isVisible(),false);
+  assert.equal(await page.locator('#planner-edit-experience').isVisible(),false);
+  const tripDataset=await page.locator('#planner-trip-form').evaluate(form=>({...form.dataset}));
+  for(const key of ['planId','baseRevision','dirty'])assert.equal(tripDataset[key],undefined,key+' must clear on sign-out');
 }
 async function openPlans(page){
   const panel=page.locator('#agreements-tab');
@@ -898,7 +906,12 @@ try{
   await again.locator('#login').waitFor({state:'visible'});
   await again.locator('#email').fill(fixture.outsider.email);
   await again.locator('#password').fill(fixture.outsider.password);
+  const outsiderAuthResponse=again.waitForResponse(response=>
+    response.url().includes('/accounts:signInWithPassword'),{timeout:15000});
   await again.locator('#login-form button').click();
+  assert.equal((await outsiderAuthResponse).status(),200,
+    'the synthetic outsider must authenticate before membership rejection is tested');
+  await again.locator('#login').waitFor({state:'hidden',timeout:15000});
   await again.locator('#login').waitFor({state:'visible',timeout:15000});
   const outsiderError=(await again.locator('#error').textContent()).toLowerCase();
   const denialCategory=outsiderError.includes('permission')?'permission':
@@ -935,6 +948,78 @@ try{
   await assertPrivateUiCleared(again);
   assert.equal(await B.locator('#private-app').isVisible(),true,
     'revoking Fictional A does not sign out the other fictional room member');
+
+  // A save already in flight may complete, but its old session must not close
+  // or re-enable the editor opened after the same member signs in again.
+  await B.locator('[data-tab="adventures"]').click();
+  const sharedCard=B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'});
+  await sharedCard.getByRole('button',{name:'Open plan'}).click();
+  await B.getByText('Dates and trip basics',{exact:true}).click();
+  await B.locator('#planner-trip-title').fill('Fictional unsaved session draft');
+  assert.equal(await B.locator('#planner-trip-form').evaluate(form=>form.dataset.dirty),'true');
+  const oldStay=B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'});
+  await oldStay.getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-edit-title').fill('Fictional old-session save');
+  const oldSessionSave=await holdNextPlannerSave(B);
+  await B.locator('#planner-edit-stay button[type=submit]').click();
+  const oldCommitUrl=await oldSessionSave.started;
+  assert.ok(oldCommitUrl.includes('/documents:commit'),
+    'the held request is a Firestore transaction commit');
+  await B.locator('#sign-out').click();
+  await B.locator('#login').waitFor({state:'visible'});
+  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
+  await assertPrivateUiCleared(B);
+
+  await login(B,fixture.b);
+  await B.locator('[data-tab="adventures"]').click();
+  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await B.getByText('Dates and trip basics',{exact:true}).click();
+  assert.equal(await B.locator('#planner-trip-title').inputValue(),'Fictional Coast Updated',
+    'reopening the same plan repopulates trip details after clearing the old dirty draft');
+  assert.equal(await B.locator('#planner-trip-form').evaluate(form=>form.dataset.dirty),'false');
+  await B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'})
+    .getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-edit-title').fill('Fictional new-session draft');
+  const newSessionSave=await holdNextPlannerSave(B);
+  await B.locator('#planner-edit-stay button[type=submit]').click();
+  const newCommitUrl=await newSessionSave.started;
+  const oldCommitResponse=B.waitForResponse(response=>response.url()===oldCommitUrl,{timeout:15000});
+  oldSessionSave.release();
+  assert.equal((await oldCommitResponse).status(),200);
+  await poll(async()=>await B.locator('#planner-stays').getByText('Fictional old-session save').count()>0);
+  assert.equal(await B.locator('#planner-edit-stay').isVisible(),true,
+    'the previous session completion cannot close the new session editor');
+  assert.equal(await B.locator('#planner-edit-title').inputValue(),'Fictional new-session draft',
+    'the previous session completion cannot clear the new session draft');
+  assert.equal(await B.locator('#planner-edit-stay button[type=submit]').isDisabled(),true,
+    'the previous session finally cannot re-enable the newer pending save');
+  const newCommitResponse=B.waitForResponse(response=>response.url()===newCommitUrl,{timeout:15000});
+  newSessionSave.release();
+  await newCommitResponse;
+  await poll(async()=>!await B.locator('#planner-edit-stay button[type=submit]').isDisabled());
+  await newSessionSave.remove();await oldSessionSave.remove();
+
+  // Closing a session during a protected-original read suppresses the
+  // completion, clears member-recorded source fields/options and creates no download.
+  await B.getByText('Booking anchors',{exact:true}).click();
+  const originalEntry=B.locator('#planner-bookings .planner-booking-entry')
+    .filter({hasText:'Fictional inn confirmation'});
+  await originalEntry.getByRole('button',{name:'Show original details'}).click();
+  await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
+  const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
+  const staleDownload=B.waitForEvent('download',{timeout:4000}).then(()=>true,()=>false);
+  await B.getByRole('button',{name:'Open protected original'}).click();
+  await poll(async()=>delayedOriginal.captured(),15000);
+  await B.locator('#sign-out').click();
+  await B.locator('#login').waitFor({state:'visible'});
+  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
+  await assertPrivateUiCleared(B);
+  delayedOriginal.release();
+  assert.equal(await staleDownload,false,
+    'a protected original response from the signed-out session cannot trigger a download');
+  await B.unroute('http://127.0.0.1:9199/**');
+  await delayedOriginal.continued;
   assert.deepEqual(pageErrors,[]);
   console.log('BROWSER PASS: scoped chats, two-member plans, stale AI protection, archive restore, outsider denial, session revocation, sign-out clearing, stale auth/image response suppression and persistence');
 }finally{

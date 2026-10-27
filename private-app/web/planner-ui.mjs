@@ -300,7 +300,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     const button=form.querySelector('[type=submit]');button.disabled=true;
     try{
       if(await edit(p,{type:'edit_stop',id:stop.id,patch}))closeStayEditor();
-    }finally{button.disabled=false;}
+    }finally{if(!stopped)button.disabled=false;}
   };
   function closeExperienceEditor(){
     const form=$('planner-edit-experience');form.hidden=true;
@@ -338,7 +338,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     const button=form.querySelector('[type=submit]');button.disabled=true;
     try{
       if(await edit(p,{type:'edit_experience',id:experience.id,patch}))closeExperienceEditor();
-    }finally{button.disabled=false;}
+    }finally{if(!stopped)button.disabled=false;}
   };
   const addedExperience=async event=>{
     event.preventDefault();
@@ -353,7 +353,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         $('planner-experience-title').value='';
         $('planner-experience-notes').value='';
       }
-    }finally{button.disabled=false;}
+    }finally{if(!stopped)button.disabled=false;}
   };
   async function renderHistory(){
     if(!selected||stopped)return;
@@ -399,16 +399,16 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         }
         out.append(row);
       }
-    }catch(error){onError(error);}
+    }catch(error){if(!stopped)onError(error);}
   }
-  async function edit(p,change,options={},uiIsCurrent=()=>!stopped){
+  async function edit(p,change,options={},uiIsCurrent=()=>!stopped&&selected===p.id){
     try{
       await planner.editPlan(user,p.id,change,p.revision,options);
       if(uiIsCurrent()){
         announce('Saved for both of you. Undo remains available.');
         await renderHistory();
       }
-      return true;
+      return uiIsCurrent();
     }catch(error){if(uiIsCurrent())onError(error);return false;}
   }
   function clearInstruction(){
@@ -510,7 +510,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         $('planner-instruction').value='';
         instructionMessage('Saved: '+interpreted.summary+' Undo is available.');
       }
-    }finally{button.disabled=false;}
+    }finally{if(!stopped)button.disabled=false;}
   };
   const applyInstruction=async()=>{
     const pending=instructionPreview,p=plans.find(x=>x.id===selected);
@@ -750,7 +750,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         $('planner-lesson-text').value='';
         $('planner-lessons-panel').open=true;
       }
-    }finally{button.disabled=false;}
+    }finally{if(!stopped)button.disabled=false;}
   };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
   const close=()=>{invalidateAiSuggestion();selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
