@@ -506,10 +506,10 @@ try{
   await B.setViewportSize({width:390,height:844});
   // A stay edit drafted before another member's save must not overwrite their
   // newer changes, even when live updates arrive during the draft.
-  await A.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'})
+  await A.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Harbour Revised'})
     .getByRole('button',{name:'Edit details'}).click();
   await A.locator('#planner-edit-title').fill('Unsaved outdated name');
-  await B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'})
+  await B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Harbour Revised'})
     .getByRole('button',{name:'Edit details'}).click();
   await B.locator('#planner-edit-title').fill('Fictional Coast Harbour');
   await B.locator('#planner-edit-stay button[type=submit]').click();
