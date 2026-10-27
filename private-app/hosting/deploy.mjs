@@ -12,7 +12,7 @@ import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
 import {stageFirebaseDeploymentConfig} from './firebase-deployment-config.mjs';
 import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
-import {createDeploymentFailureRecorder,deploymentFailureDiagnostic} from './deployment-diagnostics.mjs';
+import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from './deployment-diagnostics.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const [configPath,command='production',previousSha]=process.argv.slice(2);
 const failureRecorder=createDeploymentFailureRecorder();
@@ -121,7 +121,8 @@ try{
   }
 }catch(error){
   // Never publish exception text, which may contain private identifiers or config values.
-  const safe=failureRecorder?.first??deploymentFailureDiagnostic(failurePhase,error,{providerMutationMayHaveStarted});
+  const safe=finalizeDeploymentFailure(failureRecorder?.first,providerMutationMayHaveStarted)
+    ??deploymentFailureDiagnostic(failurePhase,error,{providerMutationMayHaveStarted});
   console.error(JSON.stringify(safe));
   if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'Justelle deployment failed: `'+safe.phase+'` / `'+safe.code+'`'+(safe.providerStateNeedsReconciliation?' (provider state reconciliation required)':'')+'\n').catch(()=>{});
   process.exitCode=1;

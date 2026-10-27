@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createDeploymentFailureRecorder,deploymentFailureDiagnostic} from '../hosting/deployment-diagnostics.mjs';
+import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
 
 test('Deployment diagnostics classify known provider failures without returning their text',()=>{
   const secret='SENSITIVE_CONFIG_PASSWORD_38a1';
@@ -55,4 +55,20 @@ test('First failure phase and category survive later rollback or shutdown errors
     providerStateNeedsReconciliation:true,exitCode:1
   });
   assert.equal(JSON.stringify(recorder.first).includes('private-password-value'),false);
+});
+
+test('Final reconciliation flag includes later provider recovery mutation while retaining first failure',()=>{
+  const secret='SENSITIVE_RECOVERY_SECRET_91c2';
+  const recorder=createDeploymentFailureRecorder();
+  recorder.capture('root-dependencies',{code:1,stderr:'local install failed '+secret},
+    {providerMutationMayHaveStarted:false});
+  recorder.capture('shutdown-hosting',{code:1,stderr:'provider cleanup failed '+secret},
+    {providerMutationMayHaveStarted:true});
+  const final=finalizeDeploymentFailure(recorder.first,true);
+  assert.deepEqual(final,{
+    event:'justelle-deployment-failed',phase:'root-dependencies',code:'LOCAL_COMMAND_FAILED',
+    providerStateNeedsReconciliation:true,exitCode:1
+  });
+  assert.equal(JSON.stringify(final).includes(secret),false);
+  assert.equal(JSON.stringify(final).includes('provider cleanup failed'),false);
 });

@@ -65,3 +65,15 @@ export function createDeploymentFailureRecorder(){
     get first(){return first;}
   };
 }
+
+// Keep the first failure's safe description, but compute reconciliation from
+// the final monotonic provider-mutation state after cleanup has also run.
+export function finalizeDeploymentFailure(diagnostic,providerMutationMayHaveStarted=false){
+  if(!diagnostic)return null;
+  return {
+    ...diagnostic,
+    providerStateNeedsReconciliation:Boolean(
+      diagnostic.providerStateNeedsReconciliation||providerMutationMayHaveStarted
+    )
+  };
+}
