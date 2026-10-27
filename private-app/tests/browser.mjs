@@ -175,6 +175,53 @@ try{
   await poll(async()=>await B.locator('#planner-experiences').getByText('Fictional lookout').count()===0);
   assert.match(await A.locator('#planner-history').textContent(),/Original planning source retained/);
 
+  // A stale deterministic local gateway response must not restore Preview or Apply
+  // after newer input, or after closing and reopening the same plan.
+  const delayedPlanReplies=[];
+  const planSuggestionUrl='http://127.0.0.1:8787/plan/suggest';
+  await A.route(planSuggestionUrl,async route=>{
+    const response=await route.fetch();
+    let release;
+    const gate=new Promise(resolve=>{release=resolve;});
+    delayedPlanReplies.push({release});
+    await gate;
+    await route.fulfill({response});
+  });
+  const startDelayedPlanRequest=async()=>{
+    const index=delayedPlanReplies.length;
+    const response=A.waitForResponse(r=>r.url()===planSuggestionUrl);
+    await A.locator('#planner-ask-ai').click();
+    await poll(async()=>delayedPlanReplies.length>index);
+    return {release:delayedPlanReplies[index].release,
+      response:response.then(r=>r.finished())};
+  };
+
+  await A.locator('#planner-instruction').fill('Consider a visit to Fictional lookout on day 6');
+  const afterNewInput=await startDelayedPlanRequest();
+  await A.locator('#planner-instruction').fill('A newer fictional planning request');
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false);
+  afterNewInput.release();
+  await afterNewInput.response;
+  await poll(async()=>await A.locator('#planner-ask-ai').isEnabled());
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false,
+    'an old response cannot restore Apply after the instruction changes');
+  assert.equal(await A.locator('#planner-instruction-result').isVisible(),false,
+    'an old response cannot restore the preview after the instruction changes');
+
+  await A.locator('#planner-instruction').fill('Consider a visit to Fictional lookout on day 6');
+  const afterCloseReopen=await startDelayedPlanRequest();
+  await A.locator('#planner-close').click();
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail').waitFor({state:'visible'});
+  afterCloseReopen.release();
+  await afterCloseReopen.response;
+  assert.equal(await A.locator('#planner-instruction-apply').isVisible(),false,
+    'closing and reopening the same plan invalidates its earlier response');
+  assert.equal(await A.locator('#planner-instruction-result').isVisible(),false,
+    'closing and reopening the same plan cannot restore its earlier preview');
+  await A.unroute(planSuggestionUrl);
+
   // A saved screenshot is protected and retained but the fictional interpreter
   // explicitly declines to describe pixels or manufacture a booking.
   await A.locator('#planner-instruction').fill('What can this fictional image tell us?');

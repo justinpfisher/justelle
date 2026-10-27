@@ -12,7 +12,8 @@ const el=(tag,className='',content='')=>{
   if(content)node.textContent=content;return node;
 };
 export function mountPlannerUI({planner,user,membership,onError,announce,planAiUrl=null,getToken=null}){
-  let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,stopped=false;
+  let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,
+    stopped=false,aiRequestVersion=0;
   const aiAvailable=Boolean(planAiUrl&&getToken);
   $('planner-ask-ai').hidden=!aiAvailable;
   $('planner-ai-screenshot').closest('details').hidden=!aiAvailable;
@@ -83,7 +84,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       const planned=p.stops.filter(s=>s.status==='planned').length,possible=p.stops.length-planned;
       card.append(el('p','meta',planned+' planned places · '+possible+' possibilities'));
       const open=el('button','secondary','Open plan');open.type='button';
-      open.onclick=()=>{if(selected!==p.id){selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
+      open.onclick=()=>{invalidateAiSuggestion();if(selected!==p.id){selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();}selected=p.id;render();void renderHistory();};
       card.append(open);list.append(card);
       }
     }
@@ -411,6 +412,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-instruction-apply').disabled=false;
     $('planner-instruction-cancel').hidden=true;
   }
+  function invalidateAiSuggestion(){
+    aiRequestVersion++;
+    $('planner-ask-ai').disabled=false;
+  }
   function instructionMessage(message,{preview=false}={}){
     $('planner-instruction-message').textContent=message;
     $('planner-instruction-result').hidden=false;
@@ -426,19 +431,26 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     if(!instruction&&!file)return instructionMessage('Enter a request or attach a PNG/JPEG screenshot.');
     if(file&&(!['image/png','image/jpeg'].includes(file.type)||file.size>12*1024*1024||
       file.size<=0))return instructionMessage('Use a PNG or JPEG screenshot under 12 MB.');
+    const requestVersion=++aiRequestVersion;
+    const isCurrentRequest=()=>requestVersion===aiRequestVersion&&!stopped&&selected===p.id&&
+      plans.find(x=>x.id===p.id)?.revision===p.revision&&
+      $('planner-instruction').value.trim()===instruction&&
+      ($('planner-ai-screenshot').files?.[0]||null)===file;
     const button=$('planner-ask-ai');button.disabled=true;clearInstruction();
     try{
       // Originals are immutable private member records, not uploaded into the
       // model directly from a public URL or used to change a supplier booking.
       const documentId=file?await planner.addDocument(user,{adventureId:p.id,file}):null;
+      if(!isCurrentRequest())return;
       const sourceId=await planner.addSource(user,{adventureId:p.id,kind:'note',
         title:'Original planning request',notes:instruction,documentId});
+      if(!isCurrentRequest())return;
       const response=await fetch(planAiUrl,{method:'POST',cache:'no-store',redirect:'error',
         headers:{Authorization:'Bearer '+await getToken(),'Content-Type':'application/json'},
         body:JSON.stringify({plan_id:p.id,revision:p.revision,source_id:sourceId})});
       const result=await response.json();
+      if(!isCurrentRequest())return;
       if(!response.ok)throw Error(result?.error||'Justelle AI could not interpret this request.');
-      if(stopped||selected!==p.id)return;
       if(result.plan_id!==p.id||result.revision!==p.revision||result.source_id!==sourceId)
         throw Error('AI preview does not match the currently selected adventure.');
       if(result.kind==='needs_detail'){
@@ -457,7 +469,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
         (result.uncertainty?'Check: '+result.uncertainty+'. ':'')+
         (warnings.length?'Potential conflicts: '+warnings.join(', ')+'. ':'')+
         'Review before Apply. No booking or supplier has changed.',{preview:true});
-    }catch(error){onError(error);}finally{button.disabled=false;}
+    }catch(error){if(isCurrentRequest())onError(error);}
+    finally{if(requestVersion===aiRequestVersion)button.disabled=false;}
   };
   const submitInstruction=async event=>{
     event.preventDefault();
@@ -504,7 +517,10 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
       }
     }finally{button.disabled=false;}
   };
-  const instructionInput=()=>{if(instructionPreview)clearInstruction();};
+  const instructionInput=()=>{
+    invalidateAiSuggestion();
+    if(instructionPreview)clearInstruction();
+  };
   const created=async event=>{
     event.preventDefault();try{
       const form=$('planner-create'),button=form.querySelector('button[type=submit]');
@@ -712,7 +728,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }finally{button.disabled=false;}
   };
   const undo=()=>{const p=plans.find(x=>x.id===selected);if(p)void edit(p,{type:'undo_last'});};
-  const close=()=>{selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
+  const close=()=>{invalidateAiSuggestion();selected=null;selectedDay=null;selectedStopId=null;clearInstruction();closeStayEditor();closeExperienceEditor();render();};
   $('planner-date').addEventListener('input',createExactDate);
   $('planner-month').addEventListener('input',createApproxMonth);
   $('planner-trip-date').addEventListener('input',editExactDate);
@@ -753,7 +769,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }
   },onError);
   return ()=>{
-    stopped=true;unsubscribe();bookingUI.dispose();
+    stopped=true;invalidateAiSuggestion();unsubscribe();bookingUI.dispose();
     $('planner-date').removeEventListener('input',createExactDate);
     $('planner-month').removeEventListener('input',createApproxMonth);
     $('planner-trip-date').removeEventListener('input',editExactDate);
