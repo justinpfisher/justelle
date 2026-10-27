@@ -12,11 +12,17 @@ import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
 import {stageFirebaseDeploymentConfig} from './firebase-deployment-config.mjs';
 import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
+import {deploymentFailureDiagnostic} from './deployment-diagnostics.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const [configPath,command='production',previousSha]=process.argv.slice(2);
+let failurePhase='config-read',providerMutationMayHaveStarted=false;
 try{
-  const config=JSON.parse(await readFile(configPath,'utf8'));
+  const configText=await readFile(configPath,'utf8');
+  failurePhase='config-parse';
+  const config=JSON.parse(configText);
+  failurePhase='config-validation';
   const buildEnv=buildEnvironment(config),env={...process.env,...buildEnv};
+  failurePhase='source-revision';
   const sha=(await run('git',['rev-parse','HEAD'],{cwd:root})).stdout.trim();
   const target=config.mode==='production'?'justelle-private-production':'justelle-private-qualification';
   const configName=config.mode==='production'?'firebase.production.json':'firebase.json';
@@ -27,13 +33,21 @@ try{
     process.platform==='win32'?['/d','/s','/c','npm.cmd '+args.join(' ')]:args,
     {cwd:directory,env,maxBuffer:8*1024*1024});
   async function deploy(directory){
+    failurePhase='runtime-config-write';
     await writeFile(join(directory,runtimeFile),functionEnvironment(config),{mode:0o600});
+    failurePhase='target-config-write';
     await writeFile(join(directory,'hosting/.firebaserc'),JSON.stringify({targets:{[config.projectId]:{hosting:{[target]:[config.site]}}}}),{mode:0o600});
+    failurePhase='root-dependencies';
     await npm(['ci','--no-audit','--no-fund'],directory);
+    failurePhase='functions-dependencies';
     await npm(['ci','--prefix','hosting/functions','--no-audit','--no-fund'],directory);
+    failurePhase='app-build';
     await npm(['run','build'],directory);
+    failurePhase='deployment-config-stage';
     const stagedConfig=await stageFirebaseDeploymentConfig({appDirectory:directory,configName});
     try{
+      failurePhase='firebase-deploy';
+      providerMutationMayHaveStarted=true;
       await run(process.execPath,[join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive',
         '--project',config.projectId,'--config',stagedConfig.path,
         '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env,maxBuffer:8*1024*1024});
@@ -42,6 +56,7 @@ try{
     }
   }
   async function deploySource(version){
+    failurePhase='rollback-source-checkout';
     const temp=await mkdtemp(join(tmpdir(),'justelle-rollback-')),checkout=join(temp,'source');
     try{
       await run('git',['worktree','add','--detach',checkout,version],{cwd:resolve(root,'..')});
@@ -54,6 +69,8 @@ try{
   const failClosed=()=>disableInitialService({
     // Both actions must run even if the first command fails.
     removePublicInvoker:()=>{
+      failurePhase='shutdown-run-access';
+      providerMutationMayHaveStarted=true;
       const args=['run','services','remove-iam-policy-binding',
         'privateapi','--region','northamerica-northeast1','--project',config.projectId,
         '--member','allUsers','--role','roles/run.invoker','--quiet'];
@@ -62,19 +79,21 @@ try{
         process.platform==='win32'?['/d','/s','/c','gcloud.cmd '+args.join(' ')]:args,
         {maxBuffer:1024*1024});
     },
-    disableHosting:()=>run(process.execPath,[
+    disableHosting:()=>{failurePhase='shutdown-hosting';providerMutationMayHaveStarted=true;return run(process.execPath,[
       join(root,'node_modules/firebase-tools/lib/bin/firebase.js'),'hosting:disable',
       '--project',config.projectId,'--site',config.site,'--force'],
-      {cwd:root,maxBuffer:1024*1024,env})
+      {cwd:root,maxBuffer:1024*1024,env});}
   });
   async function report(result){
     const safe=JSON.stringify(result);console.log(safe);
     if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'Justelle release: '+safe+'\n');
   }
   if(command==='qualification'){
+    failurePhase='release-or-qualification-drill';
     if(config.mode!=='hosted-fictional')throw Error('Wrong qualification environment');
     await deploy(root);console.log('Fictional deployment completed; acceptance must now run');
   }else if(command==='qualification-drill'){
+    failurePhase='release-or-qualification-drill';
     // Resolve only an exact local ancestor, never an arbitrary branch or command.
     if(!/^[a-f0-9]{40}$/.test(previousSha||''))throw Error('An exact prior source SHA is required');
     const resolved=(await run('git',['rev-parse','--verify',previousSha+'^{commit}'],{cwd:root})).stdout.trim();
@@ -84,6 +103,7 @@ try{
       check:version=>smoke({...config,sha:version}),failClosed,
       checkClosed:()=>checkQualificationClosed(config.origin),report});
   }else{
+    failurePhase='release-precheck';
     if(command!=='production'||config.mode!=='production'||process.env.JUSTELLE_INITIAL_ACCEPTANCE!=='verified')throw Error('Initial hosted/device/recovery acceptance is required');
     const app=initializeApp({projectId:config.projectId}),db=getFirestore(app);
     const state=db.doc('rooms/'+config.roomId+'/operations/release');
@@ -98,7 +118,10 @@ try{
         rollback:deploySource,failClosed,report});
     }finally{await db.terminate();await deleteApp(app);}
   }
-}catch{
-  // Provider/CLI errors can contain private identifiers. Keep public Actions logs clean.
-  console.error('Justelle deployment or recovery failed. Review the safe release status and private provider console.');process.exitCode=1;
+}catch(error){
+  // Never publish exception text, which may contain private identifiers or config values.
+  const safe=deploymentFailureDiagnostic(failurePhase,error,{providerMutationMayHaveStarted});
+  console.error(JSON.stringify(safe));
+  if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'Justelle deployment failed: `'+safe.phase+'` / `'+safe.code+'`'+(safe.providerStateNeedsReconciliation?' (provider state reconciliation required)':'')+'\n').catch(()=>{});
+  process.exitCode=1;
 }
