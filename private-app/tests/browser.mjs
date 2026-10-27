@@ -412,6 +412,18 @@ try{
     });
     return {started,committed,release:releaseResolve,remove:()=>page.unroute('http://127.0.0.1:8081/**')};
   };
+  const releaseAndWaitForPlannerSave=async(page,held)=>{
+    const requestUrl=await held.started;
+    const responsePromise=page.waitForResponse(response=>
+      response.url()===requestUrl&&response.request().method()==='POST',{timeout:15000});
+    held.release();
+    const response=await responsePromise;
+    assert.equal(response.status(),200,'the held fictional Firestore Commit must complete successfully');
+    assert.equal(await response.finished(),null,'the held Commit response body must finish cleanly');
+    // Let the browser process the completed response and application continuations
+    // before asserting that a stale completion left newer UI untouched.
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));
+  };
 
   await A.locator('#planner-instruction').fill('Plan 1 night in Fictional Annex starting day 2');
   await A.locator('#planner-instruction-form button[type="submit"]').click();
@@ -421,7 +433,7 @@ try{
   assert.match(await saveThenNewInput.started,/\/documents:commit(?:\?|$)/,
     'the gate must hold the transaction Commit RPC, not a WebChannel request');
   await A.locator('#planner-instruction').fill('Keep this newer fictional request for later');
-  saveThenNewInput.release();
+  await releaseAndWaitForPlannerSave(A,saveThenNewInput);
   await B.locator('#planner-stays').getByText('Fictional Annex').waitFor({timeout:15000});
   assert.equal(await A.locator('#planner-instruction').inputValue(),
     'Keep this newer fictional request for later',
@@ -449,7 +461,7 @@ try{
     .getByRole('button',{name:'Open plan'}).click();
   await A.locator('#planner-detail-title').getByText('Fictional Alternate Coast',{exact:true}).waitFor();
   await A.locator('#planner-instruction').fill('Draft for the alternate fictional plan');
-  saveThenSwitchPlan.release();
+  await releaseAndWaitForPlannerSave(A,saveThenSwitchPlan);
   await B.locator('#planner-stays').getByText('Fictional Peninsula').waitFor({timeout:15000});
   assert.equal(await A.locator('#planner-detail-title').textContent(),'Fictional Alternate Coast',
     'completion of an older Apply cannot switch the currently selected plan');
