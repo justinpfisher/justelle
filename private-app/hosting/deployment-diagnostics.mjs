@@ -14,6 +14,40 @@ function textOf(value){
   return '';
 }
 
+
+function hasCapturedText(value){
+  if(typeof value==='string')return value.length>0;
+  return Buffer.isBuffer(value)&&value.length>0;
+}
+
+function capturedByteLength(value){
+  if(typeof value==='string')return Buffer.byteLength(value,'utf8');
+  return Buffer.isBuffer(value)?value.length:0;
+}
+
+function firebaseCliOutputShape(error){
+  const stdout=error?.stdout;
+  const byteLength=capturedByteLength(stdout);
+  if(byteLength===0)return 'empty';
+  if(byteLength>64*1024)return 'too-large';
+  const text=Buffer.isBuffer(stdout)?stdout.toString('utf8'):stdout;
+  let parsed;
+  try{parsed=JSON.parse(text.trim());}catch{return 'malformed-or-mixed';}
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return 'json-other';
+  if(parsed.status==='error'&&typeof parsed.error==='string')return 'json-error';
+  if(parsed.status==='success')return 'json-success';
+  return 'json-other';
+}
+
+function firebaseCliProcessOutcome(error){
+  if(error?.code==='ERR_CHILD_PROCESS_STDIO_MAXBUFFER')return 'output-limit';
+  if(typeof error?.signal==='string'&&error.signal.length>0)return 'signal';
+  if(Number.isInteger(error?.code))return 'exit-code';
+  if(typeof error?.code==='string')return 'spawn-error';
+  if(error?.killed===true)return 'killed';
+  return 'unknown';
+}
+
 function providerCode(error){
   const status=Number(error?.statusCode??error?.status);
   if(status===401)return 'PROVIDER_AUTHENTICATION';
@@ -35,6 +69,7 @@ function providerCode(error){
   if(/(^|[^A-Z0-9_])INVALID_ARGUMENT([^A-Z0-9_]|$)/.test(details))return 'PROVIDER_CONFIGURATION_REJECTED';
   if(/(^|[^A-Z0-9_])(ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT)([^A-Z0-9_]|$)/.test(details))return 'NETWORK_FAILURE';
 
+  if(error?.code==='ERR_CHILD_PROCESS_STDIO_MAXBUFFER')return 'LOCAL_OUTPUT_LIMIT';
   if(error?.code==='ENOENT')return 'LOCAL_TOOL_OR_FILE_MISSING';
   if(error?.code==='EACCES'||error?.code==='EPERM')return 'LOCAL_ACCESS_DENIED';
   if(error instanceof SyntaxError)return 'CONFIG_INVALID';
@@ -53,6 +88,7 @@ function firebaseDeployDetail(error){
   if(/(?:INVALID.{0,60}FIREBASE.{0,40}CONFIG|FIREBASE\.JSON.{0,80}(?:INVALID|MISSING|UNREADABLE))/.test(details))return 'FIREBASE_CONFIG_INVALID';
   if(/(?:PREDEPLOY.{0,100}(?:ERROR|FAILED)|(?:ERROR|FAILED).{0,100}PREDEPLOY)/.test(details))return 'FIREBASE_PREDEPLOY_FAILED';
   if(/(?:CLOUD BUILD|FUNCTIONS?).{0,100}(?:BUILD|DEPLOY).{0,100}(?:FAILED|ERROR)|(?:BUILD|DEPLOY).{0,100}(?:FAILED|ERROR).{0,100}(?:CLOUD BUILD|FUNCTIONS?)/.test(details))return 'FIREBASE_FUNCTIONS_BUILD_FAILED';
+  if(error?.code==='ERR_CHILD_PROCESS_STDIO_MAXBUFFER')return 'FIREBASE_CLI_OUTPUT_CAPTURE_LIMIT';
   if(Number.isInteger(error?.code)){
     return textOf(error?.stderr)||textOf(error?.stdout)
       ?'FIREBASE_CLI_OUTPUT_UNCLASSIFIED':'FIREBASE_CLI_EXIT_WITHOUT_OUTPUT';
@@ -70,6 +106,12 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
     code:providerCode(error),
     ...(safePhase==='firebase-deploy'?{detail:firebaseDeployDetail(error)}:{}),
     providerStateNeedsReconciliation:Boolean(providerMutationMayHaveStarted),
+    ...(safePhase==='firebase-deploy'?{
+      firebaseCliOutputShape:firebaseCliOutputShape(error),
+      firebaseCliProcessOutcome:firebaseCliProcessOutcome(error),
+      stdoutPresent:hasCapturedText(error?.stdout),
+      stderrPresent:hasCapturedText(error?.stderr)
+    }:{}),
     ...(exitCode===undefined?{}:{exitCode})
   };
 }
