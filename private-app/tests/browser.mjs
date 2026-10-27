@@ -51,7 +51,11 @@ async function holdFirstRequest(page,url,method){
     if(!captured&&route.request().method()===method){
       captured=true;startedResolve();
       await gate;
-      try{await route.continue();}catch{}finally{continuedResolve();}
+      try{
+        await route.continue();
+        const response=await route.request().response();
+        if(response)await response.finished();
+      }catch{}finally{continuedResolve();}
       return;
     }
     await route.continue();
@@ -916,8 +920,12 @@ try{
   await again.locator('#login-form button').click();
   assert.equal((await outsiderAuthResponse).status(),200,
     'the synthetic outsider must authenticate before membership rejection is tested');
-  await again.locator('#login').waitFor({state:'hidden',timeout:15000});
-  await again.locator('#login').waitFor({state:'visible',timeout:15000});
+  await poll(async()=>{
+    const message=(await again.locator('#error').textContent()).toLowerCase();
+    return await again.locator('#login').isVisible()&&
+      !(await again.locator('#private-app').isVisible())&&
+      /permission|access|member|claim/.test(message);
+  });
   const outsiderError=(await again.locator('#error').textContent()).toLowerCase();
   const denialCategory=outsiderError.includes('permission')?'permission':
     /access|member|claim/.test(outsiderError)?'access':outsiderError?'other':'empty';
@@ -1013,7 +1021,9 @@ try{
   await originalEntry.getByRole('button',{name:'Show original details'}).click();
   await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
   const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
-  const staleDownload=B.waitForEvent('download',{timeout:4000}).then(()=>true,()=>false);
+  let staleDownloadCount=0;
+  const recordStaleDownload=()=>{staleDownloadCount++;};
+  B.on('download',recordStaleDownload);
   await B.getByRole('button',{name:'Open protected original'}).click();
   await poll(async()=>delayedOriginal.captured(),15000);
   await B.locator('#sign-out').click();
@@ -1021,10 +1031,12 @@ try{
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await assertPrivateUiCleared(B);
   delayedOriginal.release();
-  assert.equal(await staleDownload,false,
+  await delayedOriginal.continued;
+  await B.waitForTimeout(250);
+  B.off('download',recordStaleDownload);
+  assert.equal(staleDownloadCount,0,
     'a protected original response from the signed-out session cannot trigger a download');
   await B.unroute('http://127.0.0.1:9199/**');
-  await delayedOriginal.continued;
   assert.deepEqual(pageErrors,[]);
   console.log('BROWSER PASS: scoped chats, two-member plans, stale AI protection, archive restore, outsider denial, session revocation, sign-out clearing, stale auth/image response suppression and persistence');
 }finally{
