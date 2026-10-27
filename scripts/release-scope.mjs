@@ -9,7 +9,8 @@ const interfaceFiles=new Set([
   'today-essentials.mjs','adventure-feedback.mjs','instruction-core.mjs','topics.mjs'
 ].map(p=>'private-app/web/'+p));
 const policyFiles=new Set(['.github/workflows/justelle-private-app.yml',
-  'scripts/release-scope.mjs','scripts/release-scope.test.mjs']);
+  'scripts/release-scope.mjs','scripts/release-scope.test.mjs',
+  'scripts/hosted-qualification-policy.mjs','scripts/hosted-qualification-policy.test.mjs']);
 export function releaseScope(paths){
   if(paths===null)return {code:true,windows:true,hosted:true};
   const relevant=paths.filter(p=>policyFiles.has(p)||p.startsWith('private-app/')&&!p.endsWith('.md'));

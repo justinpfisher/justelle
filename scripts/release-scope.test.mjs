@@ -17,6 +17,8 @@ test('access, data, recovery, dependencies, deployment and unknown runtime chang
     'ai/vision-provider.mjs','package-lock.json'])assert.equal(releaseScope(['private-app/'+p]).hosted,true,p);
   assert.equal(releaseScope(['.github/workflows/justelle-private-app.yml']).hosted,true);
   assert.equal(releaseScope(['scripts/release-scope.mjs']).hosted,true);
+  assert.equal(releaseScope(['scripts/hosted-qualification-policy.mjs']).hosted,true);
+  assert.equal(releaseScope(['scripts/hosted-qualification-policy.test.mjs']).hosted,true);
 });
 test('Windows runner checks are limited to runner/dependency/configuration changes',()=>{
   assert.equal(releaseScope(['private-app/tools/preview.mjs']).windows,true);
