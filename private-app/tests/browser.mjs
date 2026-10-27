@@ -180,6 +180,7 @@ try{
   const delayedPlanReplies=[];
   const planSuggestionUrl='http://127.0.0.1:8787/plan/suggest';
   await A.route(planSuggestionUrl,async route=>{
+    if(route.request().method()!=='POST')return route.continue();
     const response=await route.fetch();
     assert.equal(response.status(),200,'the local deterministic gateway must return a successful response');
     assert.equal((await response.json()).kind,'preview','the delayed reply must contain a valid fictional preview');
@@ -191,7 +192,7 @@ try{
   });
   const startDelayedPlanRequest=async()=>{
     const index=delayedPlanReplies.length;
-    const response=A.waitForResponse(r=>r.url()===planSuggestionUrl);
+    const response=A.waitForResponse(r=>r.url()===planSuggestionUrl&&r.request().method()==='POST');
     await A.locator('#planner-ask-ai').click();
     await poll(async()=>delayedPlanReplies.length>index);
     return {release:delayedPlanReplies[index].release,
