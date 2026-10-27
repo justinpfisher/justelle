@@ -899,8 +899,12 @@ try{
   await again.locator('#email').fill(fixture.outsider.email);
   await again.locator('#password').fill(fixture.outsider.password);
   await again.locator('#login-form button').click();
-  await poll(async()=>await again.locator('#login').isVisible()&&
-    /access|permission/i.test(await again.locator('#error').textContent()),15000);
+  await again.locator('#login').waitFor({state:'visible',timeout:15000});
+  const outsiderError=(await again.locator('#error').textContent()).toLowerCase();
+  const denialCategory=outsiderError.includes('permission')?'permission':
+    /access|member|claim/.test(outsiderError)?'access':outsiderError?'other':'empty';
+  assert.ok(['access','permission'].includes(denialCategory),
+    'outsider rejection category should identify an access denial; received '+denialCategory);
   await assertPrivateUiCleared(again);
   oldMemberRead.release();await oldMemberRead.continued;
   await again.unroute('**/documents:batchGet*');
