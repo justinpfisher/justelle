@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {deploymentFailureDiagnostic} from '../hosting/deployment-diagnostics.mjs';
+import {createDeploymentFailureRecorder,deploymentFailureDiagnostic} from '../hosting/deployment-diagnostics.mjs';
 
 test('Deployment diagnostics classify known provider failures without returning their text',()=>{
   const secret='SENSITIVE_CONFIG_PASSWORD_38a1';
@@ -42,4 +42,17 @@ test('Provider mutation uncertainty is explicit even when the provider error is 
     {providerMutationMayHaveStarted:true});
   assert.equal(result.code,'UNCLASSIFIED_FAILURE');
   assert.equal(result.providerStateNeedsReconciliation,true);
+});
+
+test('First failure phase and category survive later rollback or shutdown errors',()=>{
+  const recorder=createDeploymentFailureRecorder();
+  recorder.capture('firebase-deploy',{stderr:'PERMISSION_DENIED private-password-value',code:1},
+    {providerMutationMayHaveStarted:true});
+  recorder.capture('shutdown-hosting',{stderr:'cleanup private-password-value',code:1},
+    {providerMutationMayHaveStarted:true});
+  assert.deepEqual(recorder.first,{
+    event:'justelle-deployment-failed',phase:'firebase-deploy',code:'PROVIDER_PERMISSION',
+    providerStateNeedsReconciliation:true,exitCode:1
+  });
+  assert.equal(JSON.stringify(recorder.first).includes('private-password-value'),false);
 });

@@ -2,8 +2,10 @@ const phases=new Set([
   'config-read','config-parse','config-validation','source-revision',
   'runtime-config-write','target-config-write','root-dependencies',
   'functions-dependencies','app-build','deployment-config-stage',
-  'firebase-deploy','rollback-source-checkout','release-precheck',
-  'release-or-qualification-drill','shutdown-run-access','shutdown-hosting'
+  'deployment-config-cleanup','firebase-deploy','rollback-source-checkout',
+  'release-precheck','release-state-read','release-state-write',
+  'release-or-qualification-drill','hosted-smoke-check','qualification-shutdown-check',
+  'shutdown-run-access','shutdown-hosting'
 ]);
 
 function textOf(value){
@@ -50,5 +52,16 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
     code:providerCode(error),
     providerStateNeedsReconciliation:Boolean(providerMutationMayHaveStarted),
     ...(exitCode===undefined?{}:{exitCode})
+  };
+}
+
+export function createDeploymentFailureRecorder(){
+  let first=null;
+  return {
+    capture(phase,error,options){
+      if(first===null)first=deploymentFailureDiagnostic(phase,error,options);
+      return first;
+    },
+    get first(){return first;}
   };
 }
