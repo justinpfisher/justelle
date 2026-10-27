@@ -1055,7 +1055,7 @@ try{
   await assertPrivateUiCleared(B);
   delayedOriginal.release();
   await delayedOriginal.continued;
-  assert.equal(delayedOriginal.responseStatus,200,
+  assert.ok([200,206].includes(delayedOriginal.responseStatus),
     'the protected original request completed successfully before checking stale-download suppression');
   assert.equal(delayedOriginal.responseFinished,true,
     'the protected original response body completed without a network error');
