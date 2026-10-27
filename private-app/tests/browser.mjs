@@ -880,6 +880,8 @@ try{
   await privateImage.click();
   await again.locator('#image-viewer').waitFor({state:'visible'});
   await poll(async()=>Boolean(await again.locator('#full-image').getAttribute('src')));
+  await again.locator('#close-image').click();
+  await again.locator('#image-viewer').waitFor({state:'hidden'});
   await again.locator('#sign-out').click();
   await again.locator('#login').waitFor({state:'visible'});
   await assertPrivateUiCleared(again);
