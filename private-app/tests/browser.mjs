@@ -27,13 +27,16 @@ async function waitFor(url){
     await new Promise(r=>setTimeout(r,450));}
   throw Error('Local service not ready: '+url);
 }
-async function login(page,account){
-  await page.goto(base);
+async function signInOnCurrentPage(page,account){
   await page.locator('#email').fill(account.email);
   await page.locator('#password').fill(account.password);
   await page.locator('#login-form button').click();
   try{await page.locator('#private-app').waitFor({state:'visible',timeout:25000});}
   catch{throw Error('Could not sign in; '+await page.locator('#error').textContent()+'; '+pageErrors.join('; '));}
+}
+async function login(page,account){
+  await page.goto(base);
+  await signInOnCurrentPage(page,account);
 }
 async function openDiscussion(page,id){
   await page.locator('#topic-list [data-topic-id="'+id+'"]').click();
@@ -509,6 +512,8 @@ try{
     await B.getByText('Explore days',{exact:true}).click();
   await B.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
   await B.locator('#planner-day-detail').getByRole('button',{name:/View booking · Fictional inn confirmation/}).click();
+  assert.equal(await B.locator('#planner-booking-source').textContent(),'',
+    'opening a new booking clears the previous source while current details load');
   await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
   const downloadPromise=B.waitForEvent('download',{timeout:12000});
   await B.getByRole('button',{name:'Open protected original'}).click();
@@ -970,7 +975,7 @@ try{
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await assertPrivateUiCleared(B);
 
-  await login(B,fixture.b);
+  await signInOnCurrentPage(B,fixture.b);
   await B.locator('[data-tab="adventures"]').click();
   await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
     .getByRole('button',{name:'Open plan'}).click();

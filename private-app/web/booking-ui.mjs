@@ -75,6 +75,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     if(stopped||!plan||!booking)return;
     const ticket=++sourceRequest;
     const isCurrent=()=>!stopped&&ticket===sourceRequest&&getPlan()?.id===plan.id;
+    $('planner-booking-source').replaceChildren();
     $('planner-bookings-panel').open=true;
     try{
       const sources=await planner.readSources(plan.id);
