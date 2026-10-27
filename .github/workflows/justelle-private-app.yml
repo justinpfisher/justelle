@@ -27,9 +27,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test scripts/release-scope.test.mjs scripts/project-status.test.mjs
+      - run: node --test scripts/release-scope.test.mjs scripts/project-status.test.mjs scripts/hosted-qualification-policy.test.mjs
       - id: scope
         run: node scripts/release-scope.mjs
+
+  hosted-qualification-hold:
+    name: Hosted qualification held (not run)
+    needs: [changes, private-pilot, windows-preview]
+    if: >-
+      always() && !cancelled() && github.event_name != 'pull_request' &&
+      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Report held status
+        run: |
+          echo "Hosted qualification and private production release were held; no provider deployment ran and no acceptance evidence was recorded." >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Justelle release held::Hosted qualification was not run; this is not a qualification pass."
 
   private-pilot:
     needs: changes
@@ -105,6 +120,7 @@ jobs:
     needs: [changes, private-pilot, windows-preview]
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
+      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&
       needs.private-pilot.result == 'success' &&
       (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped') &&
       vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
@@ -165,6 +181,7 @@ jobs:
     needs: [changes, private-pilot, windows-preview, hosted-qualification]
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&
       vars.JUSTELLE_INITIAL_ACCEPTANCE == 'verified' && needs.private-pilot.result == 'success' &&
       (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped') &&
       (needs.hosted-qualification.result == 'success' ||
