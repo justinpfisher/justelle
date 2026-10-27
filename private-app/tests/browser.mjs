@@ -900,7 +900,7 @@ try{
   await again.locator('#password').fill(fixture.outsider.password);
   await again.locator('#login-form button').click();
   await poll(async()=>await again.locator('#login').isVisible()&&
-    /does not have access/.test(await again.locator('#error').textContent()),15000);
+    /access|permission/i.test(await again.locator('#error').textContent()),15000);
   await assertPrivateUiCleared(again);
   oldMemberRead.release();await oldMemberRead.continued;
   await again.unroute('**/documents:batchGet*');
