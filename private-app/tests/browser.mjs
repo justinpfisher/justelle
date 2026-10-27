@@ -12,7 +12,7 @@ import {restoreArchive} from '../memory/restore.mjs';
 const fixtureFile=process.argv[2];
 if(!fixtureFile)throw Error('Need disposable emulator credentials file');
 const fixture=JSON.parse(await readFile(fixtureFile,'utf8'));
-const base='http://127.0.0.1:5173/';
+const base='http://127.0.0.1:5173/?test-session-races=1';
 const app=spawn(process.execPath,['node_modules/vite/bin/vite.js','web','--host','127.0.0.1','--port','5173','--strictPort'],{
   cwd:fileURLToPath(new URL('../',import.meta.url)),env:process.env,stdio:'ignore'
 });
@@ -1001,23 +1001,14 @@ try{
   const oldStay=B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional Coast Harbour'});
   await oldStay.getByRole('button',{name:'Edit details'}).click();
   await B.locator('#planner-edit-title').fill('Fictional old-session save');
-  const oldSessionSave=await holdNextPlannerSave(B);
+  await B.evaluate(()=>window.__justelleTestSessionRaces.installEditGate('old'));
   await B.locator('#planner-edit-stay button[type=submit]').click();
-  const oldCommitUrl=await oldSessionSave.started;
-  assert.ok(oldCommitUrl.includes('/documents:commit'),
-    'the delayed request is a Firestore transaction commit');
+  await B.waitForFunction(()=>window.__justelleTestSessionRaces?.gates.old?.committed===true,
+    null,{timeout:15000});
   await B.locator('#sign-out').click();
   await B.locator('#login').waitFor({state:'visible'});
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await assertPrivateUiCleared(B);
-  assert.equal(await oldSessionSave.committed,200,
-    'the local emulator accepted the write before the browser response was released');
-  const oldCommitResponse=B.waitForResponse(response=>response.url()===oldCommitUrl,{timeout:15000});
-  oldSessionSave.release();
-  assert.equal((await oldCommitResponse).status(),200,
-    'the old-session client receives the successful response while signed out');
-  await assertPrivateUiCleared(B);
-  await oldSessionSave.remove();
 
   await signInOnCurrentPage(B,fixture.b);
   await B.locator('[data-tab="adventures"]').click();
@@ -1027,8 +1018,23 @@ try{
   assert.equal(await B.locator('#planner-trip-title').inputValue(),'Fictional Coast Updated',
     'reopening the same plan repopulates trip details after clearing the old dirty draft');
   assert.equal(await B.locator('#planner-trip-form').evaluate(form=>form.dataset.dirty),'false');
-  assert.equal(await B.locator('#planner-edit-stay').isVisible(),false,
-    'an editor from the signed-out session remains closed after re-authentication');
+  const committedStay=B.locator('#planner-stays .planner-stay').filter({hasText:'Fictional old-session save'});
+  await committedStay.getByRole('button',{name:'Edit details'}).click();
+  await B.locator('#planner-edit-title').fill('Fictional new-session draft');
+  await B.evaluate(()=>window.__justelleTestSessionRaces.installEditGate('new'));
+  await B.locator('#planner-edit-stay button[type=submit]').click();
+  await B.waitForFunction(()=>window.__justelleTestSessionRaces?.gates.new?.committed===true,
+    null,{timeout:15000});
+  await B.evaluate(()=>window.__justelleTestSessionRaces.gates.old.release());
+  assert.equal(await B.locator('#planner-edit-stay').isVisible(),true,
+    'old-session completion cannot close the new session editor');
+  assert.equal(await B.locator('#planner-edit-title').inputValue(),'Fictional new-session draft',
+    'old-session completion cannot clear the newer session draft');
+  assert.equal(await B.locator('#planner-edit-stay button[type=submit]').isDisabled(),true,
+    'old-session finally cannot re-enable the newer pending save');
+  await B.evaluate(()=>window.__justelleTestSessionRaces.gates.new.release());
+  await poll(async()=>!await B.locator('#planner-edit-stay button[type=submit]').isDisabled());
+  await poll(async()=>!await B.locator('#planner-edit-stay').isVisible());
 
   // Closing a session during a protected-original read suppresses the
   // completion, clears member-recorded source fields/options and creates no download.

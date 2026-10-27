@@ -12,6 +12,29 @@ import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
 const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
 const {projectId,roomId}=runtime;
 const historicalReadOnly=runtime.mode==='production';
+// A query-gated hook exists only for fictional localhost browser regressions.
+// It delays UI completion after a real emulator write has already completed.
+const testSessionRaces=runtime.mode==='local'&&
+  new URLSearchParams(location.search).get('test-session-races')==='1'?
+  (window.__justelleTestSessionRaces={
+    currentPlanner:null,gates:{},
+    installEditGate(name){
+      if(!['old','new'].includes(name))throw Error('Unknown fictional edit gate');
+      const planner=this.currentPlanner;
+      if(!planner||typeof planner.editPlan!=='function')throw Error('Local planner is not ready');
+      const original=planner.editPlan.bind(planner);
+      let release;
+      const wait=new Promise(resolve=>{release=resolve;});
+      const gate={committed:false,release};
+      this.gates[name]=gate;
+      planner.editPlan=async(...args)=>{
+        const result=await original(...args);
+        gate.committed=true;
+        await wait;
+        return result;
+      };
+    }
+  }):null;
 const app=initializeApp(runtime.firebase);
 const auth=getAuth(app),db=getFirestore(app),storage=getStorage(app);
 if(runtime.mode==='local'){
@@ -710,6 +733,7 @@ onAuthStateChanged(auth,async user=>{
       throw Error('Member access denied.');
     }
     backend=firebaseBackend({db,storage,roomId,membership:membership.data(),mediaTransport:runtime.mode==='local'?null:protectedMediaTransport({baseUrl:runtime.mediaUrl,getToken:()=>auth.currentUser.getIdToken()})});
+    if(testSessionRaces)testSessionRaces.currentPlanner=backend.planner;
     stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),
       onError:sessionError,announce:message=>{if(isCurrentSession())setNotice(message);},
       planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken()});
