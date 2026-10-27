@@ -907,7 +907,7 @@ try{
     'outsider rejection category should identify an access denial; received '+denialCategory);
   await assertPrivateUiCleared(again);
   oldMemberRead.release();await oldMemberRead.continued;
-  await again.unroute('**/documents:batchGet*');
+  await again.unroute('http://127.0.0.1:8081/**');
   await assertPrivateUiCleared(again);
 
   // Revoking one fictional member's auth_time invalidates the next protected
