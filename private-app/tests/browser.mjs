@@ -158,6 +158,11 @@ try{
   assert.equal(await A.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,
     'The journey must not require horizontal scrolling on a 390px phone');
 
+  // Establish a planned stay as the overlap baseline for the delayed add_stop
+  // regression below. Earlier steps exercised Undo and restored it to possible.
+  await B.locator('#planner-stays .planner-stay').getByRole('button',{name:'Mark planned'}).click();
+  await A.locator('#planner-stays .planner-stay').getByRole('button',{name:'Keep as possible'}).waitFor();
+
   // Test the entire source-backed planner AI boundary on two fictional phones.
   // This uses only a deterministic local interpreter; it never calls a model.
   assert.equal(await A.locator('#planner-ask-ai').isVisible(),true);
@@ -191,7 +196,7 @@ try{
     const entry={release,payload,fail:false};
     delayedPlanReplies.push(entry);
     await gate;
-    if(entry.fail)return route.fulfill({status:500,headers:response.headers(),
+    if(entry.fail)return route.fulfill({status:500,headers:{'content-type':'application/json; charset=utf-8'},
       body:JSON.stringify({error:'Synthetic local gateway failure'})});
     await route.fulfill({response});
   });
@@ -204,8 +209,9 @@ try{
     await poll(async()=>delayedPlanReplies.length>index);
     const entry=delayedPlanReplies[index];
     assert.equal(entry.payload.kind,expectedKind);
-    return {...entry,
-      response:response.then(r=>r.finished())};
+    entry.responseStatus=response.then(r=>r.status());
+    entry.response=response.then(r=>r.finished());
+    return entry;
   };
 
   await A.locator('#planner-instruction').fill('Consider a visit to Fictional lookout on day 6');
@@ -220,7 +226,7 @@ try{
   assert.equal(await A.locator('#planner-instruction-result').isVisible(),false,
     'an old response cannot restore the preview after the instruction changes');
 
-  await A.locator('#planner-instruction').fill('Consider 1 night in Fictional Annex starting day 2');
+  await A.locator('#planner-instruction').fill('Plan 1 night in Fictional Annex starting day 2');
   const afterLocalPreviewDiscard=await startDelayedPlanRequest();
   await A.locator('#planner-instruction-form button[type="submit"]').click();
   await A.locator('#planner-instruction-apply').waitFor({state:'visible'});
@@ -298,6 +304,8 @@ try{
   olderFailure.fail=true;
   olderFailure.release();
   await olderFailure.response;
+  assert.equal(await olderFailure.responseStatus,500,
+    'the delayed stale-error fixture must actually return the synthetic gateway failure');
   assert.equal(await B.locator('#planner-instruction-apply').isVisible(),true,
     'an older failure cannot discard a newer preview');
   assert.match(await B.locator('#planner-instruction-message').textContent(),/Fictional Latest Cove/);
