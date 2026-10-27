@@ -51,7 +51,7 @@ test('First failure phase and category survive later rollback or shutdown errors
   recorder.capture('shutdown-hosting',{stderr:'cleanup private-password-value',code:1},
     {providerMutationMayHaveStarted:true});
   assert.deepEqual(recorder.first,{
-    event:'justelle-deployment-failed',phase:'firebase-deploy',code:'PROVIDER_PERMISSION',
+    event:'justelle-deployment-failed',phase:'firebase-deploy',code:'PROVIDER_PERMISSION',detail:'FIREBASE_PERMISSION_DENIED',
     providerStateNeedsReconciliation:true,exitCode:1
   });
   assert.equal(JSON.stringify(recorder.first).includes('private-password-value'),false);
@@ -71,4 +71,31 @@ test('Final reconciliation flag includes later provider recovery mutation while 
   });
   assert.equal(JSON.stringify(final).includes(secret),false);
   assert.equal(JSON.stringify(final).includes('provider cleanup failed'),false);
+});
+
+test('Firebase deployment details are fixed safe codes for common failures and opaque child output',()=>{
+  const secret='HOSTED_CONFIG_PASSWORD_7a91';
+  const cases=[
+    ['API SERVICE_DISABLED '+secret,'FIREBASE_API_DISABLED'],
+    ['PERMISSION_DENIED '+secret,'FIREBASE_PERMISSION_DENIED'],
+    ['No credentials '+secret,'FIREBASE_AUTHENTICATION_FAILED'],
+    ['RESOURCE_EXHAUSTED '+secret,'FIREBASE_QUOTA_EXCEEDED'],
+    ['Firebase Hosting site does not exist '+secret,'FIREBASE_HOSTING_TARGET_UNAVAILABLE'],
+    ['Secret version does not exist '+secret,'FIREBASE_SECRET_UNAVAILABLE'],
+    ['firebase.json is invalid '+secret,'FIREBASE_CONFIG_INVALID'],
+    ['predeploy error '+secret,'FIREBASE_PREDEPLOY_FAILED'],
+    ['Cloud Build deployment failed '+secret,'FIREBASE_FUNCTIONS_BUILD_FAILED']
+  ];
+  for(const [stderr,detail] of cases){
+    const result=deploymentFailureDiagnostic('firebase-deploy',{code:1,stderr});
+    assert.equal(result.detail,detail);
+    assert.equal(JSON.stringify(result).includes(secret),false);
+    assert.equal(JSON.stringify(result).includes(stderr),false);
+  }
+  assert.equal(deploymentFailureDiagnostic('firebase-deploy',{code:1,stderr:'opaque '+secret}).detail,
+    'FIREBASE_CLI_OUTPUT_UNCLASSIFIED');
+  assert.equal(deploymentFailureDiagnostic('firebase-deploy',{code:1}).detail,
+    'FIREBASE_CLI_EXIT_WITHOUT_OUTPUT');
+  assert.equal(deploymentFailureDiagnostic('firebase-deploy',{message:'opaque '+secret}).detail,
+    'FIREBASE_CLI_FAILURE_UNCLASSIFIED');
 });
