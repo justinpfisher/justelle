@@ -869,6 +869,7 @@ try{
   await again.setViewportSize({width:1280,height:900});
   assert.ok(await again.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Desktop layout should fit its viewport');
   await again.screenshot({path:join(screenshots,'fictional-desktop.png'),fullPage:true});
+  await again.locator('[data-tab="conversation"]').click();
 
   // Signing out clears rendered private content and image URLs, not just the
   // visibility of the app shell.
