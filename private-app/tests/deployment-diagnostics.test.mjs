@@ -52,7 +52,8 @@ test('First failure phase and category survive later rollback or shutdown errors
     {providerMutationMayHaveStarted:true});
   assert.deepEqual(recorder.first,{
     event:'justelle-deployment-failed',phase:'firebase-deploy',code:'PROVIDER_PERMISSION',detail:'FIREBASE_PERMISSION_DENIED',
-    providerStateNeedsReconciliation:true,exitCode:1
+    providerStateNeedsReconciliation:true,firebaseCliOutputShape:'empty',
+    firebaseCliProcessOutcome:'exit-code',stdoutPresent:false,stderrPresent:true,exitCode:1
   });
   assert.equal(JSON.stringify(recorder.first).includes('private-password-value'),false);
 });
@@ -98,4 +99,57 @@ test('Firebase deployment details are fixed safe codes for common failures and o
     'FIREBASE_CLI_EXIT_WITHOUT_OUTPUT');
   assert.equal(deploymentFailureDiagnostic('firebase-deploy',{message:'opaque '+secret}).detail,
     'FIREBASE_CLI_FAILURE_UNCLASSIFIED');
+});
+
+
+test('Firebase CLI JSON errors expose only a safe envelope and process summary',()=>{
+  const secrets=['fixture-password-DO-NOT-LOG','private.person@example.test','projects/private-project-id','ya29.fixture-token'];
+  const message='PERMISSION_DENIED '+secrets.join(' ');
+  const result=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({status:'error',error:message}),stderr:''
+  },{providerMutationMayHaveStarted:true});
+  assert.equal(result.code,'PROVIDER_PERMISSION');
+  assert.equal(result.detail,'FIREBASE_PERMISSION_DENIED');
+  assert.equal(result.firebaseCliOutputShape,'json-error');
+  assert.equal(result.firebaseCliProcessOutcome,'exit-code');
+  assert.equal(result.stdoutPresent,true);
+  assert.equal(result.stderrPresent,false);
+  assert.equal(result.exitCode,1);
+  const serialized=JSON.stringify(result);
+  for(const secret of secrets)assert.equal(serialized.includes(secret),false);
+  assert.equal(serialized.includes(message),false);
+});
+
+test('Firebase CLI output shape is bounded and distinguishes empty, malformed, and other JSON',()=>{
+  const cases=[
+    [{code:1,stdout:'',stderr:'opaque error'},'empty'],
+    [{code:1,stdout:'warning\n{"status":"error","error":"private"}',stderr:''},'malformed-or-mixed'],
+    [{code:1,stdout:'{"status":"unknown","private":"do-not-log"}',stderr:''},'json-other'],
+    [{code:1,stdout:'x'.repeat(64*1024+1),stderr:''},'too-large']
+  ];
+  for(const [error,shape] of cases){
+    const result=deploymentFailureDiagnostic('firebase-deploy',error);
+    assert.equal(result.firebaseCliOutputShape,shape);
+    assert.equal(JSON.stringify(result).includes('do-not-log'),false);
+    assert.equal(JSON.stringify(result).includes('"private"'),false);
+  }
+  assert.equal(deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:'{"status":"success","result":{}}',stderr:''
+  }).firebaseCliOutputShape,'json-success');
+});
+
+test('Firebase CLI process failures expose only allowlisted outcome categories',()=>{
+  const spawn=deploymentFailureDiagnostic('firebase-deploy',{code:'ENOENT',message:'secret path',stdout:'',stderr:''});
+  assert.equal(spawn.code,'LOCAL_TOOL_OR_FILE_MISSING');
+  assert.equal(spawn.firebaseCliProcessOutcome,'spawn-error');
+  const signaled=deploymentFailureDiagnostic('firebase-deploy',{code:null,signal:'SIGTERM',message:'private text'});
+  assert.equal(signaled.firebaseCliProcessOutcome,'signal');
+  assert.equal(JSON.stringify(signaled).includes('SIGTERM'),false);
+  assert.equal(JSON.stringify(signaled).includes('private text'),false);
+  const outputLimit=deploymentFailureDiagnostic('firebase-deploy',{
+    code:'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',killed:true,stdout:'x'.repeat(20),stderr:''
+  });
+  assert.equal(outputLimit.code,'LOCAL_OUTPUT_LIMIT');
+  assert.equal(outputLimit.detail,'FIREBASE_CLI_OUTPUT_CAPTURE_LIMIT');
+  assert.equal(outputLimit.firebaseCliProcessOutcome,'output-limit');
 });

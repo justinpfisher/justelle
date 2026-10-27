@@ -48,7 +48,7 @@ try{
     try{
       await atPhase('firebase-deploy',()=>{
         providerMutationMayHaveStarted=true;
-        return run(process.execPath,[join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive',
+        return run(process.execPath,[join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive','--json',
           '--project',config.projectId,'--config',stagedConfig.path,
           '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env,maxBuffer:8*1024*1024});
       });
