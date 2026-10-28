@@ -1,7 +1,8 @@
 import {createRequire} from 'node:module';
 import {access,readFile} from 'node:fs/promises';
-import {join} from 'node:path';
-import {pathToFileURL} from 'node:url';
+import {realpathSync} from 'node:fs';
+import {dirname,isAbsolute,join,relative,resolve,sep} from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {writeSync} from 'node:fs';
 
 export const pinnedFirebaseToolsVersion='15.34.0';
@@ -28,6 +29,8 @@ const requestDiagnosticPrefix='JUSTELLE_SAFE_REQUEST_DIAG:';
 const terminalDiagnosticPrefix='JUSTELLE_SAFE_TERMINAL_DIAG:';
 const maxDiagnosticEvents=8;
 const maxDiagnosticStderrBytes=64*1024;
+const maxTerminalStackBytes=32*1024;
+const maxTerminalStackFrames=8;
 
 const serviceByHostname=new Map([
   ['firebase.googleapis.com','FIREBASE_API'],
@@ -252,10 +255,48 @@ function terminalMessageTemplate(error){
   return 'OTHER';
 }
 
-function safeTerminalErrorShape(error){
+function safePackageSourceFrames(error,packageRoot){
+  if(typeof packageRoot!=='string'||!isAbsolute(packageRoot))return {frames:[],truncated:false};
+  const stack=readErrorProperty(error,'stack');
+  if(typeof stack!=='string'||!stack)return {frames:[],truncated:false};
+  const bounded=stack.slice(0,maxTerminalStackBytes);
+  const lines=bounded.split(/\r?\n/).slice(1,65);
+  const frames=[];
+  let truncated=stack.length>bounded.length;
+  let canonicalRoot;
+  try{canonicalRoot=realpathSync(packageRoot);}catch{return {frames:[],truncated:false};}
+  for(const line of lines){
+    const trimmed=line.trim();
+    if(!trimmed.startsWith('at '))continue;
+    let location=trimmed.slice(3).trim();
+    const callSiteStart=location.lastIndexOf(' (');
+    if(callSiteStart>=0&&location.endsWith(')'))location=location.slice(callSiteStart+2,-1);
+    const match=location.match(/^(.*):(\d+):(\d+)$/);
+    if(!match)continue;
+    const lineNumber=Number(match[2]);
+    if(!Number.isSafeInteger(lineNumber)||lineNumber<1||lineNumber>1000000)continue;
+    let absolutePath;
+    try{
+      absolutePath=/^file:/i.test(match[1])?fileURLToPath(match[1]):match[1];
+      if(!isAbsolute(absolutePath))continue;
+      absolutePath=realpathSync(absolutePath);
+    }catch{continue;}
+    const packageRelative=relative(canonicalRoot,absolutePath);
+    if(!packageRelative||packageRelative==='..'||packageRelative.startsWith('..'+sep)||isAbsolute(packageRelative))continue;
+    const file=packageRelative.split(sep).join('/');
+    if(!/^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:js|cjs|mjs)$/.test(file))continue;
+    if(frames.length>=maxTerminalStackFrames){truncated=true;break;}
+    frames.push({file,line:lineNumber});
+  }
+  if(lines.length>=64&&bounded.split(/\r?\n/).length>65)truncated=true;
+  return {frames,truncated};
+}
+
+function safeTerminalErrorShape(error,packageRoot){
   const nodes=[];
   const seen=new Set();
   let truncated=false;
+  const sourceFrames={frames:[],truncated:false};
   const visit=(value,depth)=>{
     if(value===null||value===undefined)return;
     if(typeof value!=='object'&&typeof value!=='string')return;
@@ -271,19 +312,25 @@ function safeTerminalErrorShape(error){
       ...(Number.isInteger(status)&&status>=400&&status<=599?{httpStatus:status}:{})
     };
     nodes.push(node);
+    if(packageRoot){
+      const observed=safePackageSourceFrames(value,packageRoot);
+      const remaining=maxTerminalStackFrames-sourceFrames.frames.length;
+      sourceFrames.frames.push(...observed.frames.slice(0,remaining));
+      sourceFrames.truncated||=observed.truncated||observed.frames.length>remaining;
+    }
     if(typeof value==='object'){
       visit(readErrorProperty(value,'original'),depth+1);
       visit(readErrorProperty(value,'cause'),depth+1);
     }
   };
   try{visit(error,0);}catch{return {nodes:[],truncated:true};}
-  return {nodes,truncated};
+  return {nodes,truncated,...(packageRoot?{sourceFrames}: {})};
 }
 
-export function createSafeTerminalErrorDiagnostic(error,requestEvents){
+export function createSafeTerminalErrorDiagnostic(error,requestEvents,packageRoot){
   return {
     ...terminalRequestContext(error,requestEvents),
-    terminalError:safeTerminalErrorShape(error)
+    terminalError:safeTerminalErrorShape(error,packageRoot)
   };
 }
 
@@ -299,9 +346,22 @@ export function parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce){
   const hasTerminalError=Object.hasOwn(value,'terminalError');
   if(hasTerminalError){
     if(!value.terminalError||typeof value.terminalError!=='object'||Array.isArray(value.terminalError)||
-      Object.keys(value.terminalError).sort().join(',')!=='nodes,truncated'||
+      !['nodes,truncated','nodes,sourceFrames,truncated'].includes(Object.keys(value.terminalError).sort().join(','))||
       !Array.isArray(value.terminalError.nodes)||value.terminalError.nodes.length>5||
       typeof value.terminalError.truncated!=='boolean')return null;
+    const sourceFrames=value.terminalError.sourceFrames;
+    if(sourceFrames!==undefined){
+      if(!sourceFrames||typeof sourceFrames!=='object'||Array.isArray(sourceFrames)||
+        Object.keys(sourceFrames).sort().join(',')!=='frames,truncated'||
+        !Array.isArray(sourceFrames.frames)||sourceFrames.frames.length>maxTerminalStackFrames||
+        typeof sourceFrames.truncated!=='boolean')return null;
+      for(const frame of sourceFrames.frames){
+        if(!frame||typeof frame!=='object'||Array.isArray(frame)||
+          Object.keys(frame).sort().join(',')!=='file,line'||
+          typeof frame.file!=='string'||! /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:js|cjs|mjs)$/.test(frame.file)||
+          !Number.isSafeInteger(frame.line)||frame.line<1||frame.line>1000000)return null;
+      }
+    }
     for(const node of value.terminalError.nodes){
       if(!node||typeof node!=='object'||Array.isArray(node)||
         !['code','kind','messageTemplate','name'].every(key=>Object.hasOwn(node,key))||
@@ -330,7 +390,7 @@ export function parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce){
   return {...value};
 }
 
-export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,writeDiagnostic}={}){
+export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,writeDiagnostic,firebaseToolsPackageRoot}={}){
   if(!/^[a-f0-9]{32}$/.test(nonce??''))throw new Error('Invalid Justelle diagnostic nonce');
   if(!Client?.prototype||typeof Client.prototype.doRequest!=='function'){
     throw new Error('Pinned Firebase CLI request hook is unavailable');
@@ -379,7 +439,7 @@ export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonc
   const originalErrorOut=errorOutModule.errorOut;
   errorOutModule.errorOut=function(error,...args){
     try{
-      const terminal=createSafeTerminalErrorDiagnostic(error,requestEvents);
+      const terminal=createSafeTerminalErrorDiagnostic(error,requestEvents,firebaseToolsPackageRoot);
       writeLine(terminalDiagnosticPrefix+nonce+':'+JSON.stringify(terminal)+'\n');
     }catch{}
     return originalErrorOut.call(this,error,...args);
@@ -427,11 +487,13 @@ const nonce=process.env.JUSTELLE_FIREBASE_SAFE_DIAG_NONCE;
 if(nonce!==undefined){
   if(!/^[a-f0-9]{32}$/.test(nonce))throw new Error('Invalid Justelle diagnostic setup');
   const localRequire=createRequire(import.meta.url);
-  const packageMetadata=localRequire('../node_modules/firebase-tools/package.json');
+  const packageMetadataPath=localRequire.resolve('../node_modules/firebase-tools/package.json');
+  const packageMetadata=localRequire(packageMetadataPath);
   if(packageMetadata.version!==pinnedFirebaseToolsVersion){
     throw new Error('Unsupported Firebase CLI version for Justelle request diagnostics');
   }
+  const firebaseToolsPackageRoot=dirname(packageMetadataPath);
   const {Client}=localRequire('../node_modules/firebase-tools/lib/apiv2.js');
   const errorOutModule=localRequire('../node_modules/firebase-tools/lib/errorOut.js');
-  installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce});
+  installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,firebaseToolsPackageRoot});
 }

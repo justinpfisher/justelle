@@ -641,12 +641,18 @@ test('Node preload instruments the exact pinned Firebase CLI class before comman
     }],
     truncated:false
   });
-  assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(child.stderr,nonce),{
-    terminalRequestStatus:'MATCHED',serviceCategory:'CLOUD_FUNCTIONS',methodCategory:'POST',
-    operationCategory:'SET_IAM_POLICY',httpStatus:403,
-    permissionCategory:'cloudfunctions.functions.setiampolicy',
-    terminalError:{nodes:[{kind:'ERROR',name:'FIREBASE_ERROR',code:'NONE',messageTemplate:'OTHER',httpStatus:403}],truncated:false}
-  });
+  const terminal=parseFirebaseCliTerminalErrorDiagnostic(child.stderr,nonce);
+  assert.equal(terminal.terminalRequestStatus,'MATCHED');
+  assert.equal(terminal.serviceCategory,'CLOUD_FUNCTIONS');
+  assert.equal(terminal.permissionCategory,'cloudfunctions.functions.setiampolicy');
+  assert.equal(terminal.terminalError.nodes[0].name,'FIREBASE_ERROR');
+  assert.deepEqual(terminal.terminalError.sourceFrames.truncated,false);
+  assert.ok(terminal.terminalError.sourceFrames.frames.length>0);
+  assert.ok(terminal.terminalError.sourceFrames.frames.every(frame=>/^lib\/[A-Za-z0-9._/-]+\.js$/.test(frame.file)));
+  assert.ok(terminal.terminalError.sourceFrames.frames.some(frame=>frame.file==='lib/responseToError.js'));
+  for(const secret of ['private-project','example.test','token-secret','C:\\Users\\','node_modules/firebase-tools']){
+    assert.equal(JSON.stringify(terminal).includes(secret),false);
+  }
 });
 
 test('terminal failure captures only bounded error-shape enums and message templates',()=>{
@@ -809,4 +815,53 @@ test('Functions predeploy package failures are separated and safely classified b
   const missingTool=deploymentFailureDiagnostic('functions-package',{code:'ENOENT',stderr:'private path '+secret});
   assert.equal(missingTool.code,'LOCAL_TOOL_OR_FILE_MISSING');
   assert.equal(missingTool.detail,'FUNCTIONS_PACKAGE_FAILURE_UNCLASSIFIED');
+});
+
+test('Terminal CLI diagnostics retain only bounded Firebase CLI package-relative source frames',async()=>{
+  const temp=await mkdtemp(join(tmpdir(),'justelle-terminal-stack-'));
+  const privateRoot=join(temp,'private.owner@example.test');
+  const firebaseToolsPackageRoot=join(privateRoot,'node_modules','firebase-tools');
+  const internalFiles=Array.from({length:10},(_,index)=>join(firebaseToolsPackageRoot,'lib',`source-${index}.js`));
+  const outsideFile=join(privateRoot,'functions','index.js');
+  const lookalikeFile=join(privateRoot,'node_modules','firebase-tools-evil','lib','leak.js');
+  await Promise.all([
+    ...internalFiles.map(file=>mkdir(join(file,'..'),{recursive:true})),
+    mkdir(join(outsideFile,'..'),{recursive:true}),
+    mkdir(join(lookalikeFile,'..'),{recursive:true})
+  ]);
+  await Promise.all([...internalFiles,outsideFile,lookalikeFile].map(file=>writeFile(file,'')));
+  const privateFixture='password=NeverPublish owner@example.test projects/private-project ya29.private-token';
+  const error=new Error(privateFixture);
+  error.stack=[
+    `FirebaseError: ${privateFixture} ${privateRoot}`,
+    `    at new FirebaseError (${pathToFileURL(internalFiles[0]).href}:29:11)`,
+    ...internalFiles.slice(1).map((file,index)=>`    at cliFrame${index} (${pathToFileURL(file).href}:${100+index}:7)`),
+    `    at appFrame (${pathToFileURL(outsideFile).href}:4:2)`,
+    `    at attackerFrame (${pathToFileURL(lookalikeFile).href}:99:1)`,
+    '    at node:internal/process/task_queues:95:5'
+  ].join('\n');
+  const nonce='9'.repeat(32),captured=[];
+  const errorOutModule={errorOut:value=>value};
+  class SyntheticClient {async doRequest(){}}
+  try{
+    installFirebaseCliRequestDiagnostics({
+      Client:SyntheticClient,errorOutModule,nonce,firebaseToolsPackageRoot,
+      writeDiagnostic:line=>captured.push(line)
+    });
+    errorOutModule.errorOut(error);
+    const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+    assert.deepEqual(parsed.terminalError.sourceFrames,{
+      frames:Array.from({length:8},(_,index)=>({file:`lib/source-${index}.js`,line:index===0?29:99+index})),
+      truncated:true
+    });
+    const serialized=JSON.stringify(parsed);
+    for(const secret of [privateFixture,'private.owner@example.test','private-project','ya29.private-token',
+      'NeverPublish','owner@example.test','firebase-tools-evil','functions/index.js','node:internal','https://']){
+      assert.equal(serialized.includes(secret),false,`diagnostic leaked ${secret}`);
+    }
+    assert.equal(serialized.includes('password='),false);
+    assert.equal(serialized.includes('source-8.js'),false);
+  }finally{
+    await rm(temp,{recursive:true,force:true});
+  }
 });
