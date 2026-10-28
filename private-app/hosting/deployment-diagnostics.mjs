@@ -151,12 +151,18 @@ function firebaseCliErrorParts(error){
 
 function matchesFirebaseCliServiceMarker(details,service,marker){
   const normalized=marker.toUpperCase();
-  const index=details.indexOf(normalized);
-  if(index<0)return false;
-  // "firebasestorage.googleapis.com" contains "storage.googleapis.com";
-  // the generic Cloud Storage marker must match a token boundary.
-  if(service==='STORAGE'&&index>0&&/[A-Z0-9]/.test(details[index-1]))return false;
-  return true;
+  let index=details.indexOf(normalized);
+  while(index>=0){
+    const before=index===0||!/[A-Z0-9]/.test(details[index-1]);
+    const afterIndex=index+normalized.length;
+    const after=normalized.endsWith('.')||afterIndex===details.length||
+      !/[A-Z0-9.-]/.test(details[afterIndex]);
+    // "firebasestorage.googleapis.com" contains "storage.googleapis.com";
+    // require a true token boundary and continue past embedded matches.
+    if(before&&after)return true;
+    index=details.indexOf(normalized,index+1);
+  }
+  return false;
 }
 
 function firebaseCliServiceCategory(error){
@@ -169,34 +175,44 @@ function firebaseCliServiceCategory(error){
   return matchingServices.length>1?'AMBIGUOUS':'UNKNOWN';
 }
 
-function collectFirebaseCliPermissionCategories(value,candidates,{depth=0,key=''}={}){
+function collectFirebaseCliPermissionCategories(value,candidates,evidence,{depth=0,key=''}={}){
   if(depth>5||candidates.size>8)return;
   if(typeof value==='string'){
     const normalized=value.trim().toLowerCase();
     if(firebaseCliPermissionFields.has(key.toLowerCase())){
       if(firebaseCliPermissionCategories.has(normalized))candidates.add(normalized);
+      else if(normalized)evidence.unknown=true;
       return;
     }
-    // Only surface an exact allowlisted permission when the same bounded
-    // error string explicitly describes a denial or missing grant.
-    if(!/(?:denied|missing|not granted|not authorized|forbidden|required)/i.test(value))return;
+    // Require the denial to describe this exact allowlisted permission.
+    // A denial elsewhere in the same message is not evidence about this token.
     for(const permission of firebaseCliPermissionCategories.keys()){
       const escaped=permission.replaceAll('.','\\.');
-      if(new RegExp('(^|[^a-z0-9_.])'+escaped+'(?=$|[^a-z0-9_.])','i').test(value)){
-        candidates.add(permission);
-      }
+      const deniedAfter=new RegExp(
+        '(?:permission(?:\\s+name)?\\s+)?[\\x22\\x27]?'+escaped+'[\\x22\\x27]?\\s+(?:(?:is|was)\\s+)?(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)(?![a-z0-9_])',
+        'i'
+      );
+      const deniedBefore=new RegExp(
+        '(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)\\s+(?:permission(?:\\s+name)?\\s+)?[\\x22\\x27]?'+escaped+'[\\x22\\x27]?(?![a-z0-9_])',
+        'i'
+      );
+      if(deniedAfter.test(value)||deniedBefore.test(value))candidates.add(permission);
     }
     return;
   }
   if(Array.isArray(value)){
-    for(const item of value.slice(0,16))collectFirebaseCliPermissionCategories(item,candidates,{depth:depth+1,key});
+    for(const item of value.slice(0,16))collectFirebaseCliPermissionCategories(item,candidates,evidence,{depth:depth+1,key});
     return;
   }
   if(value&&typeof value==='object'){
+    if(firebaseCliPermissionFields.has(key.toLowerCase())){
+      evidence.unknown=true;
+      return;
+    }
     for(const [childKey,child] of Object.entries(value)){
       const normalizedKey=childKey.toLowerCase();
       if(firebaseCliErrorTextFields.has(normalizedKey)){
-        collectFirebaseCliPermissionCategories(child,candidates,{depth:depth+1,key:normalizedKey});
+        collectFirebaseCliPermissionCategories(child,candidates,evidence,{depth:depth+1,key:normalizedKey});
       }
     }
   }
@@ -209,9 +225,11 @@ function firebaseCliPermissionCategory(error){
   let envelope;
   try{envelope=JSON.parse(text.trim());}catch{return 'UNKNOWN';}
   const candidates=new Set();
-  collectFirebaseCliPermissionCategories(envelope.error,candidates);
-  if(candidates.size===1)return [...candidates][0];
-  return candidates.size>1?'AMBIGUOUS':'UNKNOWN';
+  const evidence={unknown:false};
+  collectFirebaseCliPermissionCategories(envelope.error,candidates,evidence);
+  if(candidates.size>1||(evidence.unknown&&candidates.size>0))return 'AMBIGUOUS';
+  if(evidence.unknown||candidates.size===0)return 'UNKNOWN';
+  return [...candidates][0];
 }
 
 // Inspect only a bounded Firebase JSON error in memory. Never return its text.
