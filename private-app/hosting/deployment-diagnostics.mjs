@@ -1,3 +1,5 @@
+import {parseFirebaseCliRequestDiagnostics} from './firebase-cli-request-diagnostics.mjs';
+
 const phases=new Set([
   'config-read','config-parse','config-validation','source-revision',
   'runtime-config-write','target-config-write','root-dependencies',
@@ -318,8 +320,11 @@ function firebaseDeployDetail(error){
 }
 
 // Raw error details are inspected only in memory. The returned object is safe for public CI logs.
-export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHaveStarted=false}={}){
+export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHaveStarted=false,firebaseCliRequestNonce}={}){
   const safePhase=phases.has(phase)?phase:'unknown';
+  const requestDiagnostics=firebaseCliRequestNonce
+    ?parseFirebaseCliRequestDiagnostics(error?.stderr,firebaseCliRequestNonce)
+    :{events:[],truncated:false};
   const exitCode=Number.isInteger(error?.code)?error.code:undefined;
   return {
     event:'justelle-deployment-failed',
@@ -333,6 +338,8 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
       firebaseCliServiceCategory:firebaseCliServiceCategory(error),
       firebaseCliPermissionCategory:firebaseCliPermissionCategory(error),
       firebaseCliProcessOutcome:firebaseCliProcessOutcome(error),
+      ...(requestDiagnostics.events.length?{firebaseCliRequestDiagnostics:requestDiagnostics.events}:{}),
+      ...(requestDiagnostics.truncated?{firebaseCliRequestDiagnosticsTruncated:true}:{}),
       stdoutPresent:hasCapturedText(error?.stdout),
       stderrPresent:hasCapturedText(error?.stderr)
     }:{}),
