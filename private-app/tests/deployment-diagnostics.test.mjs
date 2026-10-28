@@ -411,6 +411,22 @@ test('Safe Firebase request categories never retain arbitrary URL or operation t
     operationCategory:'SET_IAM_POLICY',
     httpStatus:403
   });
+  for(const [urlPrefix,serviceCategory] of [
+    ['https://firebase.googleapis.com','FIREBASE_API'],
+    ['https://firebaserules.googleapis.com','FIREBASE_RULES'],
+    ['https://cloudresourcemanager.googleapis.com','CLOUD_RESOURCE_MANAGER'],
+    ['https://secretmanager.googleapis.com','SECRET_MANAGER'],
+    ['https://runtimeconfig.googleapis.com','RUNTIME_CONFIG']
+  ]){
+    const known=createSafeFirebaseRequestEvent({
+      urlPrefix,method:'GET',path:'/v1/projects/private-project/resources?token=private',status:403
+    });
+    assert.equal(known.serviceCategory,serviceCategory);
+    const serialized=JSON.stringify(known);
+    assert.equal(serialized.includes(urlPrefix),false);
+    assert.equal(serialized.includes('private-project'),false);
+    assert.equal(serialized.includes('token'),false);
+  }
   const unknown=createSafeFirebaseRequestEvent({
     urlPrefix:'https://private.example.test',
     method:'TRACE',

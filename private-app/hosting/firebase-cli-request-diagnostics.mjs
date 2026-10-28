@@ -29,6 +29,9 @@ const maxDiagnosticEvents=8;
 const maxDiagnosticStderrBytes=64*1024;
 
 const serviceByHostname=new Map([
+  ['firebase.googleapis.com','FIREBASE_API'],
+  ['firebaserules.googleapis.com','FIREBASE_RULES'],
+  ['cloudresourcemanager.googleapis.com','CLOUD_RESOURCE_MANAGER'],
   ['firebaseextensions.googleapis.com','FIREBASE_EXTENSIONS'],
   ['firebasestorage.googleapis.com','FIREBASE_STORAGE'],
   ['firestore.googleapis.com','FIRESTORE'],
@@ -43,7 +46,9 @@ const serviceByHostname=new Map([
   ['iam.googleapis.com','IDENTITY'],
   ['iamcredentials.googleapis.com','IDENTITY'],
   ['storage.googleapis.com','STORAGE'],
-  ['firebasehosting.googleapis.com','FIREBASE_HOSTING']
+  ['firebasehosting.googleapis.com','FIREBASE_HOSTING'],
+  ['secretmanager.googleapis.com','SECRET_MANAGER'],
+  ['runtimeconfig.googleapis.com','RUNTIME_CONFIG']
 ]);
 const serviceCategories=new Set([...serviceByHostname.values(),'UNKNOWN']);
 const methodCategories=new Set(['GET','POST','PATCH','PUT','DELETE','OPTIONS','HEAD','OTHER']);
