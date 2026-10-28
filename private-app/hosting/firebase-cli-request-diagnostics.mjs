@@ -86,7 +86,7 @@ export function createSafeFirebaseRequestEvent({urlPrefix,method,path,status}){
   };
 }
 
-export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnostic=line=>writeSync(2,line)}){
+export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnostic}={}){
   if(!/^[a-f0-9]{32}$/.test(nonce??''))throw new Error('Invalid Justelle diagnostic nonce');
   if(!Client?.prototype||typeof Client.prototype.doRequest!=='function'){
     throw new Error('Pinned Firebase CLI request hook is unavailable');
@@ -96,6 +96,15 @@ export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnost
   if(prototype[installed])return false;
   const original=prototype.doRequest;
   let emitted=0,overflowWritten=false;
+  const pendingLines=[];
+  let flushRegistered=false;
+  const writeLine=typeof writeDiagnostic==='function'?writeDiagnostic:line=>{
+    pendingLines.push(line);
+    if(!flushRegistered){
+      flushRegistered=true;
+      process.once('exit',()=>{for(const item of pendingLines)writeSync(2,item);});
+    }
+  };
   const wrapped=async function(options){
     try{return await original.call(this,options);}
     catch(error){
@@ -108,10 +117,10 @@ export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnost
       if(event){
         try{
           if(emitted<maxDiagnosticEvents){
-            writeDiagnostic(requestDiagnosticPrefix+nonce+':'+JSON.stringify(event)+'\n');
+            writeLine(requestDiagnosticPrefix+nonce+':'+JSON.stringify(event)+'\n');
             emitted++;
           }else if(!overflowWritten){
-            writeDiagnostic(requestDiagnosticPrefix+nonce+':'+JSON.stringify({overflow:true})+'\n');
+            writeLine(requestDiagnosticPrefix+nonce+':'+JSON.stringify({overflow:true})+'\n');
             overflowWritten=true;
           }
         }catch{}
@@ -119,8 +128,8 @@ export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnost
       throw error;
     }
   };
-  Object.defineProperty(wrapped,installed,{value:true});
   prototype.doRequest=wrapped;
+  Object.defineProperty(prototype,installed,{value:true});
   return true;
 }
 
