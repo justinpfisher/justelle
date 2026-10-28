@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
 import {createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics} from '../hosting/firebase-cli-request-diagnostics.mjs';
 
@@ -474,15 +475,14 @@ test('Deployment failure output includes only nonce-validated request metadata',
 test('Node preload instruments the exact pinned Firebase CLI class before command execution',()=>{
   const nonce='e'.repeat(32);
   const script=[
-    "const {createRequire}=require('node:module');",
-    "const require=createRequire(process.cwd()+'/tests/preload-fixture.cjs');",
-    "const {Client}=require('../node_modules/firebase-tools/lib/apiv2.js');",
+    "const localRequire=require('node:module').createRequire(process.cwd()+'/tests/preload-fixture.cjs');",
+    "const {Client}=localRequire('../node_modules/firebase-tools/lib/apiv2.js');",
     "globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',message:'private-project fixture@example.test token-secret'}}),{status:403});",
     "const client=new Client({urlPrefix:'https://cloudfunctions.googleapis.com',auth:false});",
     "client.post('/v2/projects/private-project/locations/test/functions/test:setIamPolicy',{}).catch(()=>{});"
   ].join('\n');
   const child=spawnSync(process.execPath,[
-    '--import',resolve('hosting/firebase-cli-request-diagnostics.mjs'),'-e',script
+    '--import',pathToFileURL(resolve('hosting/firebase-cli-request-diagnostics.mjs')).href,'-e',script
   ],{
     cwd:process.cwd(),
     encoding:'utf8',
