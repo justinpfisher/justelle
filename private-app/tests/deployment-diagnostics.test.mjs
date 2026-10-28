@@ -414,7 +414,9 @@ test('Safe Firebase request categories never retain arbitrary URL or operation t
   for(const [urlPrefix,serviceCategory] of [
     ['https://firebase.googleapis.com','FIREBASE_API'],
     ['https://firebaserules.googleapis.com','FIREBASE_RULES'],
-    ['https://cloudresourcemanager.googleapis.com','CLOUD_RESOURCE_MANAGER']
+    ['https://cloudresourcemanager.googleapis.com','CLOUD_RESOURCE_MANAGER'],
+    ['https://secretmanager.googleapis.com','SECRET_MANAGER'],
+    ['https://runtimeconfig.googleapis.com','RUNTIME_CONFIG']
   ]){
     const known=createSafeFirebaseRequestEvent({
       urlPrefix,method:'GET',path:'/v1/projects/private-project/resources?token=private',status:403
