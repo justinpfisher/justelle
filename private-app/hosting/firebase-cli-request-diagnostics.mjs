@@ -25,6 +25,7 @@ export async function buildFirebaseCliInvocation({directory,allowLegacyRollback=
   throw new Error('Firebase CLI request diagnostics are required for forward deployment');
 }
 const requestDiagnosticPrefix='JUSTELLE_SAFE_REQUEST_DIAG:';
+const terminalDiagnosticPrefix='JUSTELLE_SAFE_TERMINAL_DIAG:';
 const maxDiagnosticEvents=8;
 const maxDiagnosticStderrBytes=64*1024;
 
@@ -56,6 +57,16 @@ const operationCategories=new Set([
   'SET_IAM_POLICY','GET_IAM_POLICY','GET_DEFAULT_BUCKET','LIST_RESOURCES',
   'GET_RESOURCE','CREATE_RESOURCE','UPDATE_RESOURCE','DELETE_RESOURCE',
   'READ_REQUEST','WRITE_REQUEST','OTHER'
+]);
+const permissionCategories=new Set([
+  'UNKNOWN','AMBIGUOUS',
+  'firebaseextensions.instances.list','firebasestorage.defaultbucket.get',
+  'firestore.databases.get','cloudfunctions.functions.setiampolicy',
+  'run.services.setiampolicy','cloudscheduler.jobs.get','cloudscheduler.jobs.create',
+  'cloudscheduler.jobs.update','serviceusage.services.use','serviceusage.operations.get',
+  'cloudbuild.builds.create','iam.serviceaccounts.actas','firebasehosting.sites.get',
+  'firebaserules.rulesets.get','firebaserules.releases.get',
+  'secretmanager.secrets.get','secretmanager.versions.get','secretmanager.secrets.getiampolicy'
 ]);
 
 function safeServiceCategory(urlPrefix){
@@ -102,6 +113,56 @@ function safeStatus(error){
   return Number.isInteger(candidate)&&candidate>=400&&candidate<=599?candidate:null;
 }
 
+const safePermissionNames=new Set([
+  'firebaseextensions.instances.list','firebasestorage.defaultbucket.get',
+  'firestore.databases.get','cloudfunctions.functions.setiampolicy',
+  'run.services.setiampolicy','cloudscheduler.jobs.get','cloudscheduler.jobs.create',
+  'cloudscheduler.jobs.update','serviceusage.services.use','serviceusage.operations.get',
+  'cloudbuild.builds.create','iam.serviceaccounts.actas','firebasehosting.sites.get',
+  'firebaserules.rulesets.get','firebaserules.releases.get',
+  'secretmanager.secrets.get','secretmanager.versions.get','secretmanager.secrets.getiampolicy'
+]);
+
+function safePermissionCategory(error){
+  const candidates=new Set();
+  const unknown={value:false};
+  let traversalTruncated=false;
+  let visited=0;
+  const visit=(value,depth=0,key='')=>{
+    if(depth>10){traversalTruncated=true;return;}
+    if(candidates.size>1)return;
+    if(visited>=128){traversalTruncated=true;return;}
+    visited++;
+    if(Array.isArray(value)){
+      if(value.length>16)traversalTruncated=true;
+      for(const item of value.slice(0,16))visit(item,depth+1,key);
+      return;
+    }
+    if(!value||typeof value!=='object'){
+      if(typeof value==='string'&&['permission','permissionname','requiredpermission','deniedpermission'].includes(key.toLowerCase())){
+        if(value.length>256){unknown.value=true;return;}
+        const normalized=value.trim().toLowerCase();
+        if(safePermissionNames.has(normalized))candidates.add(normalized);else if(normalized)unknown.value=true;
+      }
+      return;
+    }
+    const entries=[];
+    for(const childKey in value){
+      if(!Object.prototype.hasOwnProperty.call(value,childKey))continue;
+      if(entries.length===32){traversalTruncated=true;break;}
+      entries.push([childKey,value[childKey]]);
+    }
+    for(const [childKey,child] of entries){
+      const normalized=childKey.toLowerCase();
+      if(['permission','permissionname','requiredpermission','deniedpermission','details','error','cause','original','context','body','violations','metadata'].includes(normalized))visit(child,depth+1,normalized);
+    }
+  };
+  visit(error);
+  if(traversalTruncated)return 'AMBIGUOUS';
+  if(candidates.size>1||(unknown.value&&candidates.size))return 'AMBIGUOUS';
+  return candidates.size===1?[...candidates][0]:'UNKNOWN';
+}
+
 export function createSafeFirebaseRequestEvent({urlPrefix,method,path,status}){
   const httpStatus=Number.isInteger(status)&&status>=400&&status<=599?status:null;
   if(httpStatus===null)return null;
@@ -113,16 +174,62 @@ export function createSafeFirebaseRequestEvent({urlPrefix,method,path,status}){
   };
 }
 
-export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnostic}={}){
+function terminalRequestContext(error,requestEvents){
+  const matches=[];
+  const seen=new Set();
+  let traversalTruncated=false;
+  const visit=(value,depth)=>{
+    if(!value||typeof value!=='object'||seen.has(value))return;
+    if(depth>6){traversalTruncated=true;return;}
+    seen.add(value);
+    const event=requestEvents.get(value);
+    if(event)matches.push(event);
+    for(const key of ['original','cause'])visit(value[key],depth+1);
+  };
+  visit(error,0);
+  if(traversalTruncated)return {terminalRequestStatus:'AMBIGUOUS_REQUEST'};
+  const unique=[...new Set(matches)];
+  if(unique.length===1)return {terminalRequestStatus:'MATCHED',...unique[0]};
+  return {terminalRequestStatus:unique.length?'AMBIGUOUS_REQUEST':'NO_REQUEST_CONTEXT'};
+}
+
+export function createSafeTerminalErrorDiagnostic(error,requestEvents){
+  return terminalRequestContext(error,requestEvents);
+}
+
+export function parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce){
+  if(!/^[a-f0-9]{32}$/.test(nonce??'')||!(typeof stderr==='string'||Buffer.isBuffer(stderr)))return null;
+  const bounded=(Buffer.isBuffer(stderr)?stderr.toString('utf8'):stderr).slice(-maxDiagnosticStderrBytes);
+  const marker=terminalDiagnosticPrefix+nonce+':';
+  const lines=bounded.split(/\r?\n/).filter(line=>line.startsWith(marker));
+  if(lines.length!==1)return null;
+  let value;
+  try{value=JSON.parse(lines[0].slice(marker.length));}catch{return null;}
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  if(value.terminalRequestStatus==='NO_REQUEST_CONTEXT'||value.terminalRequestStatus==='AMBIGUOUS_REQUEST'){
+    return Object.keys(value).length===1?{terminalRequestStatus:value.terminalRequestStatus}:null;
+  }
+  const keys=Object.keys(value).sort().join(',');
+  if(keys!=='httpStatus,methodCategory,operationCategory,permissionCategory,serviceCategory,terminalRequestStatus'||
+    value.terminalRequestStatus!=='MATCHED'||!serviceCategories.has(value.serviceCategory)||
+    !methodCategories.has(value.methodCategory)||!operationCategories.has(value.operationCategory)||
+    !permissionCategories.has(value.permissionCategory)||!Number.isInteger(value.httpStatus)||
+    value.httpStatus<400||value.httpStatus>599)return null;
+  return {...value};
+}
+
+export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,writeDiagnostic}={}){
   if(!/^[a-f0-9]{32}$/.test(nonce??''))throw new Error('Invalid Justelle diagnostic nonce');
   if(!Client?.prototype||typeof Client.prototype.doRequest!=='function'){
     throw new Error('Pinned Firebase CLI request hook is unavailable');
   }
+  if(!errorOutModule||typeof errorOutModule.errorOut!=='function')throw new Error('Pinned Firebase CLI terminal hook is unavailable');
   const prototype=Client.prototype;
   const installed=Symbol.for('justelle.firebaseCliSafeRequestDiagnostics');
   if(prototype[installed])return false;
   const original=prototype.doRequest;
   let emitted=0,overflowWritten=false;
+  const requestEvents=new WeakMap();
   const pendingLines=[];
   let flushRegistered=false;
   const writeLine=typeof writeDiagnostic==='function'?writeDiagnostic:line=>{
@@ -143,6 +250,7 @@ export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnost
       });
       if(event){
         try{
+          requestEvents.set(error,{...event,permissionCategory:safePermissionCategory(error)});
           if(emitted<maxDiagnosticEvents){
             writeLine(requestDiagnosticPrefix+nonce+':'+JSON.stringify(event)+'\n');
             emitted++;
@@ -156,6 +264,14 @@ export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnost
     }
   };
   prototype.doRequest=wrapped;
+  const originalErrorOut=errorOutModule.errorOut;
+  errorOutModule.errorOut=function(error,...args){
+    try{
+      const terminal=createSafeTerminalErrorDiagnostic(error,requestEvents);
+      writeLine(terminalDiagnosticPrefix+nonce+':'+JSON.stringify(terminal)+'\n');
+    }catch{}
+    return originalErrorOut.call(this,error,...args);
+  };
   Object.defineProperty(prototype,installed,{value:true});
   return true;
 }
@@ -204,5 +320,6 @@ if(nonce!==undefined){
     throw new Error('Unsupported Firebase CLI version for Justelle request diagnostics');
   }
   const {Client}=localRequire('../node_modules/firebase-tools/lib/apiv2.js');
-  installFirebaseCliRequestDiagnostics({Client,nonce});
+  const errorOutModule=localRequire('../node_modules/firebase-tools/lib/errorOut.js');
+  installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce});
 }
