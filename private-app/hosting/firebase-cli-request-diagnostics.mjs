@@ -29,6 +29,9 @@ const maxDiagnosticEvents=8;
 const maxDiagnosticStderrBytes=64*1024;
 
 const serviceByHostname=new Map([
+  ['firebase.googleapis.com','FIREBASE_API'],
+  ['firebaserules.googleapis.com','FIREBASE_RULES'],
+  ['cloudresourcemanager.googleapis.com','CLOUD_RESOURCE_MANAGER'],
   ['firebaseextensions.googleapis.com','FIREBASE_EXTENSIONS'],
   ['firebasestorage.googleapis.com','FIREBASE_STORAGE'],
   ['firestore.googleapis.com','FIRESTORE'],
