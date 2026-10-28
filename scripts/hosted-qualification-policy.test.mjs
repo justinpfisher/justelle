@@ -23,12 +23,55 @@ test('workflow has a non-privileged held-status job and guards both provider dep
   assert.match(job('production-release'),/vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true'/);
 });
 
+test('manual one-run qualification input is opt-in and restricted to main',()=>{
+  assert.match(workflow,/workflow_dispatch:\s*\n\s+inputs:\s*\n\s+qualify_once:\s*\n\s+description: Run one hosted fictional qualification from main while the persistent hold remains active\s*\n\s+type: boolean\s*\n\s+required: false\s*\n\s+default: false/);
+  assert.match(job('hosted-qualification'),/github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main' && inputs\.qualify_once == true/);
+  assert.match(job('hosted-qualification-hold'),/inputs\.qualify_once == true/);
+  assert.doesNotMatch(job('production-release'),/inputs\.qualify_once|workflow_dispatch/);
+});
+
+test('production guard remains byte-for-byte unchanged while manual qualification is held',()=>{
+  const release=job('production-release');
+  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
+  assert.doesNotMatch(release,/qualify_once|workflow_dispatch/);
+});
+
 test('hold blocks hosted qualification and production regardless of acceptance or change scope',()=>{
   for(const initialAcceptance of ['', 'verified'])for(const hostedChanges of [false,true]){
     const result=hostedQualificationPolicy({hold:'true',hostedConfigured:'true',initialAcceptance,
       hostedChanges,qualificationResult:'skipped'});
     assert.deepEqual(result,{qualification:'skipped',holdReport:'held',production:'skipped'});
   }
+});
+
+test('explicit main workflow dispatch can run qualification while persistent hold remains active, never production',()=>{
+  assert.deepEqual(hostedQualificationPolicy({event:'workflow_dispatch',branch:'main',qualifyOnce:true,
+    hold:'true',hostedConfigured:'true',initialAcceptance:'',qualificationResult:'success'}),
+  {qualification:'run',holdReport:'not-applicable',production:'skipped'});
+  assert.deepEqual(hostedQualificationPolicy({event:'workflow_dispatch',branch:'main',qualifyOnce:true,
+    hold:'true',hostedConfigured:'true',initialAcceptance:'verified',hostedChanges:true,
+    qualificationResult:'success'}),
+  {qualification:'run',holdReport:'not-applicable',production:'skipped'});
+});
+
+test('manual request cannot bypass hold outside main, without opt-in, or when qualification prerequisites fail',()=>{
+  const common={event:'workflow_dispatch',qualifyOnce:true,hold:'true',hostedConfigured:'true',initialAcceptance:'',qualificationResult:'success'};
+  assert.deepEqual(hostedQualificationPolicy({...common,branch:'feature'}),
+    {qualification:'skipped',holdReport:'held',production:'skipped'});
+  assert.deepEqual(hostedQualificationPolicy({...common,branch:'main',qualifyOnce:false}),
+    {qualification:'skipped',holdReport:'held',production:'skipped'});
+  assert.deepEqual(hostedQualificationPolicy({...common,branch:'main',privatePilot:'failure'}),
+    {qualification:'skipped',holdReport:'held',production:'skipped'});
+  assert.deepEqual(hostedQualificationPolicy({...common,branch:'main',hostedConfigured:'false'}),
+    {qualification:'skipped',holdReport:'held',production:'skipped'});
+  assert.deepEqual(hostedQualificationPolicy({...common,branch:'main',initialAcceptance:'verified',hostedChanges:false}),
+    {qualification:'skipped',holdReport:'held',production:'skipped'});
+});
+
+test('pull request manual inputs never run hosted qualification or production',()=>{
+  assert.deepEqual(hostedQualificationPolicy({event:'pull_request',branch:'main',qualifyOnce:true,hold:'true',
+    hostedConfigured:'true',initialAcceptance:'',qualificationResult:'success'}),
+  {qualification:'skipped',holdReport:'not-applicable',production:'skipped'});
 });
 
 test('hold matching is case-insensitive like GitHub expressions and does not trim whitespace',()=>{
