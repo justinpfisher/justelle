@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile,readdir,rm,cp} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,readdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {stageFirebaseDeploymentConfig} from '../hosting/firebase-deployment-config.mjs';
