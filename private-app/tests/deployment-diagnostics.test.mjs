@@ -6,7 +6,7 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
 import {buildFirebaseCliInvocation,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from '../hosting/firebase-cli-request-diagnostics.mjs';
-import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,mkdir,rm,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
@@ -824,20 +824,23 @@ test('Terminal CLI diagnostics retain only bounded Firebase CLI package-relative
   const internalFiles=Array.from({length:10},(_,index)=>join(firebaseToolsPackageRoot,'lib',`source-${index}.js`));
   const outsideFile=join(privateRoot,'functions','index.js');
   const lookalikeFile=join(privateRoot,'node_modules','firebase-tools-evil','lib','leak.js');
+  const symlinkDirectory=join(firebaseToolsPackageRoot,'lib','linked-outside');
   await Promise.all([
     ...internalFiles.map(file=>mkdir(join(file,'..'),{recursive:true})),
     mkdir(join(outsideFile,'..'),{recursive:true}),
     mkdir(join(lookalikeFile,'..'),{recursive:true})
   ]);
   await Promise.all([...internalFiles,outsideFile,lookalikeFile].map(file=>writeFile(file,'')));
+  await symlink(join(privateRoot,'functions'),symlinkDirectory,'junction');
   const privateFixture='password=NeverPublish owner@example.test projects/private-project ya29.private-token';
   const error=new Error(privateFixture);
   error.stack=[
     `FirebaseError: ${privateFixture} ${privateRoot}`,
     `    at new FirebaseError (${pathToFileURL(internalFiles[0]).href}:29:11)`,
-    ...internalFiles.slice(1).map((file,index)=>`    at cliFrame${index} (${pathToFileURL(file).href}:${100+index}:7)`),
     `    at appFrame (${pathToFileURL(outsideFile).href}:4:2)`,
+    `    at linkedFrame (${pathToFileURL(join(symlinkDirectory,'index.js')).href}:5:3)`,
     `    at attackerFrame (${pathToFileURL(lookalikeFile).href}:99:1)`,
+    ...internalFiles.slice(1).map((file,index)=>`    at cliFrame${index} (${pathToFileURL(file).href}:${100+index}:7)`),
     '    at node:internal/process/task_queues:95:5'
   ].join('\n');
   const nonce='9'.repeat(32),captured=[];
@@ -863,5 +866,15 @@ test('Terminal CLI diagnostics retain only bounded Firebase CLI package-relative
     assert.equal(serialized.includes('source-8.js'),false);
   }finally{
     await rm(temp,{recursive:true,force:true});
+  }
+});
+
+test('Terminal diagnostic parser rejects dot-segment source frame paths',()=>{
+  const nonce='8'.repeat(32);
+  const prefix='JUSTELLE_SAFE_TERMINAL_DIAG:'+nonce+':';
+  const base={terminalRequestStatus:'NO_REQUEST_CONTEXT',terminalError:{nodes:[],truncated:false,sourceFrames:{frames:[],truncated:false}}};
+  for(const file of ['../private-secret.js','lib/../private-secret.js','lib/./internal.js','../../private-secret.js']){
+    const record={...base,terminalError:{...base.terminalError,sourceFrames:{frames:[{file,line:17}],truncated:false}}};
+    assert.equal(parseFirebaseCliTerminalErrorDiagnostic(prefix+JSON.stringify(record),nonce),null,file);
   }
 });

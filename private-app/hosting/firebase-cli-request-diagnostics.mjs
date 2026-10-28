@@ -356,9 +356,11 @@ export function parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce){
         !Array.isArray(sourceFrames.frames)||sourceFrames.frames.length>maxTerminalStackFrames||
         typeof sourceFrames.truncated!=='boolean')return null;
       for(const frame of sourceFrames.frames){
+        const segments=typeof frame?.file==='string'?frame.file.split('/') : [];
         if(!frame||typeof frame!=='object'||Array.isArray(frame)||
           Object.keys(frame).sort().join(',')!=='file,line'||
           typeof frame.file!=='string'||! /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:js|cjs|mjs)$/.test(frame.file)||
+          segments.some(segment=>segment==='.'||segment==='..')||
           !Number.isSafeInteger(frame.line)||frame.line<1||frame.line>1000000)return null;
       }
     }
