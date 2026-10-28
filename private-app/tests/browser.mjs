@@ -129,6 +129,17 @@ try{
   assert.match(await A.locator('.pilot').textContent(),/Local fictional-data pilot/);
   assert.equal(await A.locator('#topic-title').textContent(),'Our chat');
   assert.equal(await B.locator('#topic-title').textContent(),'Our chat');
+  // Session clearing must not erase non-private HTML defaults on either device.
+  for(const page of [A,B]){
+    for(const [id,defaultValue] of [
+      ['planner-days','21'],['planner-experience-day','1'],
+      ['planner-from','1'],['planner-nights','2']
+    ])assert.equal(await page.locator('#'+id).inputValue(),defaultValue,
+      'fresh member session must retain the '+id+' default');
+  }
+  await A.locator('#planner-title').fill('Fictional default-value check');
+  assert.equal(await A.locator('#planner-create').evaluate(form=>form.checkValidity()),true,
+    'a title alone must be valid with the ordinary default duration');
   // M1 iPhone-sized journey slice: direct member edits, realtime visibility, Undo.
   await A.locator('[data-tab="adventures"]').click();
   await B.locator('[data-tab="adventures"]').click();
@@ -824,6 +835,21 @@ try{
   await batch.commit();await seedDb.terminate();await deleteApp(seedApp);
   await poll(async()=>await B.locator('#messages .bubble').count()===40,20000);
   assert.equal(await B.locator('#messages .bubble').count(),40);
+  // Complete a real emulator page read, then defer only its UI continuation.
+  // Switching away and back must not strand the shared pagination button.
+  await B.evaluate(()=>window.__justelleTestSessionRaces.installEarlierPageGate());
+  await B.locator('#earlier-button').click();
+  await B.waitForFunction(()=>window.__justelleTestSessionRaces.gates.earlierPage.fetched,
+    undefined,{timeout:15000});
+  await openDiscussion(B,topic1);
+  await openDiscussion(B,topic2);
+  await B.locator('#earlier-button').waitFor({state:'visible'});
+  assert.equal(await B.locator('#earlier-button').isEnabled(),true,
+    'switching conversations resets a stale earlier-page loading button');
+  await B.evaluate(()=>window.__justelleTestSessionRaces.gates.earlierPage.release());
+  await B.waitForTimeout(100);
+  assert.equal(await B.locator('#earlier-button').isEnabled(),true,
+    'completion of the old topic request cannot disable the new topic button');
   await B.locator('#earlier-button').click();
   await poll(async()=>await B.locator('#messages .bubble').count()>=47,20000);
   assert.equal(await B.getByText('Fictional history message 000',{exact:true}).count(),1);
