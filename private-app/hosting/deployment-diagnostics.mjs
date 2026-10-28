@@ -8,6 +8,41 @@ const phases=new Set([
   'shutdown-run-access','shutdown-hosting'
 ]);
 
+const firebaseCliErrorCategories=new Set([
+  'UNKNOWN','HTTP_403','AUTHENTICATION_FAILED','QUOTA_EXCEEDED','RESOURCE_NOT_FOUND',
+  'API_DISABLED','PERMISSION_DENIED',
+  'SERVICE_USAGE_PERMISSION_DENIED','CLOUD_FUNCTIONS_PERMISSION_DENIED',
+  'CLOUD_RUN_PERMISSION_DENIED','CLOUD_SCHEDULER_PERMISSION_DENIED',
+  'CLOUD_BUILD_PERMISSION_DENIED','EVENTARC_PERMISSION_DENIED',
+  'PUBSUB_PERMISSION_DENIED','ARTIFACT_REGISTRY_PERMISSION_DENIED',
+  'IDENTITY_PERMISSION_DENIED','STORAGE_PERMISSION_DENIED',
+  'FIREBASE_HOSTING_PERMISSION_DENIED',
+  'SERVICE_USAGE_API_DISABLED','CLOUD_FUNCTIONS_API_DISABLED',
+  'CLOUD_RUN_API_DISABLED','CLOUD_SCHEDULER_API_DISABLED',
+  'CLOUD_BUILD_API_DISABLED','EVENTARC_API_DISABLED',
+  'PUBSUB_API_DISABLED','ARTIFACT_REGISTRY_API_DISABLED',
+  'IDENTITY_API_DISABLED','STORAGE_API_DISABLED','FIREBASE_HOSTING_API_DISABLED'
+]);
+
+const firebaseCliServiceMarkers=[
+  ['SERVICE_USAGE',['serviceusage.googleapis.com','serviceusage.']],
+  ['CLOUD_FUNCTIONS',['cloudfunctions.googleapis.com','cloudfunctions.']],
+  ['CLOUD_RUN',['run.googleapis.com','run.services.']],
+  ['CLOUD_SCHEDULER',['cloudscheduler.googleapis.com','cloudscheduler.']],
+  ['CLOUD_BUILD',['cloudbuild.googleapis.com','cloudbuild.']],
+  ['EVENTARC',['eventarc.googleapis.com','eventarc.']],
+  ['PUBSUB',['pubsub.googleapis.com','pubsub.']],
+  ['ARTIFACT_REGISTRY',['artifactregistry.googleapis.com','artifactregistry.']],
+  ['IDENTITY',['iam.googleapis.com','iamcredentials.googleapis.com','iam.','iamcredentials.']],
+  ['STORAGE',['storage.googleapis.com','storage.']],
+  ['FIREBASE_HOSTING',['firebasehosting.googleapis.com','firebasehosting.']]
+];
+
+const firebaseCliErrorTextFields=new Set([
+  'error','message','details','status','reason','statusmessage','cause',
+  'code','permission','permissionname','service','servicename'
+]);
+
 function textOf(value){
   if(typeof value==='string')return value.slice(-24000);
   if(Buffer.isBuffer(value))return value.toString('utf8').slice(-24000);
@@ -34,9 +69,74 @@ function firebaseCliOutputShape(error){
   let parsed;
   try{parsed=JSON.parse(text.trim());}catch{return 'malformed-or-mixed';}
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return 'json-other';
-  if(parsed.status==='error'&&typeof parsed.error==='string')return 'json-error';
+  if(parsed.status==='error'&&(
+    typeof parsed.error==='string'||
+    (parsed.error&&typeof parsed.error==='object'&&!Array.isArray(parsed.error))
+  ))return 'json-error';
   if(parsed.status==='success')return 'json-success';
   return 'json-other';
+}
+
+function collectFirebaseCliErrorText(value,parts,{depth=0}={}){
+  if(depth>4||parts.length>=32)return;
+  if(typeof value==='string'){
+    const text=value.slice(0,8192);
+    const trimmed=text.trim();
+    if(depth<4&&Buffer.byteLength(trimmed,'utf8')<=16*1024&&
+      (trimmed.startsWith('{')||trimmed.startsWith('['))){
+      try{
+        collectFirebaseCliErrorText(JSON.parse(trimmed),parts,{depth:depth+1});
+        return;
+      }catch{}
+    }
+    parts.push(text);
+    return;
+  }
+  if(typeof value==='number'&&Number.isFinite(value)){
+    parts.push(String(value));
+    return;
+  }
+  if(Array.isArray(value)){
+    for(const item of value.slice(0,16))collectFirebaseCliErrorText(item,parts,{depth:depth+1});
+    return;
+  }
+  if(value&&typeof value==='object'){
+    for(const [key,child] of Object.entries(value)){
+      if(firebaseCliErrorTextFields.has(key.toLowerCase())){
+        collectFirebaseCliErrorText(child,parts,{depth:depth+1});
+      }
+    }
+  }
+}
+
+// Inspect only a bounded Firebase JSON error in memory. Never return its text.
+function firebaseCliErrorCategory(error){
+  if(firebaseCliOutputShape(error)!=='json-error')return 'UNKNOWN';
+  const stdout=error?.stdout;
+  const text=Buffer.isBuffer(stdout)?stdout.toString('utf8'):stdout;
+  let envelope;
+  try{envelope=JSON.parse(text.trim());}catch{return 'UNKNOWN';}
+  const parts=[];
+  collectFirebaseCliErrorText(envelope.error,parts);
+  const details=parts.join('\n').toUpperCase();
+  if(!details)return 'UNKNOWN';
+
+  const service=firebaseCliServiceMarkers.find(([,markers])=>
+    markers.some(marker=>details.includes(marker.toUpperCase()))
+  )?.[0];
+
+  let reason;
+  if(/(?:SERVICE_DISABLED|API.{0,100}(?:NOT ENABLED|DISABLED)|SERVICE.{0,100}NOT ENABLED)/.test(details))reason='API_DISABLED';
+  else if(/(?:PERMISSION_DENIED|DOES NOT HAVE PERMISSION|LACKS PERMISSION|NOT AUTHORIZED)/.test(details))reason='PERMISSION_DENIED';
+  else if(/(?:HTTP(?:\s+ERROR)?\s*[:=]?\s*403|(?:STATUS|CODE)\s*[:=]\s*403|\b403\b)/.test(details))reason='HTTP_403';
+  else if(/(?:UNAUTHENTICATED|INVALID_GRANT|NO CREDENTIALS|NOT LOGGED IN)/.test(details))reason='AUTHENTICATION_FAILED';
+  else if(/(?:RESOURCE_EXHAUSTED|QUOTA_EXCEEDED|QUOTA.{0,40}EXCEEDED)/.test(details))reason='QUOTA_EXCEEDED';
+  else if(/(?:NOT_FOUND|RESOURCE.{0,40}NOT FOUND)/.test(details))reason='RESOURCE_NOT_FOUND';
+  else return 'UNKNOWN';
+
+  const category=service&&['API_DISABLED','PERMISSION_DENIED'].includes(reason)
+    ?`${service}_${reason}`:reason;
+  return firebaseCliErrorCategories.has(category)?category:'UNKNOWN';
 }
 
 function firebaseCliProcessOutcome(error){
@@ -108,6 +208,7 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
     providerStateNeedsReconciliation:Boolean(providerMutationMayHaveStarted),
     ...(safePhase==='firebase-deploy'?{
       firebaseCliOutputShape:firebaseCliOutputShape(error),
+      firebaseCliErrorCategory:firebaseCliErrorCategory(error),
       firebaseCliProcessOutcome:firebaseCliProcessOutcome(error),
       stdoutPresent:hasCapturedText(error?.stdout),
       stderrPresent:hasCapturedText(error?.stderr)

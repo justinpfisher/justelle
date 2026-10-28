@@ -52,7 +52,7 @@ test('First failure phase and category survive later rollback or shutdown errors
     {providerMutationMayHaveStarted:true});
   assert.deepEqual(recorder.first,{
     event:'justelle-deployment-failed',phase:'firebase-deploy',code:'PROVIDER_PERMISSION',detail:'FIREBASE_PERMISSION_DENIED',
-    providerStateNeedsReconciliation:true,firebaseCliOutputShape:'empty',
+    providerStateNeedsReconciliation:true,firebaseCliOutputShape:'empty',firebaseCliErrorCategory:'UNKNOWN',
     firebaseCliProcessOutcome:'exit-code',stdoutPresent:false,stderrPresent:true,exitCode:1
   });
   assert.equal(JSON.stringify(recorder.first).includes('private-password-value'),false);
@@ -110,6 +110,7 @@ test('Firebase CLI JSON errors expose only a safe envelope and process summary',
   },{providerMutationMayHaveStarted:true});
   assert.equal(result.code,'PROVIDER_PERMISSION');
   assert.equal(result.detail,'FIREBASE_PERMISSION_DENIED');
+  assert.equal(result.firebaseCliErrorCategory,'PERMISSION_DENIED');
   assert.equal(result.firebaseCliOutputShape,'json-error');
   assert.equal(result.firebaseCliProcessOutcome,'exit-code');
   assert.equal(result.stdoutPresent,true);
@@ -118,6 +119,67 @@ test('Firebase CLI JSON errors expose only a safe envelope and process summary',
   const serialized=JSON.stringify(result);
   for(const secret of secrets)assert.equal(serialized.includes(secret),false);
   assert.equal(serialized.includes(message),false);
+});
+
+test('Firebase CLI JSON error classifier emits only allowlisted service and permission categories',()=>{
+  const secrets=[
+    'nested-password-DO-NOT-LOG',
+    'member.private@example.test',
+    'projects/private-project-8675309',
+    'ya29.nested-fixture-token'
+  ];
+  const nestedPermission={
+    status:'error',
+    error:{
+      message:JSON.stringify({
+        status:'PERMISSION_DENIED',
+        message:`Permission 'serviceusage.services.use' denied on ${secrets.join(' ')}`
+      }),
+      details:[{serviceName:'serviceusage.googleapis.com',reason:'PERMISSION_DENIED'}]
+    }
+  };
+  const result=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify(nestedPermission),stderr:''
+  });
+  assert.equal(result.firebaseCliOutputShape,'json-error');
+  assert.equal(result.firebaseCliErrorCategory,'SERVICE_USAGE_PERMISSION_DENIED');
+  const serialized=JSON.stringify(result);
+  for(const secret of secrets)assert.equal(serialized.includes(secret),false);
+  assert.equal(serialized.includes('serviceusage.services.use'),false);
+  assert.equal(serialized.includes('PERMISSION_DENIED on'),false);
+});
+
+test('Firebase CLI JSON error classifier returns unknown for malformed or unrecognized error text',()=>{
+  const secret='do-not-log-password project=private-id person@example.test ya29.private-token';
+  for(const stdout of [
+    `warning\n{"status":"error","error":"PERMISSION_DENIED ${secret}"}`,
+    JSON.stringify({status:'error',error:{message:`opaque ${secret}`,serviceName:'unknown.googleapis.com'}}),
+    JSON.stringify({status:'error',error:`opaque ${secret}`})
+  ]){
+    const result=deploymentFailureDiagnostic('firebase-deploy',{code:1,stdout,stderr:''});
+    assert.equal(result.firebaseCliErrorCategory,'UNKNOWN');
+    const serialized=JSON.stringify(result);
+    assert.equal(serialized.includes(secret),false);
+    assert.equal(serialized.includes('private-id'),false);
+    assert.equal(serialized.includes('example.test'),false);
+    assert.equal(serialized.includes('ya29'),false);
+  }
+});
+
+test('Firebase CLI JSON error classifier maps service-disabled errors to a fixed API category',()=>{
+  const secret='credential-secret project-private-id';
+  const result=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,
+    stdout:JSON.stringify({
+      status:'error',
+      error:{message:`SERVICE_DISABLED for eventarc.googleapis.com ${secret}`}
+    }),
+    stderr:''
+  });
+  assert.equal(result.firebaseCliErrorCategory,'EVENTARC_API_DISABLED');
+  const serialized=JSON.stringify(result);
+  assert.equal(serialized.includes(secret),false);
+  assert.equal(serialized.includes('eventarc.googleapis.com'),false);
 });
 
 test('Firebase CLI output shape is bounded and distinguishes empty, malformed, and other JSON',()=>{
