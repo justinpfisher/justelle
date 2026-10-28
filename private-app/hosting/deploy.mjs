@@ -2,7 +2,7 @@ import {readFile,writeFile,mkdtemp,rm,appendFile} from 'node:fs/promises';
 import {randomBytes} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
@@ -54,7 +54,7 @@ try{
         firebaseCliRequestNonce=randomBytes(16).toString('hex');
         const cliEnv={...env,JUSTELLE_FIREBASE_SAFE_DIAG_NONCE:firebaseCliRequestNonce};
         providerMutationMayHaveStarted=true;
-        return run(process.execPath,['--import',join(directory,'hosting/firebase-cli-request-diagnostics.mjs'),
+        return run(process.execPath,['--import',pathToFileURL(join(directory,'hosting/firebase-cli-request-diagnostics.mjs')).href,
           join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive','--json',
           '--project',config.projectId,'--config',stagedConfig.path,
           '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env:cliEnv,maxBuffer:8*1024*1024});
