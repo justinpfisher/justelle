@@ -30,9 +30,9 @@ test('manual one-run qualification input is opt-in and restricted to main',()=>{
   assert.doesNotMatch(job('production-release'),/inputs\.qualify_once|workflow_dispatch/);
 });
 
-test('production guard remains byte-for-byte unchanged while manual qualification is held',()=>{
+test('production guard remains ineligible for a read-only probe and retains its existing acceptance conditions',()=>{
   const release=job('production-release');
-  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
+  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*inputs\.storage_probe_once != true &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
   assert.doesNotMatch(release,/qualify_once|workflow_dispatch/);
 });
 

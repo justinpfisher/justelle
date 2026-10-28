@@ -41,7 +41,7 @@ test('only explicit allowlisted API status is classified; arbitrary text stays u
 test('oversized provider error body is cancelled and never classified from partial text',async()=>{
   let cancelled=false;
   const body=new ReadableStream({
-    start(controller){controller.enqueue(new TextEncoder().encode(JSON.stringify({error:{status:'PERMISSION_DENIED'}})+'x'.repeat(70*1024));},
+    start(controller){controller.enqueue(new TextEncoder().encode(JSON.stringify({error:{status:'PERMISSION_DENIED'}})+'x'.repeat(70*1024)));},
     cancel(){cancelled=true;}
   });
   const response=new Response(body,{status:403});
