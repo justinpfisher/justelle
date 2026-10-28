@@ -706,3 +706,28 @@ test('Legacy rollback diagnostic unavailability is an explicit fixed enum',()=>{
   assert.equal(JSON.stringify(result).includes(secret),false);
   assert.equal(JSON.stringify(result).includes('opaque'),false);
 });
+
+test('Functions predeploy package failures are separated and safely classified before provider deployment',()=>{
+  const secret='FIXTURE_PASSWORD private.person@example.test /private/project/token';
+  const cases=[
+    ['Functions package still refers to files outside the deployment package '+secret,'FUNCTIONS_PACKAGE_BOUNDARY_FAILED'],
+    ['Cannot find package esbuild '+secret,'FUNCTIONS_PACKAGE_DEPENDENCY_MISSING'],
+    ['esbuild Transform failed with 1 error '+secret,'FUNCTIONS_PACKAGE_BUILD_FAILED'],
+    ['fatal: not a git repository '+secret,'FUNCTIONS_PACKAGE_SOURCE_REVISION_FAILED'],
+    ['unrecognized local packaging failure '+secret,'FUNCTIONS_PACKAGE_FAILURE_UNCLASSIFIED']
+  ];
+  for(const [stderr,detail] of cases){
+    const result=deploymentFailureDiagnostic('functions-package',{code:1,stderr},{providerMutationMayHaveStarted:false});
+    assert.equal(result.phase,'functions-package');
+    assert.equal(result.code,'LOCAL_COMMAND_FAILED');
+    assert.equal(result.detail,detail);
+    assert.equal(result.providerStateNeedsReconciliation,false);
+    assert.equal(result.exitCode,1);
+    const serialized=JSON.stringify(result);
+    assert.equal(serialized.includes(secret),false);
+    assert.equal(serialized.includes(stderr),false);
+  }
+  const missingTool=deploymentFailureDiagnostic('functions-package',{code:'ENOENT',stderr:'private path '+secret});
+  assert.equal(missingTool.code,'LOCAL_TOOL_OR_FILE_MISSING');
+  assert.equal(missingTool.detail,'FUNCTIONS_PACKAGE_FAILURE_UNCLASSIFIED');
+});
