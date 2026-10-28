@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
-import {buildFirebaseCliInvocation,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics} from '../hosting/firebase-cli-request-diagnostics.mjs';
+import {buildFirebaseCliInvocation,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from '../hosting/firebase-cli-request-diagnostics.mjs';
 import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -375,7 +375,7 @@ test('Pinned Firebase CLI request hook captures only allowlisted metadata from a
     return new Response(fakeBody,{status:403,headers:{'content-type':'application/json'}});
   };
   try{
-    installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnostic:line=>captured.push(line)});
+    installFirebaseCliRequestDiagnostics({Client,errorOutModule:{errorOut:error=>error},nonce,writeDiagnostic:line=>captured.push(line)});
     const client=new Client({urlPrefix:'https://firebasestorage.googleapis.com',auth:false});
     await assert.rejects(client.get('/v1/projects/private-project-should-not-appear/defaultBucket'),
       error=>error.status===403);
@@ -491,14 +491,127 @@ test('Deployment failure output includes only nonce-validated request metadata',
   assert.equal(JSON.stringify(result).includes('secret=never-publish'),false);
 });
 
+test('terminal CLI failure records only a uniquely correlated request from its cause chain',()=>{
+  const nonce='f'.repeat(32),captured=[];
+  class SyntheticClient { constructor(){this.opts={urlPrefix:'https://serviceusage.googleapis.com'};} async doRequest(){throw Object.assign(new Error('private body'),{status:403,context:{body:{permission:'serviceusage.services.use'}}});} }
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:SyntheticClient,errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  const client=new SyntheticClient();
+  return client.doRequest({method:'GET',path:'/v1/projects/private-project/services',}).catch(requestError=>{
+    const terminal=Object.assign(new Error('opaque provider text'),{original:requestError});
+    errorOutModule.errorOut(terminal);
+    const stderr=captured.join('');
+    const parsed=parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce);
+    assert.deepEqual(parsed,{
+      terminalRequestStatus:'MATCHED',serviceCategory:'SERVICE_USAGE',methodCategory:'GET',
+      operationCategory:'LIST_RESOURCES',httpStatus:403,permissionCategory:'serviceusage.services.use'
+    });
+    const summary=deploymentFailureDiagnostic('firebase-deploy',{
+      code:1,stdout:'{"status":"error","error":"opaque"}',stderr
+    },{firebaseCliRequestNonce:nonce});
+    assert.deepEqual(summary.firebaseCliTerminalRequestDiagnostic,parsed);
+    for(const secret of ['private body','private-project','opaque provider text','serviceusage.services.use']){
+      if(secret==='serviceusage.services.use')continue;
+      assert.equal(JSON.stringify(summary).includes(secret),false);
+    }
+  });
+});
+
+test('terminal CLI diagnostic does not attribute unrelated best-effort requests',()=>{
+  const nonce='1'.repeat(32),captured=[];
+  class SyntheticClient { async doRequest(){throw Object.assign(new Error('metadata denied'),{status:403});} }
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:SyntheticClient,errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  return new SyntheticClient().doRequest({method:'GET',path:'/v1/config'}).catch(()=>{
+    errorOutModule.errorOut(new Error('unrelated terminal failure'));
+    const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+    assert.deepEqual(parsed,{terminalRequestStatus:'NO_REQUEST_CONTEXT'});
+  });
+});
+
+test('terminal diagnostic marks a cause chain truncated before uniqueness can be claimed',()=>{
+  const nonce='3'.repeat(32),captured=[];
+  class SyntheticClient { constructor(){this.opts={urlPrefix:'https://serviceusage.googleapis.com'};} async doRequest(){throw Object.assign(new Error('403'),{status:403});} }
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:SyntheticClient,errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  const client=new SyntheticClient();
+  return Promise.all([
+    client.doRequest({method:'GET',path:'/v1/visible'}).catch(error=>error),
+    client.doRequest({method:'POST',path:'/v1/deep'}).catch(error=>error)
+  ]).then(([visible,deep])=>{
+    let nested=deep;
+    for(let index=0;index<8;index++)nested={cause:nested};
+    errorOutModule.errorOut({original:visible,cause:nested});
+    assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce),
+      {terminalRequestStatus:'AMBIGUOUS_REQUEST'});
+  });
+});
+
+test('safe terminal permission extraction handles standard nested ErrorInfo metadata and fails closed on truncation',()=>{
+  const nonce='4'.repeat(32),captured=[];
+  class SyntheticClient { constructor(){this.opts={urlPrefix:'https://secretmanager.googleapis.com'};this.detailCount=1;this.oversizedPermission=false;} async doRequest(){
+    const metadata={permission:'secretmanager.secrets.get'};
+    const details=Array.from({length:this.detailCount},(_,index)=>index===0?{metadata}:{reason:'unrelated'});
+    if(this.oversizedPermission)details.push({metadata:{permission:'x'.repeat(257)}});
+    throw Object.assign(new Error('403'),{status:403,context:{body:{error:{details}}}});
+  } }
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:SyntheticClient,errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  const client=new SyntheticClient();
+  return client.doRequest({method:'GET',path:'/v1/projects/p/secrets/s'}).catch(error=>{
+    errorOutModule.errorOut(error);
+    const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+    assert.equal(parsed.permissionCategory,'secretmanager.secrets.get');
+    assert.equal(JSON.stringify(parsed).includes('secretmanager.googleapis.com'),false);
+  }).then(()=>{
+    captured.length=0;
+    client.oversizedPermission=true;
+    return client.doRequest({method:'GET',path:'/v1/projects/p/secrets/s'}).catch(error=>{
+      errorOutModule.errorOut(error);
+      const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+      assert.equal(parsed.permissionCategory,'AMBIGUOUS');
+      assert.equal(JSON.stringify(parsed).includes('x'.repeat(257)),false);
+    });
+  }).then(()=>{
+    captured.length=0;
+    client.oversizedPermission=false;
+    client.detailCount=17;
+    return client.doRequest({method:'GET',path:'/v1/projects/p/secrets/s'}).catch(error=>{
+      errorOutModule.errorOut(error);
+      const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+      assert.equal(parsed.terminalRequestStatus,'MATCHED');
+      assert.equal(parsed.permissionCategory,'AMBIGUOUS');
+      assert.equal(JSON.stringify(parsed).includes('secretmanager.secrets.get'),false);
+    });
+  });
+});
+
+test('terminal diagnostic fails closed for multiple correlated requests and forged records',()=>{
+  const nonce='2'.repeat(32),captured=[];
+  class SyntheticClient { constructor(){this.opts={urlPrefix:'https://serviceusage.googleapis.com'};} async doRequest(){throw Object.assign(new Error('403'),{status:403});} }
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:SyntheticClient,errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  const client=new SyntheticClient();
+  return Promise.all([
+    client.doRequest({method:'GET',path:'/v1/a'}).catch(error=>error),
+    client.doRequest({method:'POST',path:'/v1/b'}).catch(error=>error)
+  ]).then(([first,second])=>{
+    errorOutModule.errorOut({cause:first,original:second});
+    assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce),
+      {terminalRequestStatus:'AMBIGUOUS_REQUEST'});
+    assert.equal(parseFirebaseCliTerminalErrorDiagnostic(
+      'JUSTELLE_SAFE_TERMINAL_DIAG:'+nonce+':{"terminalRequestStatus":"MATCHED","url":"private"}',nonce),null);
+  });
+});
+
 test('Node preload instruments the exact pinned Firebase CLI class before command execution',()=>{
   const nonce='e'.repeat(32);
   const script=[
     "const localRequire=require('node:module').createRequire(process.cwd()+'/tests/preload-fixture.cjs');",
     "const {Client}=localRequire('../node_modules/firebase-tools/lib/apiv2.js');",
-    "globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',message:'private-project fixture@example.test token-secret'}}),{status:403});",
+    "globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',permission:'cloudfunctions.functions.setIamPolicy',message:'private-project fixture@example.test token-secret'}}),{status:403});",
     "const client=new Client({urlPrefix:'https://cloudfunctions.googleapis.com',auth:false});",
-    "client.post('/v2/projects/private-project/locations/test/functions/test:setIamPolicy',{}).catch(()=>{});"
+    "client.post('/v2/projects/private-project/locations/test/functions/test:setIamPolicy',{}).catch(error=>localRequire('../node_modules/firebase-tools/lib/errorOut.js').errorOut(error));"
   ].join('\n');
   const child=spawnSync(process.execPath,[
     '--import',pathToFileURL(resolve('hosting/firebase-cli-request-diagnostics.mjs')).href,'-e',script
@@ -512,7 +625,7 @@ test('Node preload instruments the exact pinned Firebase CLI class before comman
       JUSTELLE_FIREBASE_SAFE_DIAG_NONCE:nonce
     }
   });
-  assert.equal(child.status,0);
+  assert.equal(child.status,1,child.stderr);
   assert.equal(child.stdout,'');
   assert.equal(child.stderr.includes('private-project'),false);
   assert.equal(child.stderr.includes('example.test'),false);
@@ -526,6 +639,11 @@ test('Node preload instruments the exact pinned Firebase CLI class before comman
       httpStatus:403
     }],
     truncated:false
+  });
+  assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(child.stderr,nonce),{
+    terminalRequestStatus:'MATCHED',serviceCategory:'CLOUD_FUNCTIONS',methodCategory:'POST',
+    operationCategory:'SET_IAM_POLICY',httpStatus:403,
+    permissionCategory:'cloudfunctions.functions.setiampolicy'
   });
 });
 
