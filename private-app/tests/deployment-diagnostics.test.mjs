@@ -195,7 +195,8 @@ test('Firebase CLI JSON error classifier avoids guessing when an error names mul
   const secret='account@example.test private-project-456 token-secret';
   for(const [message,expected] of [
     [`PERMISSION_DENIED from serviceusage.googleapis.com and cloudscheduler.googleapis.com ${secret}`,'PERMISSION_DENIED'],
-    [`SERVICE_DISABLED for eventarc.googleapis.com and pubsub.googleapis.com ${secret}`,'API_DISABLED']
+    [`SERVICE_DISABLED for eventarc.googleapis.com and pubsub.googleapis.com ${secret}`,'API_DISABLED'],
+    [`firebasestorage.googleapis.com and storage.googleapis.com both returned PERMISSION_DENIED ${secret}`,'PERMISSION_DENIED']
   ]){
     const result=deploymentFailureDiagnostic('firebase-deploy',{
       code:1,stdout:JSON.stringify({status:'error',error:{message}}),stderr:''
@@ -257,6 +258,24 @@ test('Firebase CLI identifies Firebase Storage metadata denial and its allowlist
   }
 });
 
+test('Firebase CLI does not attach a denial to a different permission in the same prose',()=>{
+  const secret='private.person@example.test projects/private-project ya29.fixture-token';
+  const result=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({
+      status:'error',
+      error:{
+        status:'PERMISSION_DENIED',
+        message:`serviceusage.services.use was granted; unknown.permission denied ${secret}`
+      }
+    }),stderr:''
+  });
+  assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
+  const serialized=JSON.stringify(result);
+  assert.equal(serialized.includes('serviceusage.services.use'),false);
+  assert.equal(serialized.includes(secret),false);
+  assert.equal(serialized.includes('unknown.permission'),false);
+});
+
 test('Firebase CLI fails closed on unknown and ambiguous nested permission fields',()=>{
   const privateFixture='private.person@example.test projects/secret-project ya29.fake-token';
   const ambiguous=deploymentFailureDiagnostic('firebase-deploy',{
@@ -271,13 +290,22 @@ test('Firebase CLI fails closed on unknown and ambiguous nested permission field
   assert.equal(ambiguous.firebaseCliPermissionCategory,'AMBIGUOUS');
   const unknown=deploymentFailureDiagnostic('firebase-deploy',{
     code:1,stdout:JSON.stringify({
-      status:'PERMISSION_DENIED',
-      error:{permission:'unlisted.privatePermission',message:'permission denied '+privateFixture}
+      status:'error',
+      error:{status:'PERMISSION_DENIED',permission:'unlisted.privatePermission',message:'permission denied '+privateFixture}
+    }),stderr:''
+  });
+  const mixed=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({
+      status:'error',error:{status:'PERMISSION_DENIED',details:[
+        {permission:'firebasestorage.defaultBucket.get'},
+        {permission:'unlisted.privatePermission'}
+      ],message:privateFixture}
     }),stderr:''
   });
   assert.equal(unknown.firebaseCliServiceCategory,'UNKNOWN');
   assert.equal(unknown.firebaseCliPermissionCategory,'UNKNOWN');
-  for(const result of [ambiguous,unknown]){
+  assert.equal(mixed.firebaseCliPermissionCategory,'AMBIGUOUS');
+  for(const result of [ambiguous,unknown,mixed]){
     const serialized=JSON.stringify(result);
     assert.equal(serialized.includes(privateFixture),false);
     assert.equal(serialized.includes('privatePermission'),false);
