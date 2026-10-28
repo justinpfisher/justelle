@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
+import {spawnSync} from 'node:child_process';
+import {resolve} from 'node:path';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
 import {createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics} from '../hosting/firebase-cli-request-diagnostics.mjs';
 
@@ -467,4 +469,43 @@ test('Deployment failure output includes only nonce-validated request metadata',
   assert.equal(JSON.stringify(result).includes(nonce),false);
   assert.equal(JSON.stringify(result).includes(privateError),false);
   assert.equal(JSON.stringify(result).includes('secret=never-publish'),false);
+});
+
+test('Node preload instruments the exact pinned Firebase CLI class before command execution',()=>{
+  const nonce='e'.repeat(32);
+  const script=[
+    "const {createRequire}=require('node:module');",
+    "const require=createRequire(process.cwd()+'/tests/preload-fixture.cjs');",
+    "const {Client}=require('../node_modules/firebase-tools/lib/apiv2.js');",
+    "globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',message:'private-project fixture@example.test token-secret'}}),{status:403});",
+    "const client=new Client({urlPrefix:'https://cloudfunctions.googleapis.com',auth:false});",
+    "client.post('/v2/projects/private-project/locations/test/functions/test:setIamPolicy',{}).catch(()=>{});"
+  ].join('\n');
+  const child=spawnSync(process.execPath,[
+    '--import',resolve('hosting/firebase-cli-request-diagnostics.mjs'),'-e',script
+  ],{
+    cwd:process.cwd(),
+    encoding:'utf8',
+    maxBuffer:64*1024,
+    env:{
+      ...(process.env.SystemRoot?{SystemRoot:process.env.SystemRoot}:{}),
+      ...(process.env.PATH?{PATH:process.env.PATH}:{}),
+      JUSTELLE_FIREBASE_SAFE_DIAG_NONCE:nonce
+    }
+  });
+  assert.equal(child.status,0);
+  assert.equal(child.stdout,'');
+  assert.equal(child.stderr.includes('private-project'),false);
+  assert.equal(child.stderr.includes('example.test'),false);
+  assert.equal(child.stderr.includes('token-secret'),false);
+  const parsed=parseFirebaseCliRequestDiagnostics(child.stderr,nonce);
+  assert.deepEqual(parsed,{
+    events:[{
+      serviceCategory:'CLOUD_FUNCTIONS',
+      methodCategory:'POST',
+      operationCategory:'SET_IAM_POLICY',
+      httpStatus:403
+    }],
+    truncated:false
+  });
 });
