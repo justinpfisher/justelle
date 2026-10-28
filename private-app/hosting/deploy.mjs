@@ -44,7 +44,7 @@ try{
     await atPhase('root-dependencies',()=>npm(['ci','--no-audit','--no-fund'],directory));
     await atPhase('functions-dependencies',()=>npm(['ci','--prefix','hosting/functions','--no-audit','--no-fund'],directory));
     await atPhase('app-build',()=>npm(['run','build'],directory));
-    const stagedConfig=await atPhase('deployment-config-stage',()=>stageFirebaseDeploymentConfig({appDirectory:directory,configName}));
+    const stagedConfig=await atPhase('deployment-config-stage',()=>stageFirebaseDeploymentConfig({appDirectory:directory,configName,projectId:config.projectId}));
     try{
       await atPhase('firebase-deploy',()=>{
         providerMutationMayHaveStarted=true;

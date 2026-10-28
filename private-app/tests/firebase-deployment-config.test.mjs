@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,readdir,rm,cp} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {stageFirebaseDeploymentConfig} from '../hosting/firebase-deployment-config.mjs';
@@ -23,7 +23,7 @@ test('Firebase deployment stages canonical Firestore rules and indexes within it
   try{
     for(const configName of ['firebase.json','firebase.production.json']){
       const original=await readFile(join(hostingDirectory,configName),'utf8');
-      const staged=await stageFirebaseDeploymentConfig({appDirectory,configName});
+      const staged=await stageFirebaseDeploymentConfig({appDirectory,configName,projectId:configName==='firebase.json'?'justelle-qualification':'justelle-production'});
       try{
         assert.equal(basename(staged.path).startsWith('.justelle-deploy-'),true);
         const config=JSON.parse(await readFile(staged.path,'utf8'));
@@ -33,6 +33,11 @@ test('Firebase deployment stages canonical Firestore rules and indexes within it
         assert.equal(config.firestore.indexes.startsWith('.justelle-deploy-'),true);
         assert.equal(await readFile(join(hostingDirectory,config.firestore.rules),'utf8'),rules);
         assert.equal(await readFile(join(hostingDirectory,config.firestore.indexes),'utf8'),indexes);
+        if(configName==='firebase.json'){
+          assert.deepEqual(config.storage,[{bucket:'justelle-qualification.firebasestorage.app',rules:'storage.rules'}]);
+        }else{
+          assert.deepEqual(config.storage,{rules:'storage.rules'});
+        }
         assert.equal(await readFile(join(hostingDirectory,configName),'utf8'),original);
       }finally{
         await staged.cleanup();
@@ -44,6 +49,34 @@ test('Firebase deployment stages canonical Firestore rules and indexes within it
   }
 });
 
+test('qualification rollback source staging also pins the verified explicit bucket',async()=>{
+  const appDirectory=await mkdtemp(join(tmpdir(),'justelle-rollback-source-'));
+  const hostingDirectory=join(appDirectory,'hosting');
+  await mkdir(hostingDirectory);
+  await mkdir(join(appDirectory,'firebase'));
+  await writeFile(join(appDirectory,'firebase/firestore.rules'),'rules');
+  await writeFile(join(appDirectory,'firebase/firestore.indexes.json'),'{}');
+  const original=JSON.stringify({hosting:{target:'justelle-private-qualification',public:'../dist'},
+    firestore:{rules:'../firebase/firestore.rules',indexes:'../firebase/firestore.indexes.json'},
+    storage:{rules:'storage.rules'}});
+  await writeFile(join(hostingDirectory,'firebase.json'),original);
+  try{
+    const staged=await stageFirebaseDeploymentConfig({appDirectory,configName:'firebase.json',projectId:'justelle-qualification'});
+    try{
+      const config=JSON.parse(await readFile(staged.path,'utf8'));
+      assert.deepEqual(config.storage,[{bucket:'justelle-qualification.firebasestorage.app',rules:'storage.rules'}]);
+      assert.equal(await readFile(join(hostingDirectory,'firebase.json'),'utf8'),original);
+    }finally{await staged.cleanup();}
+  }finally{await rm(appDirectory,{recursive:true,force:true});}
+});
+
+test('staging rejects a config paired with the wrong Firebase project',async()=>{
+  await assert.rejects(
+    stageFirebaseDeploymentConfig({appDirectory:tmpdir(),configName:'firebase.json',projectId:'justelle-production'}),
+    /does not match its project/
+  );
+});
+
 test('Firebase deployment staging accepts only the two controlled environment configs',async()=>{
-  await assert.rejects(stageFirebaseDeploymentConfig({appDirectory:tmpdir(),configName:'untrusted.json'}),/Unsupported/);
+  await assert.rejects(stageFirebaseDeploymentConfig({appDirectory:tmpdir(),configName:'untrusted.json',projectId:'justelle-qualification'}),/Unsupported/);
 });
