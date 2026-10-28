@@ -156,3 +156,14 @@ test('probe cannot run on PR, another ref, without hold/configuration/prerequisi
     qualification:'skipped',holdReport:'held',production:'skipped'
   });
 });
+
+
+test('probe selector cannot qualify or release when the persistent hold is false',()=>{
+  const input={event:'workflow_dispatch',branch:'main',storageProbeOnce:true,qualifyOnce:false,hold:'false',
+    hostedConfigured:'true',initialAcceptance:'verified',hostedChanges:true,privatePilot:'success',
+    windowsPreview:'skipped',qualificationResult:'success'};
+  assert.equal(firebaseStorageProbePolicy(input),'skipped');
+  assert.deepEqual(hostedQualificationPolicy(input),{
+    qualification:'skipped',holdReport:'not-applicable',production:'skipped'
+  });
+});

@@ -14,7 +14,7 @@ export function hostedQualificationPolicy({
   const configured=equalsExpressionString(hostedConfigured,'true');
   const acceptanceGate=!equalsExpressionString(initialAcceptance,'verified')||hostedChanges;
   const qualificationEligible=prerequisites&&configured&&acceptanceGate;
-  const qualificationRequired=!isPullRequest&&qualificationEligible&&(!held||manualQualification);
+  const qualificationRequired=!isPullRequest&&storageProbeOnce!==true&&qualificationEligible&&(!held||manualQualification);
   const productionAllowed=!isPullRequest&&storageProbeOnce!==true&&!held&&equalsExpressionString(branch,'main')&&
     equalsExpressionString(initialAcceptance,'verified')&&prerequisites&&
     (equalsExpressionString(qualificationResult,'success')||
