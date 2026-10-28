@@ -1,4 +1,5 @@
 import {createRequire} from 'node:module';
+import {writeSync} from 'node:fs';
 
 export const pinnedFirebaseToolsVersion='15.34.0';
 const requestDiagnosticPrefix='JUSTELLE_SAFE_REQUEST_DIAG:';
@@ -85,7 +86,7 @@ export function createSafeFirebaseRequestEvent({urlPrefix,method,path,status}){
   };
 }
 
-export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnostic=line=>process.stderr.write(line)}){
+export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnostic=line=>writeSync(2,line)}){
   if(!/^[a-f0-9]{32}$/.test(nonce??''))throw new Error('Invalid Justelle diagnostic nonce');
   if(!Client?.prototype||typeof Client.prototype.doRequest!=='function'){
     throw new Error('Pinned Firebase CLI request hook is unavailable');
