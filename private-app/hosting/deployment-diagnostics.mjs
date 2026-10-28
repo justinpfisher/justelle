@@ -121,9 +121,12 @@ function firebaseCliErrorCategory(error){
   const details=parts.join('\n').toUpperCase();
   if(!details)return 'UNKNOWN';
 
-  const service=firebaseCliServiceMarkers.find(([,markers])=>
+  const matchingServices=firebaseCliServiceMarkers.filter(([,markers])=>
     markers.some(marker=>details.includes(marker.toUpperCase()))
-  )?.[0];
+  );
+  // A generic error may mention several services. Do not attribute it to the
+  // first marker when the provider output does not identify one unambiguously.
+  const service=matchingServices.length===1?matchingServices[0][0]:undefined;
 
   let reason;
   if(/(?:SERVICE_DISABLED|API.{0,100}(?:NOT ENABLED|DISABLED)|SERVICE.{0,100}NOT ENABLED)/.test(details))reason='API_DISABLED';

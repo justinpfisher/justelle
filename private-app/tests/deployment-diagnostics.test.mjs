@@ -182,6 +182,25 @@ test('Firebase CLI JSON error classifier maps service-disabled errors to a fixed
   assert.equal(serialized.includes('eventarc.googleapis.com'),false);
 });
 
+test('Firebase CLI JSON error classifier avoids guessing when an error names multiple services',()=>{
+  const secret='account@example.test private-project-456 token-secret';
+  for(const [message,expected] of [
+    [`PERMISSION_DENIED from serviceusage.googleapis.com and cloudscheduler.googleapis.com ${secret}`,'PERMISSION_DENIED'],
+    [`SERVICE_DISABLED for eventarc.googleapis.com and pubsub.googleapis.com ${secret}`,'API_DISABLED']
+  ]){
+    const result=deploymentFailureDiagnostic('firebase-deploy',{
+      code:1,stdout:JSON.stringify({status:'error',error:{message}}),stderr:''
+    });
+    assert.equal(result.firebaseCliErrorCategory,expected);
+    const serialized=JSON.stringify(result);
+    assert.equal(serialized.includes(secret),false);
+    assert.equal(serialized.includes('serviceusage.googleapis.com'),false);
+    assert.equal(serialized.includes('cloudscheduler.googleapis.com'),false);
+    assert.equal(serialized.includes('eventarc.googleapis.com'),false);
+    assert.equal(serialized.includes('pubsub.googleapis.com'),false);
+  }
+});
+
 test('Firebase CLI output shape is bounded and distinguishes empty, malformed, and other JSON',()=>{
   const cases=[
     [{code:1,stdout:'',stderr:'opaque error'},'empty'],
