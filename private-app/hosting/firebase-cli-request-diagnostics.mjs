@@ -46,7 +46,9 @@ const serviceByHostname=new Map([
   ['iam.googleapis.com','IDENTITY'],
   ['iamcredentials.googleapis.com','IDENTITY'],
   ['storage.googleapis.com','STORAGE'],
-  ['firebasehosting.googleapis.com','FIREBASE_HOSTING']
+  ['firebasehosting.googleapis.com','FIREBASE_HOSTING'],
+  ['secretmanager.googleapis.com','SECRET_MANAGER'],
+  ['runtimeconfig.googleapis.com','RUNTIME_CONFIG']
 ]);
 const serviceCategories=new Set([...serviceByHostname.values(),'UNKNOWN']);
 const methodCategories=new Set(['GET','POST','PATCH','PUT','DELETE','OPTIONS','HEAD','OTHER']);
