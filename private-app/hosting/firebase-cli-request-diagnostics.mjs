@@ -1,7 +1,29 @@
 import {createRequire} from 'node:module';
+import {access,readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {writeSync} from 'node:fs';
 
 export const pinnedFirebaseToolsVersion='15.34.0';
+
+export async function buildFirebaseCliInvocation({directory,allowLegacyRollback=false,nonce}={}){
+  const cliPath=join(directory,'node_modules/firebase-tools/lib/bin/firebase.js');
+  const hookPath=join(directory,'hosting/firebase-cli-request-diagnostics.mjs');
+  const packageMetadata=JSON.parse(await readFile(join(directory,'node_modules/firebase-tools/package.json'),'utf8'));
+  let hookAvailable=true;
+  try{await access(hookPath);}catch(error){
+    if(error?.code==='ENOENT')hookAvailable=false;
+    else throw error;
+  }
+  if(packageMetadata.version===pinnedFirebaseToolsVersion&&hookAvailable){
+    if(!/^[a-f0-9]{32}$/.test(nonce??''))throw new Error('Invalid Justelle diagnostic nonce');
+    return {args:['--import',pathToFileURL(hookPath).href,cliPath],nonce,diagnosticsUnavailable:null};
+  }
+  if(allowLegacyRollback&&(!hookAvailable||packageMetadata.version!==pinnedFirebaseToolsVersion)){
+    return {args:[cliPath],nonce:null,diagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'};
+  }
+  throw new Error('Firebase CLI request diagnostics are required for forward deployment');
+}
 const requestDiagnosticPrefix='JUSTELLE_SAFE_REQUEST_DIAG:';
 const maxDiagnosticEvents=8;
 const maxDiagnosticStderrBytes=64*1024;

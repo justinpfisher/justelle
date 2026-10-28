@@ -320,7 +320,7 @@ function firebaseDeployDetail(error){
 }
 
 // Raw error details are inspected only in memory. The returned object is safe for public CI logs.
-export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHaveStarted=false,firebaseCliRequestNonce}={}){
+export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHaveStarted=false,firebaseCliRequestNonce,firebaseCliRequestDiagnosticsUnavailable}={}){
   const safePhase=phases.has(phase)?phase:'unknown';
   const requestDiagnostics=firebaseCliRequestNonce
     ?parseFirebaseCliRequestDiagnostics(error?.stderr,firebaseCliRequestNonce)
@@ -340,6 +340,8 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
       firebaseCliProcessOutcome:firebaseCliProcessOutcome(error),
       ...(requestDiagnostics.events.length?{firebaseCliRequestDiagnostics:requestDiagnostics.events}:{}),
       ...(requestDiagnostics.truncated?{firebaseCliRequestDiagnosticsTruncated:true}:{}),
+      ...(firebaseCliRequestDiagnosticsUnavailable==='LEGACY_ROLLBACK_COMPATIBILITY'
+        ?{firebaseCliRequestDiagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'}:{}),
       stdoutPresent:hasCapturedText(error?.stdout),
       stderrPresent:hasCapturedText(error?.stderr)
     }:{}),
@@ -360,12 +362,14 @@ export function createDeploymentFailureRecorder(){
 
 // Keep the first failure's safe description, but compute reconciliation from
 // the final monotonic provider-mutation state after cleanup has also run.
-export function finalizeDeploymentFailure(diagnostic,providerMutationMayHaveStarted=false){
+export function finalizeDeploymentFailure(diagnostic,providerMutationMayHaveStarted=false,{firebaseCliRequestDiagnosticsUnavailable}={}){
   if(!diagnostic)return null;
   return {
     ...diagnostic,
     providerStateNeedsReconciliation:Boolean(
       diagnostic.providerStateNeedsReconciliation||providerMutationMayHaveStarted
-    )
+    ),
+    ...(firebaseCliRequestDiagnosticsUnavailable==='LEGACY_ROLLBACK_COMPATIBILITY'
+      ?{firebaseCliRequestDiagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'}:{})
   };
 }

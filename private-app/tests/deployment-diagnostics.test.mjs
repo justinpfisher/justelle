@@ -5,7 +5,10 @@ import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
-import {createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics} from '../hosting/firebase-cli-request-diagnostics.mjs';
+import {buildFirebaseCliInvocation,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics} from '../hosting/firebase-cli-request-diagnostics.mjs';
+import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const require=createRequire(import.meta.url);
 const {Client}=require('../node_modules/firebase-tools/lib/apiv2.js');
@@ -508,4 +511,64 @@ test('Node preload instruments the exact pinned Firebase CLI class before comman
     }],
     truncated:false
   });
+});
+
+
+test('Rollback diagnostics fall back for legacy CLI checkouts while forward deployment stays strict',async()=>{
+  const temp=await mkdtemp(join(tmpdir(),'justelle-cli-rollback-'));
+  const nonce='b'.repeat(32);
+  async function checkout(name,version,{hook=true}={}){
+    const directory=join(temp,name);
+    const cliDirectory=join(directory,'node_modules/firebase-tools/lib/bin');
+    await mkdir(cliDirectory,{recursive:true});
+    await mkdir(join(directory,'hosting'),{recursive:true});
+    await writeFile(join(directory,'node_modules/firebase-tools/package.json'),JSON.stringify({version}));
+    const cliPath=join(cliDirectory,'firebase.js');
+    await writeFile(cliPath,'// synthetic CLI fixture');
+    const hookPath=join(directory,'hosting/firebase-cli-request-diagnostics.mjs');
+    if(hook)await writeFile(hookPath,'// synthetic hook fixture');
+    return {directory,cliPath,hookPath};
+  }
+  try{
+    const legacyWithoutHook=await checkout('legacy-no-hook','15.30.0',{hook:false});
+    const missingHook=await buildFirebaseCliInvocation({directory:legacyWithoutHook.directory,allowLegacyRollback:true,nonce});
+    assert.deepEqual(missingHook,{
+      args:[legacyWithoutHook.cliPath],nonce:null,diagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'
+    });
+    await assert.rejects(buildFirebaseCliInvocation({directory:legacyWithoutHook.directory,nonce}),
+      /required for forward deployment/);
+
+    const legacyWithHook=await checkout('legacy-cli-with-hook','15.30.0');
+    const oldVersion=await buildFirebaseCliInvocation({directory:legacyWithHook.directory,allowLegacyRollback:true,nonce});
+    assert.deepEqual(oldVersion,{
+      args:[legacyWithHook.cliPath],nonce:null,diagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'
+    });
+    await assert.rejects(buildFirebaseCliInvocation({directory:legacyWithHook.directory,nonce}),
+      /required for forward deployment/);
+
+    const current=await checkout('current','15.34.0');
+    const currentInvocation=await buildFirebaseCliInvocation({directory:current.directory,nonce});
+    assert.deepEqual(currentInvocation,{
+      args:['--import',pathToFileURL(current.hookPath).href,current.cliPath],
+      nonce,
+      diagnosticsUnavailable:null
+    });
+    await rm(current.hookPath);
+    await assert.rejects(buildFirebaseCliInvocation({directory:current.directory,nonce}),
+      /required for forward deployment/);
+  }finally{
+    await rm(temp,{recursive:true,force:true});
+  }
+});
+
+test('Legacy rollback diagnostic unavailability is an explicit fixed enum',()=>{
+  const secret='legacy fixture account@example.test private-project token';
+  const result=finalizeDeploymentFailure(
+    deploymentFailureDiagnostic('firebase-deploy',{code:1,stderr:'opaque '+secret}),
+    true,
+    {firebaseCliRequestDiagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'}
+  );
+  assert.equal(result.firebaseCliRequestDiagnosticsUnavailable,'LEGACY_ROLLBACK_COMPATIBILITY');
+  assert.equal(JSON.stringify(result).includes(secret),false);
+  assert.equal(JSON.stringify(result).includes('opaque'),false);
 });
