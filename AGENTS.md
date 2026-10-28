@@ -27,6 +27,14 @@ The workflow classifies changed paths conservatively. Initial hosted, recovery, 
 
 No new sensitive authority, unapproved audience/publication, service commitment or spending beyond existing approval. Existing provider/amount approvals do not need renewing for routine operations. No model, reasoning-level, usage or execution-mode gates, or retired autonomous-advancement protocol.
 
+### Initial launch execution focus
+
+Until the private app is verified live, prioritise demonstrated hosted-provider blockers, independent encrypted recovery and genuine two-iPhone acceptance over speculative hardening or more diagnostic infrastructure. For a failed hosted operation, inspect authoritative provider state and existing sanitised evidence, identify the failing operation, make the smallest safe correction and rerun the affected check. Add new diagnostics only when current evidence cannot distinguish the remaining causes.
+
+Advance independent owner-authorised work in parallel rather than stopping at a single blocker. Reuse prior provider configuration, approvals and acceptance evidence; fix confirmed usability regressions before physical iPhone acceptance. Keep temporary diagnostic probes and release holds only while needed, then retire them safely. Do not weaken privacy, access-control, backup, rollback or initial acceptance safeguards for speed.
+
+Update the existing milestone issues with meaningful findings and concrete next actions; avoid repetitive status-only reporting. Judge launch progress by hosted recovery, security, device and live-release evidence, not by the number of merged PRs.
+
 ## Maintenance
 
 Reuse working code and suitable licensed maintained components. Keep adapters thin and only at real external boundaries. Significant new dependencies/providers need a short PR rationale covering alternatives, licence/privacy, CAD cost and replacement; routine edits need no new architecture document. Do not add a service, framework, manual gate or recurring process without a concrete benefit, simpler alternative and retirement/reassessment condition proportionate to its maintenance.
