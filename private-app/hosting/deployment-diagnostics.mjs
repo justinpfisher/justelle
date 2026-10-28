@@ -188,12 +188,13 @@ function collectFirebaseCliPermissionCategories(value,candidates,evidence,{depth
     // A denial elsewhere in the same message is not evidence about this token.
     for(const permission of firebaseCliPermissionCategories.keys()){
       const escaped=permission.replaceAll('.','\\.');
+      const quotedPermission='[\\x22\\x27]?'+escaped+'[\\x22\\x27]?';
       const deniedAfter=new RegExp(
-        '(?:permission(?:\\s+name)?\\s+)?[\\x22\\x27]?'+escaped+'[\\x22\\x27]?\\s+(?:(?:is|was)\\s+)?(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)(?![a-z0-9_])',
+        '(^|[^a-z0-9_.])(?:permission(?:\\s+name)?\\s+)?'+quotedPermission+'\\s+(?:(?:is|was)\\s+)?(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)(?![a-z0-9_.])',
         'i'
       );
       const deniedBefore=new RegExp(
-        '(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)\\s+(?:permission(?:\\s+name)?\\s+)?[\\x22\\x27]?'+escaped+'[\\x22\\x27]?(?![a-z0-9_])',
+        '(^|[^a-z0-9_.])(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)\\s+(?:permission(?:\\s+name)?\\s+)?'+quotedPermission+'(?![a-z0-9_.])',
         'i'
       );
       if(deniedAfter.test(value)||deniedBefore.test(value))candidates.add(permission);
