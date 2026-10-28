@@ -3,7 +3,7 @@ import {parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnost
 const phases=new Set([
   'config-read','config-parse','config-validation','source-revision',
   'runtime-config-write','target-config-write','root-dependencies',
-  'functions-dependencies','app-build','deployment-config-stage',
+  'functions-dependencies','app-build','deployment-config-stage','functions-package',
   'deployment-config-cleanup','firebase-deploy','rollback-source-checkout',
   'release-precheck','release-state-read','release-state-write',
   'release-or-qualification-drill','hosted-smoke-check','qualification-shutdown-check',
@@ -302,6 +302,23 @@ function providerCode(error){
   return 'UNCLASSIFIED_FAILURE';
 }
 
+function localCommandCode(error){
+  if(error?.code==='ERR_CHILD_PROCESS_STDIO_MAXBUFFER')return 'LOCAL_OUTPUT_LIMIT';
+  if(error?.code==='ENOENT')return 'LOCAL_TOOL_OR_FILE_MISSING';
+  if(error?.code==='EACCES'||error?.code==='EPERM')return 'LOCAL_ACCESS_DENIED';
+  if(error instanceof SyntaxError)return 'CONFIG_INVALID';
+  if(Number.isInteger(error?.code))return 'LOCAL_COMMAND_FAILED';
+  return 'UNCLASSIFIED_FAILURE';
+}
+
+function functionsPackageFailureDetail(error){
+  const details=[error?.message,error?.stderr,error?.stdout].map(textOf).join('\n').toUpperCase();
+  if(/FUNCTIONS PACKAGE STILL REFERS TO FILES OUTSIDE THE DEPLOYMENT PACKAGE/.test(details))return 'FUNCTIONS_PACKAGE_BOUNDARY_FAILED';
+  if(/(?:CANNOT FIND (?:MODULE|PACKAGE)|MODULE NOT FOUND).{0,100}\bESBUILD\b|\bESBUILD\b.{0,100}\b(?:MISSING|NOT FOUND)\b/.test(details))return 'FUNCTIONS_PACKAGE_DEPENDENCY_MISSING';
+  if(/\b(?:BUILD FAILED|TRANSFORM FAILED)\b|\bESBUILD\b.{0,100}\b(?:FAILED|ERROR)\b/.test(details))return 'FUNCTIONS_PACKAGE_BUILD_FAILED';
+  if(/FATAL: (?:NOT A GIT REPOSITORY|AMBIGUOUS ARGUMENT .HEAD.)/.test(details))return 'FUNCTIONS_PACKAGE_SOURCE_REVISION_FAILED';
+  return 'FUNCTIONS_PACKAGE_FAILURE_UNCLASSIFIED';
+}
 function firebaseDeployDetail(error){
   const details=[error?.message,error?.stderr,error?.stdout].map(textOf).join('\n').toUpperCase();
   if(/(?:SERVICE_DISABLED|API.{0,100}(?:NOT ENABLED|DISABLED)|SERVICE.{0,100}NOT ENABLED)/.test(details))return 'FIREBASE_API_DISABLED';
@@ -334,8 +351,9 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
   return {
     event:'justelle-deployment-failed',
     phase:safePhase,
-    code:providerCode(error),
-    ...(safePhase==='firebase-deploy'?{detail:firebaseDeployDetail(error)}:{}),
+    code:safePhase==='functions-package'?localCommandCode(error):providerCode(error),
+    ...(safePhase==='firebase-deploy'?{detail:firebaseDeployDetail(error)}:
+      safePhase==='functions-package'?{detail:functionsPackageFailureDetail(error)}:{}),
     providerStateNeedsReconciliation:Boolean(providerMutationMayHaveStarted),
     ...(safePhase==='firebase-deploy'?{
       firebaseCliOutputShape:firebaseCliOutputShape(error),

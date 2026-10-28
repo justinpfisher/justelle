@@ -48,6 +48,9 @@ try{
     await atPhase('app-build',()=>npm(['run','build'],directory));
     const stagedConfig=await atPhase('deployment-config-stage',()=>stageFirebaseDeploymentConfig({appDirectory:directory,configName,projectId:config.projectId}));
     try{
+      // Run the same local bundle builder as Firebase's predeploy hook first,
+      // so package failures are reported before any provider request.
+      await atPhase('functions-package',()=>npm(['run','package:functions'],directory));
       await atPhase('firebase-deploy',async()=>{
         const invocation=await buildFirebaseCliInvocation({
           directory,
