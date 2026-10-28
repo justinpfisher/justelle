@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {hostedQualificationPolicy} from './hosted-qualification-policy.mjs';
+import {hostedQualificationPolicy,firebaseStorageProbePolicy} from './hosted-qualification-policy.mjs';
 
 const workflow=readFileSync(new URL('../.github/workflows/justelle-private-app.yml',import.meta.url),'utf8');
 const job=(id)=>{
@@ -30,9 +30,9 @@ test('manual one-run qualification input is opt-in and restricted to main',()=>{
   assert.doesNotMatch(job('production-release'),/inputs\.qualify_once|workflow_dispatch/);
 });
 
-test('production guard remains byte-for-byte unchanged while manual qualification is held',()=>{
+test('production guard remains ineligible for a read-only probe and retains its existing acceptance conditions',()=>{
   const release=job('production-release');
-  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
+  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*inputs\.storage_probe_once != true &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
   assert.doesNotMatch(release,/qualify_once|workflow_dispatch/);
 });
 
@@ -110,4 +110,60 @@ test('pull requests keep source checks but never report a release hold or run pr
   assert.deepEqual(hostedQualificationPolicy({event:'pull_request',hold:'true',hostedConfigured:'true',
     initialAcceptance:'',qualificationResult:'skipped'}),
   {qualification:'skipped',holdReport:'not-applicable',production:'skipped'});
+});
+
+test('Storage metadata probe is opt-in, main-only, held-only and separate from deployment jobs',()=>{
+  assert.match(workflow,/storage_probe_once:\s*\n\s+description: Run one read-only Firebase Storage default-bucket metadata probe from main while qualification remains held\s*\n\s+type: boolean\s*\n\s+required: false\s*\n\s+default: false/);
+  const probe=job('firebase-storage-default-bucket-probe');
+  assert.match(probe,/github\.event_name == 'workflow_dispatch'/);
+  assert.match(probe,/github\.ref == 'refs\/heads\/main'/);
+  assert.match(probe,/inputs\.storage_probe_once == true/);
+  assert.match(probe,/inputs\.qualify_once != true/);
+  assert.match(probe,/vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true'/);
+  assert.match(probe,/environment: justelle-qualification/);
+  assert.match(probe,/id-token:\s*write/);
+  assert.match(probe,/secrets\.JUSTELLE_WIF_PROVIDER/);
+  assert.match(probe,/secrets\.JUSTELLE_DEPLOY_SERVICE_ACCOUNT/);
+  assert.doesNotMatch(probe,/JUSTELLE_DEPLOY_CONFIG|JUSTELLE_BACKUP_CONFIG|hosting\/deploy\.mjs|accept-hosted\.mjs|gcloud secrets/);
+  assert.match(job('hosted-qualification'),/inputs\.storage_probe_once != true/);
+  assert.match(job('production-release'),/inputs\.storage_probe_once != true/);
+});
+
+test('read-only probe model allows only a held main workflow dispatch after source prerequisites',()=>{
+  const common={event:'workflow_dispatch',branch:'main',storageProbeOnce:true,hold:'true',
+    hostedConfigured:'true',privatePilot:'success',windowsPreview:'skipped'};
+  assert.equal(firebaseStorageProbePolicy(common),'run');
+  assert.deepEqual(hostedQualificationPolicy({...common,qualifyOnce:false,initialAcceptance:'verified',
+    hostedChanges:false,qualificationResult:'skipped'}),{
+      qualification:'skipped',holdReport:'held',production:'skipped'
+    });
+});
+
+test('probe cannot run on PR, another ref, without hold/configuration/prerequisites, or alongside deployment',()=>{
+  const common={event:'workflow_dispatch',branch:'main',storageProbeOnce:true,hold:'true',
+    hostedConfigured:'true',privatePilot:'success',windowsPreview:'skipped'};
+  for(const overrides of [
+    {event:'pull_request'},
+    {branch:'feature'},
+    {hold:'false'},
+    {hostedConfigured:'false'},
+    {privatePilot:'failure'},
+    {windowsPreview:'failure'},
+    {qualifyOnce:true}
+  ])assert.equal(firebaseStorageProbePolicy({...common,...overrides}),'skipped');
+  const both={...common,qualifyOnce:true,initialAcceptance:'',qualificationResult:'success'};
+  assert.deepEqual(hostedQualificationPolicy(both),{
+    qualification:'skipped',holdReport:'held',production:'skipped'
+  });
+});
+
+
+test('probe selector cannot qualify or release when the persistent hold is false',()=>{
+  const input={event:'workflow_dispatch',branch:'main',storageProbeOnce:true,qualifyOnce:false,hold:'false',
+    hostedConfigured:'true',initialAcceptance:'verified',hostedChanges:true,privatePilot:'success',
+    windowsPreview:'skipped',qualificationResult:'success'};
+  assert.equal(firebaseStorageProbePolicy(input),'skipped');
+  assert.deepEqual(hostedQualificationPolicy(input),{
+    qualification:'skipped',holdReport:'not-applicable',production:'skipped'
+  });
 });
