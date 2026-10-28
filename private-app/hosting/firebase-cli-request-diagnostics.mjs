@@ -125,8 +125,8 @@ export function installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnost
 
 export function parseFirebaseCliRequestDiagnostics(stderr,nonce){
   const result={events:[],truncated:false};
-  if(!/^[a-f0-9]{32}$/.test(nonce??'')||typeof stderr!=='string')return result;
-  const bounded=stderr.slice(-maxDiagnosticStderrBytes);
+  if(!/^[a-f0-9]{32}$/.test(nonce??'')||!(typeof stderr==='string'||Buffer.isBuffer(stderr)))return result;
+  const bounded=(Buffer.isBuffer(stderr)?stderr.toString('utf8'):stderr).slice(-maxDiagnosticStderrBytes);
   const marker=requestDiagnosticPrefix+nonce+':';
   for(const line of bounded.split(/\r?\n/)){
     if(!line.startsWith(marker))continue;
