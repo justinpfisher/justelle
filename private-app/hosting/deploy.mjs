@@ -1,4 +1,5 @@
 import {readFile,writeFile,mkdtemp,rm,appendFile} from 'node:fs/promises';
+import {randomBytes} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -13,15 +14,16 @@ import {stageFirebaseDeploymentConfig} from './firebase-deployment-config.mjs';
 import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from './deployment-diagnostics.mjs';
+import {parseFirebaseCliRequestDiagnostics,pinnedFirebaseToolsVersion} from './firebase-cli-request-diagnostics.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const [configPath,command='production',previousSha]=process.argv.slice(2);
 const failureRecorder=createDeploymentFailureRecorder();
-let failurePhase='config-read',providerMutationMayHaveStarted=false;
+let failurePhase='config-read',providerMutationMayHaveStarted=false,firebaseCliRequestNonce;
 try{
   async function atPhase(phase,action){
     failurePhase=phase;
     try{return await action();}
-    catch(error){failureRecorder.capture(phase,error,{providerMutationMayHaveStarted});throw error;}
+    catch(error){failureRecorder.capture(phase,error,{providerMutationMayHaveStarted,firebaseCliRequestNonce});throw error;}
   }
   const configText=await readFile(configPath,'utf8');
   failurePhase='config-parse';
@@ -46,11 +48,16 @@ try{
     await atPhase('app-build',()=>npm(['run','build'],directory));
     const stagedConfig=await atPhase('deployment-config-stage',()=>stageFirebaseDeploymentConfig({appDirectory:directory,configName,projectId:config.projectId}));
     try{
-      await atPhase('firebase-deploy',()=>{
+      await atPhase('firebase-deploy',async()=>{
+        const cliPackage=JSON.parse(await readFile(join(directory,'node_modules/firebase-tools/package.json'),'utf8'));
+        if(cliPackage.version!==pinnedFirebaseToolsVersion)throw new Error('Unsupported Firebase CLI version for safe request diagnostics');
+        firebaseCliRequestNonce=randomBytes(16).toString('hex');
+        const cliEnv={...env,JUSTELLE_FIREBASE_SAFE_DIAG_NONCE:firebaseCliRequestNonce};
         providerMutationMayHaveStarted=true;
-        return run(process.execPath,[join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive','--json',
+        return run(process.execPath,['--import',join(directory,'hosting/firebase-cli-request-diagnostics.mjs'),
+          join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive','--json',
           '--project',config.projectId,'--config',stagedConfig.path,
-          '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env,maxBuffer:8*1024*1024});
+          '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env:cliEnv,maxBuffer:8*1024*1024});
       });
     }finally{
       await atPhase('deployment-config-cleanup',()=>stagedConfig.cleanup());
