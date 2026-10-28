@@ -202,7 +202,7 @@ const safeTerminalErrorCodes=new Set([
   'EACCES','EAI_AGAIN','ECONNREFUSED','ECONNRESET','ENOENT','ENOTFOUND','ETIMEDOUT',
   'ERR_INVALID_ARG_TYPE','ERR_MODULE_NOT_FOUND','ERR_PACKAGE_PATH_NOT_EXPORTED','ERR_REQUIRE_ESM',
   'API_DISABLED','FAILED_PRECONDITION','INTERNAL','INVALID_ARGUMENT','NOT_FOUND',
-  'PERMISSION_DENIED','RESOURCE_EXHAUSTED','UNAUTHENTICATED','UNAVAILABLE'
+  'PERMISSION_DENIED','RESOURCE_EXHAUSTED','UNAUTHENTICATED','UNAVAILABLE','MODULE_NOT_FOUND'
 ]);
 const safeMessageTemplates=[
   ['CLI_UNEXPECTED_WRAPPER',/^An unexpected error has occurred\.?$/i],
@@ -210,10 +210,11 @@ const safeMessageTemplates=[
   ['API_DISABLED',/service.?disabled|api.{0,80}(not enabled|disabled)|enable.{0,40}api/i],
   ['AUTHENTICATION_FAILED',/unauthenticated|invalid grant|no credentials|not logged in/i],
   ['QUOTA_EXCEEDED',/resource exhausted|quota.{0,40}exceeded|rate limit/i],
+  ['MODULE_RESOLUTION',/cannot find (?:package|module)|module not found|package path not exported/i],
+  ['FUNCTIONS_DISCOVERY_FAILURE',/failed to load function definition from source|user code failed to load\. cannot determine backend specification|discovery process failed/i],
   ['RESOURCE_NOT_FOUND',/not found|does not exist|no such file or directory/i],
   ['INVALID_ARGUMENT',/invalid argument|bad request|malformed/i],
   ['NETWORK_FAILURE',/getaddrinfo|network|socket|connection (?:refused|reset|timed out)|timed out/i],
-  ['MODULE_RESOLUTION',/cannot find (?:package|module)|module not found|package path not exported/i],
   ['CONFIGURATION_FAILURE',/config(?:uration)? (?:is )?(?:invalid|missing|malformed)|failed to parse/i],
   ['BUILD_OR_PACKAGE_FAILURE',/build failed|package(?:ing)? failed|predeploy.*failed/i]
 ];
@@ -295,26 +296,33 @@ export function parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce){
   let value;
   try{value=JSON.parse(lines[0].slice(marker.length));}catch{return null;}
   if(!value||typeof value!=='object'||Array.isArray(value))return null;
-  if(!value.terminalError||typeof value.terminalError!=='object'||Array.isArray(value.terminalError)||
-    Object.keys(value.terminalError).sort().join(',')!=='nodes,truncated'||
-    !Array.isArray(value.terminalError.nodes)||value.terminalError.nodes.length>5||
-    typeof value.terminalError.truncated!=='boolean')return null;
-  for(const node of value.terminalError.nodes){
-    if(!node||typeof node!=='object'||Array.isArray(node)||
-      !['code','kind','messageTemplate','name'].every(key=>Object.hasOwn(node,key))||
-      Object.keys(node).some(key=>!['code','kind','messageTemplate','name','httpStatus'].includes(key))||
-      !['ERROR','MESSAGE_OBJECT','OBJECT','OTHER','STRING'].includes(node.kind)||
-      !['NONE',...safeTerminalErrorNames.values(),'OTHER'].includes(node.name)||
-      !['NONE','OTHER',...safeTerminalErrorCodes].includes(node.code)||
-      !safeMessageTemplateCategories.has(node.messageTemplate)||
-      (node.httpStatus!==undefined&&(!Number.isInteger(node.httpStatus)||node.httpStatus<400||node.httpStatus>599)))return null;
+  const hasTerminalError=Object.hasOwn(value,'terminalError');
+  if(hasTerminalError){
+    if(!value.terminalError||typeof value.terminalError!=='object'||Array.isArray(value.terminalError)||
+      Object.keys(value.terminalError).sort().join(',')!=='nodes,truncated'||
+      !Array.isArray(value.terminalError.nodes)||value.terminalError.nodes.length>5||
+      typeof value.terminalError.truncated!=='boolean')return null;
+    for(const node of value.terminalError.nodes){
+      if(!node||typeof node!=='object'||Array.isArray(node)||
+        !['code','kind','messageTemplate','name'].every(key=>Object.hasOwn(node,key))||
+        Object.keys(node).some(key=>!['code','kind','messageTemplate','name','httpStatus'].includes(key))||
+        !['ERROR','MESSAGE_OBJECT','OBJECT','OTHER','STRING'].includes(node.kind)||
+        !['NONE',...safeTerminalErrorNames.values(),'OTHER'].includes(node.name)||
+        !['NONE','OTHER',...safeTerminalErrorCodes].includes(node.code)||
+        !safeMessageTemplateCategories.has(node.messageTemplate)||
+        (node.httpStatus!==undefined&&(!Number.isInteger(node.httpStatus)||node.httpStatus<400||node.httpStatus>599)))return null;
+    }
   }
   const status=value.terminalRequestStatus;
   if(status==='NO_REQUEST_CONTEXT'||status==='AMBIGUOUS_REQUEST'){
-    return Object.keys(value).sort().join(',')==='terminalError,terminalRequestStatus'?value:null;
+    const expected=hasTerminalError?'terminalError,terminalRequestStatus':'terminalRequestStatus';
+    return Object.keys(value).sort().join(',')===expected?value:null;
   }
   const keys=Object.keys(value).sort().join(',');
-  if(keys!=='httpStatus,methodCategory,operationCategory,permissionCategory,serviceCategory,terminalError,terminalRequestStatus'||
+  const expected=hasTerminalError
+    ?'httpStatus,methodCategory,operationCategory,permissionCategory,serviceCategory,terminalError,terminalRequestStatus'
+    :'httpStatus,methodCategory,operationCategory,permissionCategory,serviceCategory,terminalRequestStatus';
+  if(keys!==expected||
     status!=='MATCHED'||!serviceCategories.has(value.serviceCategory)||
     !methodCategories.has(value.methodCategory)||!operationCategories.has(value.operationCategory)||
     !permissionCategories.has(value.permissionCategory)||!Number.isInteger(value.httpStatus)||

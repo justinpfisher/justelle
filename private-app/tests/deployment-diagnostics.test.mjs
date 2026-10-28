@@ -692,6 +692,40 @@ test('terminal diagnostic distinguishes plain strings and message-only objects w
   assert.equal(JSON.stringify(parsed).includes('private-code'),false);
 });
 
+test('terminal message templates classify Firebase Functions discovery and module errors without dynamic text',()=>{
+  const nonce='c'.repeat(32),captured=[];
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:class SyntheticClient{async doRequest(){}},errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  const messages=[
+    ['Failed to load function definition from source: C:\\private\\function\\index.js project private-project token=secret-value','FUNCTIONS_DISCOVERY_FAILURE','NONE'],
+    ['User code failed to load. Cannot determine backend specification. owner@example.test https://private.example/?key=secret-value','FUNCTIONS_DISCOVERY_FAILURE','NONE'],
+    ['Discovery process failed: private-project secret=private-value','FUNCTIONS_DISCOVERY_FAILURE','NONE'],
+    ['Cannot find package private-package from C:\\private\\function\\index.js','MODULE_RESOLUTION','MODULE_NOT_FOUND'],
+    ['Module not found: private-module at /home/private/project','MODULE_RESOLUTION','MODULE_NOT_FOUND']
+  ];
+  for(const [message,messageTemplate,code] of messages){
+    captured.length=0;
+    const error=new Error(message);
+    if(code!=='NONE')error.code=code;
+    errorOutModule.errorOut(error);
+    const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+    assert.equal(parsed.terminalError.nodes[0].messageTemplate,messageTemplate);
+    assert.equal(parsed.terminalError.nodes[0].code,code);
+    for(const secret of ['private-project','private-package','private-module','owner@example.test','private.example','secret-value','private-value','C:\\private\\function\\index.js','/home/private/project']){
+      assert.equal(JSON.stringify(parsed).includes(secret),false);
+    }
+  }
+});
+
+test('terminal parser retains compatibility with prior bounded request records',()=>{
+  const nonce='e'.repeat(32),prefix='JUSTELLE_SAFE_TERMINAL_DIAG:'+nonce+':';
+  const legacy={terminalRequestStatus:'MATCHED',serviceCategory:'CLOUD_FUNCTIONS',methodCategory:'POST',
+    operationCategory:'SET_IAM_POLICY',httpStatus:403,permissionCategory:'cloudfunctions.functions.setiampolicy'};
+  assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(prefix+JSON.stringify(legacy),nonce),legacy);
+  assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(prefix+'{"terminalRequestStatus":"NO_REQUEST_CONTEXT"}',nonce),
+    {terminalRequestStatus:'NO_REQUEST_CONTEXT'});
+});
+
 
 test('Rollback diagnostics fall back for legacy CLI checkouts while forward deployment stays strict',async()=>{
   const temp=await mkdtemp(join(tmpdir(),'justelle-cli-rollback-'));
