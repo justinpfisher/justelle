@@ -4,6 +4,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      qualify_once:
+        description: Run one hosted fictional qualification from main while the persistent hold remains active
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +42,12 @@ jobs:
     needs: [changes, private-pilot, windows-preview]
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
-      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true'
+      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
+      !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+        inputs.qualify_once == true && vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
+        needs.private-pilot.result == 'success' &&
+        (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped') &&
+        (vars.JUSTELLE_INITIAL_ACCEPTANCE != 'verified' || needs.changes.outputs.hosted == 'true'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -120,7 +131,8 @@ jobs:
     needs: [changes, private-pilot, windows-preview]
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
-      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&
+      (vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' ||
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.qualify_once == true)) &&
       needs.private-pilot.result == 'success' &&
       (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped') &&
       vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
