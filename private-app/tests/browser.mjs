@@ -137,12 +137,12 @@ try{
     ])assert.equal(await page.locator('#'+id).inputValue(),defaultValue,
       'fresh member session must retain the '+id+' default');
   }
-  await A.locator('#planner-title').fill('Fictional default-value check');
-  assert.equal(await A.locator('#planner-create').evaluate(form=>form.checkValidity()),true,
-    'a title alone must be valid with the ordinary default duration');
   // M1 iPhone-sized journey slice: direct member edits, realtime visibility, Undo.
   await A.locator('[data-tab="adventures"]').click();
   await B.locator('[data-tab="adventures"]').click();
+  await A.locator('#planner-title').fill('Fictional default-value check');
+  assert.equal(await A.locator('#planner-create').evaluate(form=>form.checkValidity()),true,
+    'a title alone must be valid with the ordinary default duration');
   await A.locator('#planner-title').fill('Fictional Shared Coast');
   await A.locator('#planner-date').fill('2026-11-01');
   await A.locator('#planner-days').fill('10');
