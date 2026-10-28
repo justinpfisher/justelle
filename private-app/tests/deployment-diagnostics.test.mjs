@@ -53,6 +53,7 @@ test('First failure phase and category survive later rollback or shutdown errors
   assert.deepEqual(recorder.first,{
     event:'justelle-deployment-failed',phase:'firebase-deploy',code:'PROVIDER_PERMISSION',detail:'FIREBASE_PERMISSION_DENIED',
     providerStateNeedsReconciliation:true,firebaseCliOutputShape:'empty',firebaseCliErrorCategory:'UNKNOWN',
+    firebaseCliServiceCategory:'UNKNOWN',firebaseCliPermissionCategory:'UNKNOWN',
     firebaseCliProcessOutcome:'exit-code',stdoutPresent:false,stderrPresent:true,exitCode:1
   });
   assert.equal(JSON.stringify(recorder.first).includes('private-password-value'),false);
@@ -111,6 +112,8 @@ test('Firebase CLI JSON errors expose only a safe envelope and process summary',
   assert.equal(result.code,'PROVIDER_PERMISSION');
   assert.equal(result.detail,'FIREBASE_PERMISSION_DENIED');
   assert.equal(result.firebaseCliErrorCategory,'PERMISSION_DENIED');
+  assert.equal(result.firebaseCliServiceCategory,'UNKNOWN');
+  assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
   assert.equal(result.firebaseCliOutputShape,'json-error');
   assert.equal(result.firebaseCliProcessOutcome,'exit-code');
   assert.equal(result.stdoutPresent,true);
@@ -143,9 +146,11 @@ test('Firebase CLI JSON error classifier emits only allowlisted service and perm
   });
   assert.equal(result.firebaseCliOutputShape,'json-error');
   assert.equal(result.firebaseCliErrorCategory,'SERVICE_USAGE_PERMISSION_DENIED');
+  assert.equal(result.firebaseCliServiceCategory,'SERVICE_USAGE');
+  assert.equal(result.firebaseCliPermissionCategory,'serviceusage.services.use');
   const serialized=JSON.stringify(result);
   for(const secret of secrets)assert.equal(serialized.includes(secret),false);
-  assert.equal(serialized.includes('serviceusage.services.use'),false);
+  assert.equal(serialized.includes('serviceusage.services.use'),true);
   assert.equal(serialized.includes('PERMISSION_DENIED on'),false);
 });
 
@@ -158,6 +163,8 @@ test('Firebase CLI JSON error classifier returns unknown for malformed or unreco
   ]){
     const result=deploymentFailureDiagnostic('firebase-deploy',{code:1,stdout,stderr:''});
     assert.equal(result.firebaseCliErrorCategory,'UNKNOWN');
+    assert.equal(result.firebaseCliServiceCategory,'UNKNOWN');
+    assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
     const serialized=JSON.stringify(result);
     assert.equal(serialized.includes(secret),false);
     assert.equal(serialized.includes('private-id'),false);
@@ -177,6 +184,8 @@ test('Firebase CLI JSON error classifier maps service-disabled errors to a fixed
     stderr:''
   });
   assert.equal(result.firebaseCliErrorCategory,'EVENTARC_API_DISABLED');
+  assert.equal(result.firebaseCliServiceCategory,'EVENTARC');
+  assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
   const serialized=JSON.stringify(result);
   assert.equal(serialized.includes(secret),false);
   assert.equal(serialized.includes('eventarc.googleapis.com'),false);
@@ -186,18 +195,126 @@ test('Firebase CLI JSON error classifier avoids guessing when an error names mul
   const secret='account@example.test private-project-456 token-secret';
   for(const [message,expected] of [
     [`PERMISSION_DENIED from serviceusage.googleapis.com and cloudscheduler.googleapis.com ${secret}`,'PERMISSION_DENIED'],
-    [`SERVICE_DISABLED for eventarc.googleapis.com and pubsub.googleapis.com ${secret}`,'API_DISABLED']
+    [`SERVICE_DISABLED for eventarc.googleapis.com and pubsub.googleapis.com ${secret}`,'API_DISABLED'],
+    [`firebasestorage.googleapis.com and storage.googleapis.com both returned PERMISSION_DENIED ${secret}`,'PERMISSION_DENIED']
   ]){
     const result=deploymentFailureDiagnostic('firebase-deploy',{
       code:1,stdout:JSON.stringify({status:'error',error:{message}}),stderr:''
     });
     assert.equal(result.firebaseCliErrorCategory,expected);
+    assert.equal(result.firebaseCliServiceCategory,'AMBIGUOUS');
+    assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
     const serialized=JSON.stringify(result);
     assert.equal(serialized.includes(secret),false);
     assert.equal(serialized.includes('serviceusage.googleapis.com'),false);
     assert.equal(serialized.includes('cloudscheduler.googleapis.com'),false);
     assert.equal(serialized.includes('eventarc.googleapis.com'),false);
     assert.equal(serialized.includes('pubsub.googleapis.com'),false);
+  }
+});
+
+
+test('Firebase CLI identifies a Firebase Extensions denial without publishing raw error details',()=>{
+  const privateFixture='fixture-password private.person@example.test projects/secret-project ya29.fake-token';
+  const result=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({
+      status:'error',
+      error:{
+        code:403,
+        status:'PERMISSION_DENIED',
+        message:'permission firebaseextensions.instances.list denied for '+privateFixture,
+        details:[{serviceName:'firebaseextensions.googleapis.com',methodName:'google.firebase.extensions.v1beta.Extensions.ListInstances'}]
+      }
+    }),stderr:''
+  });
+  assert.equal(result.firebaseCliErrorCategory,'FIREBASE_EXTENSIONS_PERMISSION_DENIED');
+  assert.equal(result.firebaseCliServiceCategory,'FIREBASE_EXTENSIONS');
+  assert.equal(result.firebaseCliPermissionCategory,'firebaseextensions.instances.list');
+  const serialized=JSON.stringify(result);
+  for(const secret of [privateFixture,'firebaseextensions.googleapis.com','google.firebase.extensions.v1beta.Extensions.ListInstances']){
+    assert.equal(serialized.includes(secret),false);
+  }
+});
+
+test('Firebase CLI identifies Firebase Storage metadata denial and its allowlisted permission',()=>{
+  const privateFixture='fixture-password private.person@example.test projects/secret-project ya29.fake-token';
+  const result=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({
+      status:'error',
+      error:{
+        code:403,
+        status:'PERMISSION_DENIED',
+        details:[{serviceName:'firebasestorage.googleapis.com',permission:'firebasestorage.defaultBucket.get'}],
+        message:'PERMISSION_DENIED '+privateFixture
+      }
+    }),stderr:''
+  });
+  assert.equal(result.firebaseCliErrorCategory,'FIREBASE_STORAGE_PERMISSION_DENIED');
+  assert.equal(result.firebaseCliServiceCategory,'FIREBASE_STORAGE');
+  assert.equal(result.firebaseCliPermissionCategory,'firebasestorage.defaultbucket.get');
+  const serialized=JSON.stringify(result);
+  for(const secret of [privateFixture,'firebasestorage.googleapis.com','firebasestorage.defaultBucket.get']){
+    assert.equal(serialized.includes(secret),false);
+  }
+});
+
+test('Firebase CLI ties prose denials to complete permission tokens',()=>{
+  const secret='private.person@example.test projects/private-project ya29.fixture-token';
+  for(const message of [
+    `serviceusage.services.use was granted; unknown.permission denied ${secret}`,
+    `notserviceusage.services.use denied ${secret}`,
+    `denied permission serviceusage.services.use.extra ${secret}`
+  ]){
+    const result=deploymentFailureDiagnostic('firebase-deploy',{
+      code:1,stdout:JSON.stringify({
+        status:'error',
+        error:{status:'PERMISSION_DENIED',message}
+      }),stderr:''
+    });
+    assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
+    const serialized=JSON.stringify(result);
+    assert.equal(serialized.includes('serviceusage.services.use'),false);
+    assert.equal(serialized.includes('private.person@example.test'),false);
+    assert.equal(serialized.includes('private-project'),false);
+    assert.equal(serialized.includes('ya29'),false);
+    assert.equal(serialized.includes('unknown.permission'),false);
+    assert.equal(serialized.includes('notserviceusage'),false);
+  }
+});
+
+test('Firebase CLI fails closed on unknown and ambiguous nested permission fields',()=>{
+  const privateFixture='private.person@example.test projects/secret-project ya29.fake-token';
+  const ambiguous=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({
+      status:'error',error:{status:'PERMISSION_DENIED',details:[
+        {serviceName:'firebasestorage.googleapis.com',permission:'firebasestorage.defaultBucket.get'},
+        {serviceName:'firebaseextensions.googleapis.com',permission:'firebaseextensions.instances.list'}
+      ],message:privateFixture}
+    }),stderr:''
+  });
+  assert.equal(ambiguous.firebaseCliServiceCategory,'AMBIGUOUS');
+  assert.equal(ambiguous.firebaseCliPermissionCategory,'AMBIGUOUS');
+  const unknown=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({
+      status:'error',
+      error:{status:'PERMISSION_DENIED',permission:'unlisted.privatePermission',message:'permission denied '+privateFixture}
+    }),stderr:''
+  });
+  const mixed=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,stdout:JSON.stringify({
+      status:'error',error:{status:'PERMISSION_DENIED',details:[
+        {permission:'firebasestorage.defaultBucket.get'},
+        {permission:'unlisted.privatePermission'}
+      ],message:privateFixture}
+    }),stderr:''
+  });
+  assert.equal(unknown.firebaseCliServiceCategory,'UNKNOWN');
+  assert.equal(unknown.firebaseCliPermissionCategory,'UNKNOWN');
+  assert.equal(mixed.firebaseCliPermissionCategory,'AMBIGUOUS');
+  for(const result of [ambiguous,unknown,mixed]){
+    const serialized=JSON.stringify(result);
+    assert.equal(serialized.includes(privateFixture),false);
+    assert.equal(serialized.includes('privatePermission'),false);
   }
 });
 

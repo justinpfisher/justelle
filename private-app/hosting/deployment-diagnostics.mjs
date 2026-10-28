@@ -16,15 +16,38 @@ const firebaseCliErrorCategories=new Set([
   'CLOUD_BUILD_PERMISSION_DENIED','EVENTARC_PERMISSION_DENIED',
   'PUBSUB_PERMISSION_DENIED','ARTIFACT_REGISTRY_PERMISSION_DENIED',
   'IDENTITY_PERMISSION_DENIED','STORAGE_PERMISSION_DENIED',
-  'FIREBASE_HOSTING_PERMISSION_DENIED',
+  'FIREBASE_HOSTING_PERMISSION_DENIED','FIREBASE_EXTENSIONS_PERMISSION_DENIED',
+  'FIREBASE_STORAGE_PERMISSION_DENIED','FIRESTORE_PERMISSION_DENIED',
   'SERVICE_USAGE_API_DISABLED','CLOUD_FUNCTIONS_API_DISABLED',
   'CLOUD_RUN_API_DISABLED','CLOUD_SCHEDULER_API_DISABLED',
   'CLOUD_BUILD_API_DISABLED','EVENTARC_API_DISABLED',
   'PUBSUB_API_DISABLED','ARTIFACT_REGISTRY_API_DISABLED',
-  'IDENTITY_API_DISABLED','STORAGE_API_DISABLED','FIREBASE_HOSTING_API_DISABLED'
+  'IDENTITY_API_DISABLED','STORAGE_API_DISABLED','FIREBASE_HOSTING_API_DISABLED',
+  'FIREBASE_EXTENSIONS_API_DISABLED','FIREBASE_STORAGE_API_DISABLED','FIRESTORE_API_DISABLED'
 ]);
 
+const firebaseCliPermissionCategories=new Map([
+  'firebaseextensions.instances.list',
+  'firebasestorage.defaultbucket.get',
+  'firestore.databases.get',
+  'cloudfunctions.functions.setiampolicy',
+  'run.services.setiampolicy',
+  'cloudscheduler.jobs.get',
+  'cloudscheduler.jobs.create',
+  'cloudscheduler.jobs.update',
+  'serviceusage.services.use',
+  'serviceusage.operations.get',
+  'cloudbuild.builds.create',
+  'iam.serviceaccounts.actas',
+  'firebasehosting.sites.get',
+  'firebaserules.rulesets.get',
+  'firebaserules.releases.get'
+].map(permission=>[permission,permission]));
+
 const firebaseCliServiceMarkers=[
+  ['FIREBASE_EXTENSIONS',['firebaseextensions.googleapis.com','firebaseextensions.']],
+  ['FIREBASE_STORAGE',['firebasestorage.googleapis.com','firebasestorage.']],
+  ['FIRESTORE',['firestore.googleapis.com','firestore.']],
   ['SERVICE_USAGE',['serviceusage.googleapis.com','serviceusage.']],
   ['CLOUD_FUNCTIONS',['cloudfunctions.googleapis.com','cloudfunctions.']],
   ['CLOUD_RUN',['run.googleapis.com','run.services.']],
@@ -40,7 +63,12 @@ const firebaseCliServiceMarkers=[
 
 const firebaseCliErrorTextFields=new Set([
   'error','message','details','status','reason','statusmessage','cause',
-  'code','permission','permissionname','service','servicename'
+  'code','permission','permissionname','requiredpermission','deniedpermission',
+  'service','servicename','method','methodname','operation','errorinfo',
+  'violations','metadata'
+]);
+const firebaseCliPermissionFields=new Set([
+  'permission','permissionname','requiredpermission','deniedpermission'
 ]);
 
 function textOf(value){
@@ -109,20 +137,110 @@ function collectFirebaseCliErrorText(value,parts,{depth=0}={}){
   }
 }
 
-// Inspect only a bounded Firebase JSON error in memory. Never return its text.
-function firebaseCliErrorCategory(error){
+
+function firebaseCliErrorParts(error){
+  if(firebaseCliOutputShape(error)!=='json-error')return [];
+  const stdout=error?.stdout;
+  const text=Buffer.isBuffer(stdout)?stdout.toString('utf8'):stdout;
+  let envelope;
+  try{envelope=JSON.parse(text.trim());}catch{return [];}
+  const parts=[];
+  collectFirebaseCliErrorText(envelope.error,parts);
+  return parts;
+}
+
+function matchesFirebaseCliServiceMarker(details,service,marker){
+  const normalized=marker.toUpperCase();
+  let index=details.indexOf(normalized);
+  while(index>=0){
+    const before=index===0||!/[A-Z0-9]/.test(details[index-1]);
+    const afterIndex=index+normalized.length;
+    const after=normalized.endsWith('.')||afterIndex===details.length||
+      !/[A-Z0-9.-]/.test(details[afterIndex]);
+    // "firebasestorage.googleapis.com" contains "storage.googleapis.com";
+    // require a true token boundary and continue past embedded matches.
+    if(before&&after)return true;
+    index=details.indexOf(normalized,index+1);
+  }
+  return false;
+}
+
+function firebaseCliServiceCategory(error){
+  const details=firebaseCliErrorParts(error).join('\n').toUpperCase();
+  if(!details)return 'UNKNOWN';
+  const matchingServices=firebaseCliServiceMarkers.filter(([service,markers])=>
+    markers.some(marker=>matchesFirebaseCliServiceMarker(details,service,marker))
+  );
+  if(matchingServices.length===1)return matchingServices[0][0];
+  return matchingServices.length>1?'AMBIGUOUS':'UNKNOWN';
+}
+
+function collectFirebaseCliPermissionCategories(value,candidates,evidence,{depth=0,key=''}={}){
+  if(depth>5||candidates.size>8)return;
+  if(typeof value==='string'){
+    const normalized=value.trim().toLowerCase();
+    if(firebaseCliPermissionFields.has(key.toLowerCase())){
+      if(firebaseCliPermissionCategories.has(normalized))candidates.add(normalized);
+      else if(normalized)evidence.unknown=true;
+      return;
+    }
+    // Require the denial to describe this exact allowlisted permission.
+    // A denial elsewhere in the same message is not evidence about this token.
+    for(const permission of firebaseCliPermissionCategories.keys()){
+      const escaped=permission.replaceAll('.','\\.');
+      const quotedPermission='[\\x22\\x27]?'+escaped+'[\\x22\\x27]?';
+      const deniedAfter=new RegExp(
+        '(^|[^a-z0-9_.])(?:permission(?:\\s+name)?\\s+)?'+quotedPermission+'\\s+(?:(?:is|was)\\s+)?(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)(?![a-z0-9_.])',
+        'i'
+      );
+      const deniedBefore=new RegExp(
+        '(^|[^a-z0-9_.])(?:denied|missing|not\\s+granted|not\\s+authorized|forbidden|required)\\s+(?:permission(?:\\s+name)?\\s+)?'+quotedPermission+'(?![a-z0-9_.])',
+        'i'
+      );
+      if(deniedAfter.test(value)||deniedBefore.test(value))candidates.add(permission);
+    }
+    return;
+  }
+  if(Array.isArray(value)){
+    for(const item of value.slice(0,16))collectFirebaseCliPermissionCategories(item,candidates,evidence,{depth:depth+1,key});
+    return;
+  }
+  if(value&&typeof value==='object'){
+    if(firebaseCliPermissionFields.has(key.toLowerCase())){
+      evidence.unknown=true;
+      return;
+    }
+    for(const [childKey,child] of Object.entries(value)){
+      const normalizedKey=childKey.toLowerCase();
+      if(firebaseCliErrorTextFields.has(normalizedKey)){
+        collectFirebaseCliPermissionCategories(child,candidates,evidence,{depth:depth+1,key:normalizedKey});
+      }
+    }
+  }
+}
+
+function firebaseCliPermissionCategory(error){
   if(firebaseCliOutputShape(error)!=='json-error')return 'UNKNOWN';
   const stdout=error?.stdout;
   const text=Buffer.isBuffer(stdout)?stdout.toString('utf8'):stdout;
   let envelope;
   try{envelope=JSON.parse(text.trim());}catch{return 'UNKNOWN';}
-  const parts=[];
-  collectFirebaseCliErrorText(envelope.error,parts);
-  const details=parts.join('\n').toUpperCase();
+  const candidates=new Set();
+  const evidence={unknown:false};
+  collectFirebaseCliPermissionCategories(envelope.error,candidates,evidence);
+  if(candidates.size>1||(evidence.unknown&&candidates.size>0))return 'AMBIGUOUS';
+  if(evidence.unknown||candidates.size===0)return 'UNKNOWN';
+  return [...candidates][0];
+}
+
+// Inspect only a bounded Firebase JSON error in memory. Never return its text.
+function firebaseCliErrorCategory(error){
+  if(firebaseCliOutputShape(error)!=='json-error')return 'UNKNOWN';
+  const details=firebaseCliErrorParts(error).join('\n').toUpperCase();
   if(!details)return 'UNKNOWN';
 
-  const matchingServices=firebaseCliServiceMarkers.filter(([,markers])=>
-    markers.some(marker=>details.includes(marker.toUpperCase()))
+  const matchingServices=firebaseCliServiceMarkers.filter(([service,markers])=>
+    markers.some(marker=>matchesFirebaseCliServiceMarker(details,service,marker))
   );
   // A generic error may mention several services. Do not attribute it to the
   // first marker when the provider output does not identify one unambiguously.
@@ -212,6 +330,8 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
     ...(safePhase==='firebase-deploy'?{
       firebaseCliOutputShape:firebaseCliOutputShape(error),
       firebaseCliErrorCategory:firebaseCliErrorCategory(error),
+      firebaseCliServiceCategory:firebaseCliServiceCategory(error),
+      firebaseCliPermissionCategory:firebaseCliPermissionCategory(error),
       firebaseCliProcessOutcome:firebaseCliProcessOutcome(error),
       stdoutPresent:hasCapturedText(error?.stdout),
       stderrPresent:hasCapturedText(error?.stderr)
