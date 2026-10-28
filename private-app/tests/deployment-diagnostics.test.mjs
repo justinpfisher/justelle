@@ -502,10 +502,10 @@ test('terminal CLI failure records only a uniquely correlated request from its c
     errorOutModule.errorOut(terminal);
     const stderr=captured.join('');
     const parsed=parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce);
-    assert.deepEqual(parsed,{
-      terminalRequestStatus:'MATCHED',serviceCategory:'SERVICE_USAGE',methodCategory:'GET',
-      operationCategory:'LIST_RESOURCES',httpStatus:403,permissionCategory:'serviceusage.services.use'
-    });
+    assert.equal(parsed.terminalRequestStatus,'MATCHED');
+    assert.equal(parsed.serviceCategory,'SERVICE_USAGE');
+    assert.equal(parsed.permissionCategory,'serviceusage.services.use');
+    assert.equal(parsed.terminalError.nodes[0].messageTemplate,'OTHER');
     const summary=deploymentFailureDiagnostic('firebase-deploy',{
       code:1,stdout:'{"status":"error","error":"opaque"}',stderr
     },{firebaseCliRequestNonce:nonce});
@@ -525,7 +525,8 @@ test('terminal CLI diagnostic does not attribute unrelated best-effort requests'
   return new SyntheticClient().doRequest({method:'GET',path:'/v1/config'}).catch(()=>{
     errorOutModule.errorOut(new Error('unrelated terminal failure'));
     const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
-    assert.deepEqual(parsed,{terminalRequestStatus:'NO_REQUEST_CONTEXT'});
+    assert.equal(parsed.terminalRequestStatus,'NO_REQUEST_CONTEXT');
+    assert.equal(parsed.terminalError.nodes[0].kind,'ERROR');
   });
 });
 
@@ -542,8 +543,9 @@ test('terminal diagnostic marks a cause chain truncated before uniqueness can be
     let nested=deep;
     for(let index=0;index<8;index++)nested={cause:nested};
     errorOutModule.errorOut({original:visible,cause:nested});
-    assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce),
-      {terminalRequestStatus:'AMBIGUOUS_REQUEST'});
+    const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+    assert.equal(parsed.terminalRequestStatus,'AMBIGUOUS_REQUEST');
+    assert.equal(parsed.terminalError.truncated,true);
   });
 });
 
@@ -597,8 +599,7 @@ test('terminal diagnostic fails closed for multiple correlated requests and forg
     client.doRequest({method:'POST',path:'/v1/b'}).catch(error=>error)
   ]).then(([first,second])=>{
     errorOutModule.errorOut({cause:first,original:second});
-    assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce),
-      {terminalRequestStatus:'AMBIGUOUS_REQUEST'});
+    assert.equal(parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce).terminalRequestStatus,'AMBIGUOUS_REQUEST');
     assert.equal(parseFirebaseCliTerminalErrorDiagnostic(
       'JUSTELLE_SAFE_TERMINAL_DIAG:'+nonce+':{"terminalRequestStatus":"MATCHED","url":"private"}',nonce),null);
   });
@@ -643,8 +644,52 @@ test('Node preload instruments the exact pinned Firebase CLI class before comman
   assert.deepEqual(parseFirebaseCliTerminalErrorDiagnostic(child.stderr,nonce),{
     terminalRequestStatus:'MATCHED',serviceCategory:'CLOUD_FUNCTIONS',methodCategory:'POST',
     operationCategory:'SET_IAM_POLICY',httpStatus:403,
-    permissionCategory:'cloudfunctions.functions.setiampolicy'
+    permissionCategory:'cloudfunctions.functions.setiampolicy',
+    terminalError:{nodes:[{kind:'ERROR',name:'FIREBASE_ERROR',code:'NONE',messageTemplate:'OTHER',httpStatus:403}],truncated:false}
   });
+});
+
+test('terminal failure captures only bounded error-shape enums and message templates',()=>{
+  const nonce='a'.repeat(32),captured=[];
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:class SyntheticClient{async doRequest(){}},errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  const privateText='project private-project, owner@example.test, https://secret.example/path?token=private-token, C:\\private\\config.json, password=hidden-value';
+  const wrapped=Object.assign(new Error('An unexpected error has occurred.'),{
+    name:'FirebaseError',
+    original:Object.assign(new Error(`Permission denied for ${privateText}`),{
+      code:'EACCES',status:403,token:'token-must-not-appear'
+    })
+  });
+  errorOutModule.errorOut(wrapped);
+  const parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+  assert.deepEqual(parsed,{
+    terminalRequestStatus:'NO_REQUEST_CONTEXT',
+    terminalError:{nodes:[
+      {kind:'ERROR',name:'FIREBASE_ERROR',code:'NONE',messageTemplate:'CLI_UNEXPECTED_WRAPPER'},
+      {kind:'ERROR',name:'ERROR',code:'EACCES',messageTemplate:'PERMISSION_DENIED',httpStatus:403}
+    ],truncated:false}
+  });
+  for(const secret of ['private-project','owner@example.test','secret.example','private-token','config.json','hidden-value','token-must-not-appear','Permission denied for']){
+    assert.equal(JSON.stringify(parsed).includes(secret),false);
+  }
+});
+
+test('terminal diagnostic distinguishes plain strings and message-only objects without emitting their text',()=>{
+  const nonce='d'.repeat(32),captured=[];
+  const errorOutModule={errorOut:error=>error};
+  installFirebaseCliRequestDiagnostics({Client:class SyntheticClient{async doRequest(){}},errorOutModule,nonce,writeDiagnostic:line=>captured.push(line)});
+  errorOutModule.errorOut('private-project owner@example.test token=secret-value');
+  let parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+  assert.equal(parsed.terminalError.nodes[0].kind,'STRING');
+  assert.equal(parsed.terminalError.nodes[0].messageTemplate,'OTHER');
+  assert.equal(JSON.stringify(parsed).includes('owner@example.test'),false);
+  captured.length=0;
+  errorOutModule.errorOut({message:'unclassified details from private customer',code:'private-code'});
+  parsed=parseFirebaseCliTerminalErrorDiagnostic(captured.join(''),nonce);
+  assert.equal(parsed.terminalError.nodes[0].kind,'MESSAGE_OBJECT');
+  assert.equal(parsed.terminalError.nodes[0].code,'OTHER');
+  assert.equal(JSON.stringify(parsed).includes('private customer'),false);
+  assert.equal(JSON.stringify(parsed).includes('private-code'),false);
 });
 
 
