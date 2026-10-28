@@ -33,6 +33,23 @@ const testSessionRaces=runtime.mode==='local'&&
         await wait;
         return result;
       };
+    },
+    installEarlierPageGate(){
+      if(!backend||typeof backend.readPage!=='function')throw Error('Local pagination is not ready');
+      const original=backend.readPage.bind(backend);
+      let release;
+      const wait=new Promise(resolve=>{release=resolve;});
+      const gate={fetched:false,release};
+      this.gates.earlierPage=gate;
+      let captureNext=true;
+      backend.readPage=async(...args)=>{
+        if(!captureNext)return original(...args);
+        captureNext=false;
+        const page=await original(...args);
+        gate.fetched=true;
+        await wait;
+        return page;
+      };
     }
   }):null;
 const app=initializeApp(runtime.firebase);
