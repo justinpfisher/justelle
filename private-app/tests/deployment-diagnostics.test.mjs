@@ -258,22 +258,28 @@ test('Firebase CLI identifies Firebase Storage metadata denial and its allowlist
   }
 });
 
-test('Firebase CLI does not attach a denial to a different permission in the same prose',()=>{
+test('Firebase CLI ties prose denials to complete permission tokens',()=>{
   const secret='private.person@example.test projects/private-project ya29.fixture-token';
-  const result=deploymentFailureDiagnostic('firebase-deploy',{
-    code:1,stdout:JSON.stringify({
-      status:'error',
-      error:{
-        status:'PERMISSION_DENIED',
-        message:`serviceusage.services.use was granted; unknown.permission denied ${secret}`
-      }
-    }),stderr:''
-  });
-  assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
-  const serialized=JSON.stringify(result);
-  assert.equal(serialized.includes('serviceusage.services.use'),false);
-  assert.equal(serialized.includes(secret),false);
-  assert.equal(serialized.includes('unknown.permission'),false);
+  for(const message of [
+    `serviceusage.services.use was granted; unknown.permission denied ${secret}`,
+    `notserviceusage.services.use denied ${secret}`,
+    `denied permission serviceusage.services.use.extra ${secret}`
+  ]){
+    const result=deploymentFailureDiagnostic('firebase-deploy',{
+      code:1,stdout:JSON.stringify({
+        status:'error',
+        error:{status:'PERMISSION_DENIED',message}
+      }),stderr:''
+    });
+    assert.equal(result.firebaseCliPermissionCategory,'UNKNOWN');
+    const serialized=JSON.stringify(result);
+    assert.equal(serialized.includes('serviceusage.services.use'),false);
+    assert.equal(serialized.includes('private.person@example.test'),false);
+    assert.equal(serialized.includes('private-project'),false);
+    assert.equal(serialized.includes('ya29'),false);
+    assert.equal(serialized.includes('unknown.permission'),false);
+    assert.equal(serialized.includes('notserviceusage'),false);
+  }
 });
 
 test('Firebase CLI fails closed on unknown and ambiguous nested permission fields',()=>{
