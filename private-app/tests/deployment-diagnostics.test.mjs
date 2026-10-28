@@ -1,6 +1,17 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {spawnSync} from 'node:child_process';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
+import {buildFirebaseCliInvocation,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics} from '../hosting/firebase-cli-request-diagnostics.mjs';
+import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+
+const require=createRequire(import.meta.url);
+const {Client}=require('../node_modules/firebase-tools/lib/apiv2.js');
 
 test('Deployment diagnostics classify known provider failures without returning their text',()=>{
   const secret='SENSITIVE_CONFIG_PASSWORD_38a1';
@@ -350,4 +361,214 @@ test('Firebase CLI process failures expose only allowlisted outcome categories',
   assert.equal(outputLimit.code,'LOCAL_OUTPUT_LIMIT');
   assert.equal(outputLimit.detail,'FIREBASE_CLI_OUTPUT_CAPTURE_LIMIT');
   assert.equal(outputLimit.firebaseCliProcessOutcome,'output-limit');
+});
+
+test('Pinned Firebase CLI request hook captures only allowlisted metadata from a synthetic 403 transport',async()=>{
+  const nonce='a'.repeat(32);
+  const secrets=['private-project-should-not-appear','private.person@example.test','ya29.synthetic-token','bucket-secret-name'];
+  const captured=[];
+  const originalFetch=globalThis.fetch;
+  const fakeBody=JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',message:secrets.join(' ')}});
+  globalThis.fetch=async(url,options)=>{
+    assert.equal(new URL(url).hostname,'firebasestorage.googleapis.com');
+    assert.equal(options.method,'GET');
+    return new Response(fakeBody,{status:403,headers:{'content-type':'application/json'}});
+  };
+  try{
+    installFirebaseCliRequestDiagnostics({Client,nonce,writeDiagnostic:line=>captured.push(line)});
+    const client=new Client({urlPrefix:'https://firebasestorage.googleapis.com',auth:false});
+    await assert.rejects(client.get('/v1/projects/private-project-should-not-appear/defaultBucket'),
+      error=>error.status===403);
+  }finally{
+    globalThis.fetch=originalFetch;
+  }
+  const parsed=parseFirebaseCliRequestDiagnostics(captured.join(''),nonce);
+  assert.deepEqual(parsed,{
+    events:[{
+      serviceCategory:'FIREBASE_STORAGE',
+      methodCategory:'GET',
+      operationCategory:'GET_DEFAULT_BUCKET',
+      httpStatus:403
+    }],
+    truncated:false
+  });
+  const serialized=JSON.stringify(parsed);
+  for(const secret of secrets)assert.equal(serialized.includes(secret),false);
+  assert.equal(serialized.includes('firebasestorage.googleapis.com'),false);
+  assert.equal(serialized.includes(nonce),false);
+});
+
+test('Safe Firebase request categories never retain arbitrary URL or operation text',()=>{
+  const event=createSafeFirebaseRequestEvent({
+    urlPrefix:'https://cloudfunctions.googleapis.com',
+    method:'POST',
+    path:'/v2/projects/private-project/locations/private-region/functions/private-function:setIamPolicy?token=private',
+    status:403
+  });
+  assert.deepEqual(event,{
+    serviceCategory:'CLOUD_FUNCTIONS',
+    methodCategory:'POST',
+    operationCategory:'SET_IAM_POLICY',
+    httpStatus:403
+  });
+  const unknown=createSafeFirebaseRequestEvent({
+    urlPrefix:'https://private.example.test',
+    method:'TRACE',
+    path:'/private/person@example.test/secret-resource',
+    status:403
+  });
+  assert.deepEqual(unknown,{
+    serviceCategory:'UNKNOWN',
+    methodCategory:'OTHER',
+    operationCategory:'OTHER',
+    httpStatus:403
+  });
+  assert.equal(createSafeFirebaseRequestEvent({
+    urlPrefix:'https://firestore.googleapis.com',
+    method:'GET',
+    path:'/v1/private',
+    status:200
+  }),null);
+});
+
+test('Request metadata parser rejects forged, malformed, and out-of-schema records',()=>{
+  const nonce='b'.repeat(32);
+  const forged='JUSTELLE_SAFE_REQUEST_DIAG:'+'c'.repeat(32)+':'+
+    JSON.stringify({serviceCategory:'FIRESTORE',methodCategory:'GET',operationCategory:'GET_RESOURCE',httpStatus:403});
+  assert.deepEqual(parseFirebaseCliRequestDiagnostics(forged,nonce),{events:[],truncated:false});
+  const prefix='JUSTELLE_SAFE_REQUEST_DIAG:'+nonce+':';
+  for(const line of [
+    prefix+'{not-json}',
+    prefix+JSON.stringify({serviceCategory:'FIRESTORE',methodCategory:'GET',operationCategory:'GET_RESOURCE',httpStatus:403,project:'private-project'}),
+    prefix+JSON.stringify({serviceCategory:'UNKNOWN',methodCategory:'TRACE',operationCategory:'secret',httpStatus:403})
+  ]){
+    assert.deepEqual(parseFirebaseCliRequestDiagnostics(line,nonce),{events:[],truncated:false});
+  }
+  assert.deepEqual(parseFirebaseCliRequestDiagnostics(Buffer.from(
+    prefix+JSON.stringify({serviceCategory:'FIRESTORE',methodCategory:'GET',operationCategory:'READ_REQUEST',httpStatus:403})
+  ),nonce),{
+    events:[{serviceCategory:'FIRESTORE',methodCategory:'GET',operationCategory:'READ_REQUEST',httpStatus:403}],
+    truncated:false
+  });
+});
+
+test('Deployment failure output includes only nonce-validated request metadata',()=>{
+  const nonce='d'.repeat(32);
+  const privateError='projects/private-project/locations/private-region secret=never-publish@example.test';
+  const safeRecord={
+    serviceCategory:'CLOUD_SCHEDULER',
+    methodCategory:'PATCH',
+    operationCategory:'UPDATE_RESOURCE',
+    httpStatus:403
+  };
+  const result=deploymentFailureDiagnostic('firebase-deploy',{
+    code:1,
+    stdout:JSON.stringify({status:'error',error:'HTTP Error: 403 '+privateError}),
+    stderr:'JUSTELLE_SAFE_REQUEST_DIAG:'+nonce+':'+JSON.stringify(safeRecord)+'\n'
+  },{
+    providerMutationMayHaveStarted:true,
+    firebaseCliRequestNonce:nonce
+  });
+  assert.deepEqual(result.firebaseCliRequestDiagnostics,[safeRecord]);
+  assert.equal(JSON.stringify(result).includes(nonce),false);
+  assert.equal(JSON.stringify(result).includes(privateError),false);
+  assert.equal(JSON.stringify(result).includes('secret=never-publish'),false);
+});
+
+test('Node preload instruments the exact pinned Firebase CLI class before command execution',()=>{
+  const nonce='e'.repeat(32);
+  const script=[
+    "const localRequire=require('node:module').createRequire(process.cwd()+'/tests/preload-fixture.cjs');",
+    "const {Client}=localRequire('../node_modules/firebase-tools/lib/apiv2.js');",
+    "globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',message:'private-project fixture@example.test token-secret'}}),{status:403});",
+    "const client=new Client({urlPrefix:'https://cloudfunctions.googleapis.com',auth:false});",
+    "client.post('/v2/projects/private-project/locations/test/functions/test:setIamPolicy',{}).catch(()=>{});"
+  ].join('\n');
+  const child=spawnSync(process.execPath,[
+    '--import',pathToFileURL(resolve('hosting/firebase-cli-request-diagnostics.mjs')).href,'-e',script
+  ],{
+    cwd:process.cwd(),
+    encoding:'utf8',
+    maxBuffer:64*1024,
+    env:{
+      ...(process.env.SystemRoot?{SystemRoot:process.env.SystemRoot}:{}),
+      ...(process.env.PATH?{PATH:process.env.PATH}:{}),
+      JUSTELLE_FIREBASE_SAFE_DIAG_NONCE:nonce
+    }
+  });
+  assert.equal(child.status,0);
+  assert.equal(child.stdout,'');
+  assert.equal(child.stderr.includes('private-project'),false);
+  assert.equal(child.stderr.includes('example.test'),false);
+  assert.equal(child.stderr.includes('token-secret'),false);
+  const parsed=parseFirebaseCliRequestDiagnostics(child.stderr,nonce);
+  assert.deepEqual(parsed,{
+    events:[{
+      serviceCategory:'CLOUD_FUNCTIONS',
+      methodCategory:'POST',
+      operationCategory:'SET_IAM_POLICY',
+      httpStatus:403
+    }],
+    truncated:false
+  });
+});
+
+
+test('Rollback diagnostics fall back for legacy CLI checkouts while forward deployment stays strict',async()=>{
+  const temp=await mkdtemp(join(tmpdir(),'justelle-cli-rollback-'));
+  const nonce='b'.repeat(32);
+  async function checkout(name,version,{hook=true}={}){
+    const directory=join(temp,name);
+    const cliDirectory=join(directory,'node_modules/firebase-tools/lib/bin');
+    await mkdir(cliDirectory,{recursive:true});
+    await mkdir(join(directory,'hosting'),{recursive:true});
+    await writeFile(join(directory,'node_modules/firebase-tools/package.json'),JSON.stringify({version}));
+    const cliPath=join(cliDirectory,'firebase.js');
+    await writeFile(cliPath,'// synthetic CLI fixture');
+    const hookPath=join(directory,'hosting/firebase-cli-request-diagnostics.mjs');
+    if(hook)await writeFile(hookPath,'// synthetic hook fixture');
+    return {directory,cliPath,hookPath};
+  }
+  try{
+    const legacyWithoutHook=await checkout('legacy-no-hook','15.30.0',{hook:false});
+    const missingHook=await buildFirebaseCliInvocation({directory:legacyWithoutHook.directory,allowLegacyRollback:true,nonce});
+    assert.deepEqual(missingHook,{
+      args:[legacyWithoutHook.cliPath],nonce:null,diagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'
+    });
+    await assert.rejects(buildFirebaseCliInvocation({directory:legacyWithoutHook.directory,nonce}),
+      /required for forward deployment/);
+
+    const legacyWithHook=await checkout('legacy-cli-with-hook','15.30.0');
+    const oldVersion=await buildFirebaseCliInvocation({directory:legacyWithHook.directory,allowLegacyRollback:true,nonce});
+    assert.deepEqual(oldVersion,{
+      args:[legacyWithHook.cliPath],nonce:null,diagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'
+    });
+    await assert.rejects(buildFirebaseCliInvocation({directory:legacyWithHook.directory,nonce}),
+      /required for forward deployment/);
+
+    const current=await checkout('current','15.34.0');
+    const currentInvocation=await buildFirebaseCliInvocation({directory:current.directory,nonce});
+    assert.deepEqual(currentInvocation,{
+      args:['--import',pathToFileURL(current.hookPath).href,current.cliPath],
+      nonce,
+      diagnosticsUnavailable:null
+    });
+    await rm(current.hookPath);
+    await assert.rejects(buildFirebaseCliInvocation({directory:current.directory,nonce}),
+      /required for forward deployment/);
+  }finally{
+    await rm(temp,{recursive:true,force:true});
+  }
+});
+
+test('Legacy rollback diagnostic unavailability is an explicit fixed enum',()=>{
+  const secret='legacy fixture account@example.test private-project token';
+  const result=finalizeDeploymentFailure(
+    deploymentFailureDiagnostic('firebase-deploy',{code:1,stderr:'opaque '+secret}),
+    true,
+    {firebaseCliRequestDiagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'}
+  );
+  assert.equal(result.firebaseCliRequestDiagnosticsUnavailable,'LEGACY_ROLLBACK_COMPATIBILITY');
+  assert.equal(JSON.stringify(result).includes(secret),false);
+  assert.equal(JSON.stringify(result).includes('opaque'),false);
 });

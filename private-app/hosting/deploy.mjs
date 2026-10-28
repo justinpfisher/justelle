@@ -1,4 +1,5 @@
 import {readFile,writeFile,mkdtemp,rm,appendFile} from 'node:fs/promises';
+import {randomBytes} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -13,15 +14,16 @@ import {stageFirebaseDeploymentConfig} from './firebase-deployment-config.mjs';
 import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from './deployment-diagnostics.mjs';
+import {buildFirebaseCliInvocation,parseFirebaseCliRequestDiagnostics} from './firebase-cli-request-diagnostics.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const [configPath,command='production',previousSha]=process.argv.slice(2);
 const failureRecorder=createDeploymentFailureRecorder();
-let failurePhase='config-read',providerMutationMayHaveStarted=false;
+let failurePhase='config-read',providerMutationMayHaveStarted=false,firebaseCliRequestNonce,firebaseCliRequestDiagnosticsUnavailable;
 try{
   async function atPhase(phase,action){
     failurePhase=phase;
     try{return await action();}
-    catch(error){failureRecorder.capture(phase,error,{providerMutationMayHaveStarted});throw error;}
+    catch(error){failureRecorder.capture(phase,error,{providerMutationMayHaveStarted,firebaseCliRequestNonce,firebaseCliRequestDiagnosticsUnavailable});throw error;}
   }
   const configText=await readFile(configPath,'utf8');
   failurePhase='config-parse';
@@ -38,7 +40,7 @@ try{
     // These arguments are fixed below, never configuration or caller input.
     process.platform==='win32'?['/d','/s','/c','npm.cmd '+args.join(' ')]:args,
     {cwd:directory,env,maxBuffer:8*1024*1024});
-  async function deploy(directory){
+  async function deploy(directory,{allowLegacyRollbackDiagnostics=false}={}){
     await atPhase('runtime-config-write',()=>writeFile(join(directory,runtimeFile),functionEnvironment(config),{mode:0o600}));
     await atPhase('target-config-write',()=>writeFile(join(directory,'hosting/.firebaserc'),JSON.stringify({targets:{[config.projectId]:{hosting:{[target]:[config.site]}}}}),{mode:0o600}));
     await atPhase('root-dependencies',()=>npm(['ci','--no-audit','--no-fund'],directory));
@@ -46,11 +48,21 @@ try{
     await atPhase('app-build',()=>npm(['run','build'],directory));
     const stagedConfig=await atPhase('deployment-config-stage',()=>stageFirebaseDeploymentConfig({appDirectory:directory,configName,projectId:config.projectId}));
     try{
-      await atPhase('firebase-deploy',()=>{
+      await atPhase('firebase-deploy',async()=>{
+        const invocation=await buildFirebaseCliInvocation({
+          directory,
+          allowLegacyRollback:allowLegacyRollbackDiagnostics,
+          nonce:randomBytes(16).toString('hex')
+        });
+        firebaseCliRequestNonce=invocation.nonce;
+        firebaseCliRequestDiagnosticsUnavailable=invocation.diagnosticsUnavailable;
+        const cliEnv={...env};
+        delete cliEnv.JUSTELLE_FIREBASE_SAFE_DIAG_NONCE;
+        if(firebaseCliRequestNonce)cliEnv.JUSTELLE_FIREBASE_SAFE_DIAG_NONCE=firebaseCliRequestNonce;
         providerMutationMayHaveStarted=true;
-        return run(process.execPath,[join(directory,'node_modules/firebase-tools/lib/bin/firebase.js'),'deploy','--non-interactive','--json',
+        return run(process.execPath,[...invocation.args,'deploy','--non-interactive','--json',
           '--project',config.projectId,'--config',stagedConfig.path,
-          '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env,maxBuffer:8*1024*1024});
+          '--only','hosting:'+target+',functions:gateway,firestore,storage'],{cwd:directory,env:cliEnv,maxBuffer:8*1024*1024});
       });
     }finally{
       await atPhase('deployment-config-cleanup',()=>stagedConfig.cleanup());
@@ -61,7 +73,7 @@ try{
       const temp=await mkdtemp(join(tmpdir(),'justelle-rollback-')),checkout=join(temp,'source');
       try{
         await run('git',['worktree','add','--detach',checkout,version],{cwd:resolve(root,'..')});
-        await deploy(join(checkout,'private-app'));
+        await deploy(join(checkout,'private-app'),{allowLegacyRollbackDiagnostics:true});
       }finally{
         await run('git',['worktree','remove','--force',checkout],{cwd:resolve(root,'..')}).catch(()=>{});
         await rm(temp,{recursive:true,force:true});
@@ -121,8 +133,8 @@ try{
   }
 }catch(error){
   // Never publish exception text, which may contain private identifiers or config values.
-  const safe=finalizeDeploymentFailure(failureRecorder?.first,providerMutationMayHaveStarted)
-    ??deploymentFailureDiagnostic(failurePhase,error,{providerMutationMayHaveStarted});
+  const safe=finalizeDeploymentFailure(failureRecorder?.first,providerMutationMayHaveStarted,{firebaseCliRequestDiagnosticsUnavailable})
+    ??deploymentFailureDiagnostic(failurePhase,error,{providerMutationMayHaveStarted,firebaseCliRequestNonce,firebaseCliRequestDiagnosticsUnavailable});
   console.error(JSON.stringify(safe));
   if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,'Justelle deployment failed: `'+safe.phase+'` / `'+safe.code+'`'+(safe.providerStateNeedsReconciliation?' (provider state reconciliation required)':'')+'\n').catch(()=>{});
   process.exitCode=1;

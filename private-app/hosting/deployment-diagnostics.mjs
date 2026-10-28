@@ -1,3 +1,5 @@
+import {parseFirebaseCliRequestDiagnostics} from './firebase-cli-request-diagnostics.mjs';
+
 const phases=new Set([
   'config-read','config-parse','config-validation','source-revision',
   'runtime-config-write','target-config-write','root-dependencies',
@@ -318,8 +320,11 @@ function firebaseDeployDetail(error){
 }
 
 // Raw error details are inspected only in memory. The returned object is safe for public CI logs.
-export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHaveStarted=false}={}){
+export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHaveStarted=false,firebaseCliRequestNonce,firebaseCliRequestDiagnosticsUnavailable}={}){
   const safePhase=phases.has(phase)?phase:'unknown';
+  const requestDiagnostics=firebaseCliRequestNonce
+    ?parseFirebaseCliRequestDiagnostics(error?.stderr,firebaseCliRequestNonce)
+    :{events:[],truncated:false};
   const exitCode=Number.isInteger(error?.code)?error.code:undefined;
   return {
     event:'justelle-deployment-failed',
@@ -333,6 +338,10 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
       firebaseCliServiceCategory:firebaseCliServiceCategory(error),
       firebaseCliPermissionCategory:firebaseCliPermissionCategory(error),
       firebaseCliProcessOutcome:firebaseCliProcessOutcome(error),
+      ...(requestDiagnostics.events.length?{firebaseCliRequestDiagnostics:requestDiagnostics.events}:{}),
+      ...(requestDiagnostics.truncated?{firebaseCliRequestDiagnosticsTruncated:true}:{}),
+      ...(firebaseCliRequestDiagnosticsUnavailable==='LEGACY_ROLLBACK_COMPATIBILITY'
+        ?{firebaseCliRequestDiagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'}:{}),
       stdoutPresent:hasCapturedText(error?.stdout),
       stderrPresent:hasCapturedText(error?.stderr)
     }:{}),
@@ -353,12 +362,14 @@ export function createDeploymentFailureRecorder(){
 
 // Keep the first failure's safe description, but compute reconciliation from
 // the final monotonic provider-mutation state after cleanup has also run.
-export function finalizeDeploymentFailure(diagnostic,providerMutationMayHaveStarted=false){
+export function finalizeDeploymentFailure(diagnostic,providerMutationMayHaveStarted=false,{firebaseCliRequestDiagnosticsUnavailable}={}){
   if(!diagnostic)return null;
   return {
     ...diagnostic,
     providerStateNeedsReconciliation:Boolean(
       diagnostic.providerStateNeedsReconciliation||providerMutationMayHaveStarted
-    )
+    ),
+    ...(firebaseCliRequestDiagnosticsUnavailable==='LEGACY_ROLLBACK_COMPATIBILITY'
+      ?{firebaseCliRequestDiagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'}:{})
   };
 }
