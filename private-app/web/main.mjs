@@ -199,6 +199,8 @@ function selectTopic(adventureId=null,{preserveTab=false}={}){
   try{localStorage.setItem('justelle-last-topic:'+auth.currentUser.uid,adventureId||'');}catch{}
   stopTopic();stopTopic=()=>{};topicVersion++;
   latest=[];older=[];before=null;hasOlder=false;startedTopic=false;loadingOlder=false;
+  // A prior topic's stale page request cannot keep this shared control disabled.
+  $('earlier-button').disabled=false;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();
   selectedSourceMessage=null;replacesId=null;clearProposal();
@@ -676,6 +678,10 @@ function clearPrivateSessionUi(){
   for(const input of $('private-app').querySelectorAll('input,textarea')){
     if(input.type==='checkbox'||input.type==='radio')input.checked=false;
     else input.value='';
+  }
+  // Reapply only public, non-sensitive form defaults after erasing member input.
+  for(const id of ['planner-days','planner-experience-day','planner-from','planner-nights']){
+    $(id).value=$(id).defaultValue;
   }
   for(const control of $('private-app').querySelectorAll('button,input,textarea,select'))control.disabled=false;
   for(const id of ['planner-trip-form','planner-edit-stay','planner-edit-experience']){
