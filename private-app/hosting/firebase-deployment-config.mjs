@@ -1,6 +1,6 @@
-import {readFile,writeFile,rm,cp} from 'node:fs/promises';
+import {readFile,writeFile,rm,cp,lstat,readdir,realpath} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
-import {join} from 'node:path';
+import {join,relative,isAbsolute,sep} from 'node:path';
 
 // Firebase CLI requires Firestore Rules and index files to live within the
 // project directory. The canonical files live beside `hosting/`, so stage
@@ -27,9 +27,32 @@ export async function stageFirebaseDeploymentConfig({appDirectory,configName,pro
     created.push(path);
     return name;
   }
+  async function validatePublicTree(sourceDirectory){
+    const rootStat=await lstat(sourceDirectory);
+    if(rootStat.isSymbolicLink()||!rootStat.isDirectory())
+      throw Error('Hosting public directory must be a real directory');
+    const rootReal=await realpath(sourceDirectory);
+    async function visit(directory){
+      for(const entry of await readdir(directory,{withFileTypes:true})){
+        const path=join(directory,entry.name);
+        const stat=await lstat(path);
+        if(stat.isSymbolicLink())
+          throw Error('Hosting public assets cannot contain symbolic links');
+        const resolved=await realpath(path);
+        const relativePath=relative(rootReal,resolved);
+        if(relativePath==='..'||relativePath.startsWith('..'+sep)||isAbsolute(relativePath))
+          throw Error('Hosting public asset resolves outside its source directory');
+        if(stat.isDirectory())await visit(path);
+        else if(!stat.isFile())
+          throw Error('Hosting public assets must be regular files or directories');
+      }
+    }
+    await visit(sourceDirectory);
+  }
   async function stageDirectory(name,sourceDirectory){
     const path=join(hostingDirectory,name);
     created.push(path);
+    await validatePublicTree(sourceDirectory);
     await cp(sourceDirectory,path,{recursive:true,errorOnExist:true,force:false});
     return name;
   }
