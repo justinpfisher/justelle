@@ -4,6 +4,7 @@ const phases=new Set([
   'config-read','config-parse','config-validation','source-revision',
   'runtime-config-write','target-config-write','root-dependencies',
   'functions-dependencies','app-build','deployment-config-stage','functions-package',
+  'functions-scope-validation',
   'deployment-config-cleanup','firebase-deploy','rollback-source-checkout',
   'release-precheck','release-state-read','release-state-write',
   'release-or-qualification-drill','hosted-smoke-check','qualification-shutdown-check',
@@ -319,6 +320,14 @@ function functionsPackageFailureDetail(error){
   if(/FATAL: (?:NOT A GIT REPOSITORY|AMBIGUOUS ARGUMENT .HEAD.)/.test(details))return 'FUNCTIONS_PACKAGE_SOURCE_REVISION_FAILED';
   return 'FUNCTIONS_PACKAGE_FAILURE_UNCLASSIFIED';
 }
+const functionScopeDetails=new Set([
+  'CONFIG_INVALID','PROJECT_NOT_ALLOWED','CODEBASE_COUNT_MISMATCH','CODEBASE_CONFIG_MISMATCH',
+  'SOURCE_OUTSIDE_DEPLOYMENT','PACKAGE_METADATA_MISSING','ENTRYPOINT_MISMATCH','BUNDLE_MISSING',
+  'CLI_VERSION_UNSUPPORTED','CLI_DISCOVERY_UNAVAILABLE','DISCOVERY_FAILED','ENDPOINT_ROSTER_MISMATCH'
+]);
+function functionsScopeFailureDetail(error){
+  return functionScopeDetails.has(error?.scopeCode)?'FUNCTIONS_SCOPE_'+error.scopeCode:'FUNCTIONS_SCOPE_UNCLASSIFIED';
+}
 function firebaseDeployDetail(error){
   const details=[error?.message,error?.stderr,error?.stdout].map(textOf).join('\n').toUpperCase();
   if(/(?:SERVICE_DISABLED|API.{0,100}(?:NOT ENABLED|DISABLED)|SERVICE.{0,100}NOT ENABLED)/.test(details))return 'FIREBASE_API_DISABLED';
@@ -354,9 +363,11 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
   return {
     event:'justelle-deployment-failed',
     phase:safePhase,
-    code:safePhase==='functions-package'?localCommandCode(error):providerCode(error),
+    code:safePhase==='functions-scope-validation'?'LOCAL_FUNCTIONS_SCOPE_FAILED':
+      safePhase==='functions-package'?localCommandCode(error):providerCode(error),
     ...(safePhase==='firebase-deploy'?{detail:firebaseDeployDetail(error)}:
-      safePhase==='functions-package'?{detail:functionsPackageFailureDetail(error)}:{}),
+      safePhase==='functions-package'?{detail:functionsPackageFailureDetail(error)}:
+      safePhase==='functions-scope-validation'?{detail:functionsScopeFailureDetail(error)}:{}),
     providerStateNeedsReconciliation:Boolean(providerMutationMayHaveStarted),
     ...(safePhase==='firebase-deploy'?{
       firebaseCliOutputShape:firebaseCliOutputShape(error),

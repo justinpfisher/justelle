@@ -1,21 +1,47 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,cp,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,cp,rm,writeFile,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import {assertAuthorizedEndpointRoster,validateGeneratedFunctionsScope} from '../hosting/functions-scope.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 test('Cloud upload package loads and routes real HTTP requests without any parent-directory source',async()=>{
   await run(process.execPath,[join(root,'tools/package-functions.mjs')],{cwd:root});
   const isolated=await mkdtemp(join(tmpdir(),'justelle-functions-package-'));
   try{
-    for(const name of ['lib','package.json','package-lock.json'])await cp(join(root,'hosting/functions',name),join(isolated,name),{recursive:true});
+    const functionsDirectory=join(isolated,'functions');
+    await mkdir(functionsDirectory);
+    for(const name of ['lib','package.json','package-lock.json'])await cp(join(root,'hosting/functions',name),join(functionsDirectory,name),{recursive:true});
     const npmArgs=['ci','--offline','--omit=dev','--ignore-scripts','--no-audit','--no-fund'];
-    await run(process.platform==='win32'?(process.env.ComSpec||'cmd.exe'):'npm',process.platform==='win32'?['/d','/s','/c','npm.cmd '+npmArgs.join(' ')]:npmArgs,{cwd:isolated});
+    await run(process.platform==='win32'?(process.env.ComSpec||'cmd.exe'):'npm',process.platform==='win32'?['/d','/s','/c','npm.cmd '+npmArgs.join(' ')]:npmArgs,{cwd:functionsDirectory});
+    const configPath=join(isolated,'firebase.json');
+    await writeFile(configPath,JSON.stringify({functions:[{source:'functions',codebase:'gateway',runtime:'nodejs22'}]}));
+    const scope=await validateGeneratedFunctionsScope({configPath,projectId:'justelle-qualification'});
+    assert.deepEqual(scope,{codebase:'gateway',endpointCount:2});
+    assert.throws(()=>assertAuthorizedEndpointRoster([{id:'privateApi'},{id:'otherEndpoint'}]),
+      error=>error.scopeCode==='ENDPOINT_ROSTER_MISMATCH');
+    assert.throws(()=>assertAuthorizedEndpointRoster([{id:'privateApi'}]),
+      error=>error.scopeCode==='ENDPOINT_ROSTER_MISMATCH');
+    assert.throws(()=>assertAuthorizedEndpointRoster([{id:'encryptedBackup'}]),
+      error=>error.scopeCode==='ENDPOINT_ROSTER_MISMATCH');
+    assert.throws(()=>assertAuthorizedEndpointRoster([{id:'privateApi'},{id:'encryptedBackup'},{id:'extraEndpoint'}]),
+      error=>error.scopeCode==='ENDPOINT_ROSTER_MISMATCH');
+    const extraCodebasePath=join(isolated,'extra-codebase.firebase.json');
+    await writeFile(extraCodebasePath,JSON.stringify({functions:[
+      {source:'functions',codebase:'gateway',runtime:'nodejs22'},
+      {source:'other',codebase:'other',runtime:'nodejs22'}
+    ]}));
+    await assert.rejects(validateGeneratedFunctionsScope({configPath:extraCodebasePath,projectId:'justelle-qualification'}),
+      error=>error.scopeCode==='CODEBASE_COUNT_MISMATCH');
+    const missingFunctionsPath=join(isolated,'missing-functions.firebase.json');
+    await writeFile(missingFunctionsPath,JSON.stringify({functions:[{source:'functions',codebase:'other',runtime:'nodejs22'}]}));
+    await assert.rejects(validateGeneratedFunctionsScope({configPath:missingFunctionsPath,projectId:'justelle-qualification'}),
+      error=>error.scopeCode==='CODEBASE_CONFIG_MISMATCH');
     const script=`import assert from 'node:assert/strict';
-      const {privateApi,encryptedBackup}=await import('./lib/index.mjs');
+      const {privateApi,encryptedBackup}=await import('./functions/lib/index.mjs');
       assert.equal(privateApi.__endpoint.platform,'gcfv2');
       assert.equal(encryptedBackup.__endpoint.platform,'gcfv2');
       const response=()=>({headersSent:false,writeHead(s,h){this.status=s;this.headers=h;},end(b){this.body=b;}});
