@@ -1,4 +1,4 @@
-import {parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from './firebase-cli-request-diagnostics.mjs';
+import {parseFirebaseCliFunctionFilterDiagnostics,parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from './firebase-cli-request-diagnostics.mjs';
 
 const phases=new Set([
   'config-read','config-parse','config-validation','source-revision',
@@ -347,6 +347,9 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
   const terminalRequestDiagnostic=firebaseCliRequestNonce
     ?parseFirebaseCliTerminalErrorDiagnostic(error?.stderr,firebaseCliRequestNonce)
     :null;
+  const functionFilterDiagnostic=firebaseCliRequestNonce
+    ?parseFirebaseCliFunctionFilterDiagnostics(error?.stderr,firebaseCliRequestNonce)
+    :null;
   const exitCode=Number.isInteger(error?.code)?error.code:undefined;
   return {
     event:'justelle-deployment-failed',
@@ -364,6 +367,7 @@ export function deploymentFailureDiagnostic(phase,error,{providerMutationMayHave
       ...(requestDiagnostics.events.length?{firebaseCliRequestDiagnostics:requestDiagnostics.events}:{}),
       ...(requestDiagnostics.truncated?{firebaseCliRequestDiagnosticsTruncated:true}:{}),
       ...(terminalRequestDiagnostic?{firebaseCliTerminalRequestDiagnostic:terminalRequestDiagnostic}:{}),
+      ...(functionFilterDiagnostic?{firebaseCliFunctionFilterDiagnostic:functionFilterDiagnostic}:{}),
       ...(firebaseCliRequestDiagnosticsUnavailable==='LEGACY_ROLLBACK_COMPATIBILITY'
         ?{firebaseCliRequestDiagnosticsUnavailable:'LEGACY_ROLLBACK_COMPATIBILITY'}:{}),
       stdoutPresent:hasCapturedText(error?.stdout),

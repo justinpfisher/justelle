@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
-import {buildFirebaseCliInvocation,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from '../hosting/firebase-cli-request-diagnostics.mjs';
+import {buildFirebaseCliInvocation,createSafeFirebaseCliFunctionFilterDiagnostic,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliFunctionFilterDiagnostics,parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from '../hosting/firebase-cli-request-diagnostics.mjs';
 import {mkdtemp,mkdir,rm,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -345,6 +345,43 @@ test('Firebase CLI output shape is bounded and distinguishes empty, malformed, a
   assert.equal(deploymentFailureDiagnostic('firebase-deploy',{
     code:1,stdout:'{"status":"success","result":{}}',stderr:''
   }).firebaseCliOutputShape,'json-success');
+});
+
+
+test('Firebase CLI filter diagnostics distinguish empty discovery from codebase mismatch without names',()=>{
+  const backendModule={allEndpoints:backend=>Object.values(backend.endpoints||{})};
+  const endpointMatchesFilter=(endpoint,filter)=>
+    (filter.codebase===undefined||endpoint.codebase===filter.codebase)&&
+    (!filter.idChunks?.length||filter.idChunks.every(chunk=>endpoint.id.includes(chunk)));
+  const endpoint={id:'secret-function-id',codebase:'gateway'};
+  const base={backendModule,endpointMatchesFilter};
+  assert.equal(createSafeFirebaseCliFunctionFilterDiagnostic({},[],base).outcome,'UNKNOWN');
+  const empty=createSafeFirebaseCliFunctionFilterDiagnostic({gateway:{endpoints:{}}},[{codebase:'gateway',idChunks:['secret-function-id']}],base);
+  assert.deepEqual(empty,{selectedCodebaseCategories:['GATEWAY'],filterCount:1,matchedFilterCount:0,discoveredEndpointCount:0,matchedEndpointCount:0,outcome:'NO_MATCH',truncated:false});
+  const mismatch=createSafeFirebaseCliFunctionFilterDiagnostic({gateway:{endpoints:{[endpoint.id]:{...endpoint,codebase:'other'}}}},[{codebase:'gateway',idChunks:['secret-function-id']}],base);
+  assert.deepEqual(mismatch,{selectedCodebaseCategories:['GATEWAY'],filterCount:1,matchedFilterCount:0,discoveredEndpointCount:1,matchedEndpointCount:0,outcome:'NO_MATCH',truncated:false});
+  const match=createSafeFirebaseCliFunctionFilterDiagnostic({gateway:{endpoints:{[endpoint.id]:endpoint}}},[{codebase:'gateway',idChunks:['secret-function-id']}],base);
+  assert.equal(match.outcome,'MATCH');
+  assert.equal(JSON.stringify([empty,mismatch,match]).includes('secret-function-id'),false);
+});
+
+test('pinned CLI filter hook emits a strict bounded diagnostic adjacent to the real validator call',()=>{
+  const nonce='d'.repeat(32),captured=[];
+  const filterValidationModule={checkFiltersIntegrity(wantBackends,filters){assert.equal(filters.length,1);return 'validator-result';}};
+  const backendModule={allEndpoints:backend=>Object.values(backend.endpoints||{})};
+  const functionsDeployHelperModule={endpointMatchesFilter:(endpoint,filter)=>endpoint.codebase===filter.codebase};
+  class SyntheticClient{async doRequest(){return 'ok';}}
+  installFirebaseCliRequestDiagnostics({Client:SyntheticClient,errorOutModule:{errorOut:e=>e},nonce,writeDiagnostic:line=>captured.push(line),filterValidationModule,backendModule,functionsDeployHelperModule});
+  const result=filterValidationModule.checkFiltersIntegrity({gateway:{endpoints:{a:{id:'private-id',codebase:'gateway'},b:{id:'private-id-2',codebase:'elsewhere'}}}},[{codebase:'gateway',idChunks:['private-filter-id']}]);
+  assert.equal(result,'validator-result');
+  const stderr=captured.join('');
+  const parsed=parseFirebaseCliFunctionFilterDiagnostics(stderr,nonce);
+  assert.deepEqual(parsed,{selectedCodebaseCategories:['GATEWAY'],filterCount:1,matchedFilterCount:1,discoveredEndpointCount:2,matchedEndpointCount:1,outcome:'MATCH',truncated:false});
+  for(const forbidden of ['private-id','private-id-2','private-filter-id',nonce,'gateway'])assert.equal(JSON.stringify(parsed).includes(forbidden),false);
+  for(const forbidden of ['private-id','private-id-2','private-filter-id','gateway'])assert.equal(stderr.includes(forbidden),false);
+  const summary=deploymentFailureDiagnostic('firebase-deploy',{code:1,stdout:'{"status":"error","error":"opaque"}',stderr,}, {firebaseCliRequestNonce:nonce,providerMutationMayHaveStarted:true});
+  assert.deepEqual(summary.firebaseCliFunctionFilterDiagnostic,parsed);
+  assert.equal(parseFirebaseCliFunctionFilterDiagnostics('JUSTELLE_SAFE_FUNCTION_FILTER_DIAG:'+nonce+':{"selectedCodebaseCategories":["private"]}',nonce),null);
 });
 
 test('Firebase CLI process failures expose only allowlisted outcome categories',()=>{

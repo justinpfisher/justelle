@@ -27,6 +27,10 @@ export async function buildFirebaseCliInvocation({directory,allowLegacyRollback=
 }
 const requestDiagnosticPrefix='JUSTELLE_SAFE_REQUEST_DIAG:';
 const terminalDiagnosticPrefix='JUSTELLE_SAFE_TERMINAL_DIAG:';
+const filterDiagnosticPrefix='JUSTELLE_SAFE_FUNCTION_FILTER_DIAG:';
+const maxFunctionFilters=8;
+const maxFunctionEndpoints=256;
+const safeCodebaseCategories=new Set(['DEFAULT','GATEWAY','OTHER']);
 const maxDiagnosticEvents=8;
 const maxDiagnosticStderrBytes=64*1024;
 const maxTerminalStackBytes=32*1024;
@@ -392,7 +396,44 @@ export function parseFirebaseCliTerminalErrorDiagnostic(stderr,nonce){
   return {...value};
 }
 
-export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,writeDiagnostic,firebaseToolsPackageRoot}={}){
+export function createSafeFirebaseCliFunctionFilterDiagnostic(wantBackends,filters,{backendModule,endpointMatchesFilter}={}){
+  const filterList=Array.isArray(filters)?filters:[];
+  let truncated=filterList.length>maxFunctionFilters;
+  const boundedFilters=filterList.slice(0,maxFunctionFilters);
+  let allEndpoints=[];
+  try{
+    if(!backendModule||typeof backendModule.allEndpoints!=='function')throw new Error();
+    for(const backend of Object.values(wantBackends??{})){
+      if(!backend||typeof backend!=='object')throw new Error();
+      const values=backendModule.allEndpoints(backend);
+      if(!Array.isArray(values))throw new Error();
+      allEndpoints.push(...values);
+      if(allEndpoints.length>maxFunctionEndpoints){truncated=true;allEndpoints=allEndpoints.slice(0,maxFunctionEndpoints);break;}
+    }
+  }catch{return {selectedCodebaseCategories:[],filterCount:boundedFilters.length,matchedFilterCount:0,discoveredEndpointCount:0,matchedEndpointCount:0,outcome:'UNKNOWN',truncated:true};}
+  const category=filter=>filter?.codebase===undefined?'DEFAULT':filter.codebase==='gateway'?'GATEWAY':'OTHER';
+  const selectedCodebaseCategories=[...new Set(boundedFilters.map(category))].sort();
+  let matchedFilterCount=0,matchedEndpointCount=0;
+  try{
+    if(typeof endpointMatchesFilter!=='function'&&boundedFilters.length)throw new Error();
+    for(const filter of boundedFilters){
+      const matched=allEndpoints.filter(endpoint=>endpointMatchesFilter(endpoint,filter));
+      if(matched.length)matchedFilterCount++;
+    }
+    matchedEndpointCount=allEndpoints.filter(endpoint=>boundedFilters.some(filter=>endpointMatchesFilter(endpoint,filter))).length;
+  }catch{return {selectedCodebaseCategories,filterCount:boundedFilters.length,matchedFilterCount:0,discoveredEndpointCount:allEndpoints.length,matchedEndpointCount:0,outcome:'UNKNOWN',truncated:true};}
+  return {
+    selectedCodebaseCategories,
+    filterCount:boundedFilters.length,
+    matchedFilterCount,
+    discoveredEndpointCount:allEndpoints.length,
+    matchedEndpointCount,
+    outcome:truncated||boundedFilters.length===0?'UNKNOWN':(matchedFilterCount===boundedFilters.length?'MATCH':'NO_MATCH'),
+    truncated
+  };
+}
+
+export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,writeDiagnostic,firebaseToolsPackageRoot,filterValidationModule,backendModule,functionsDeployHelperModule}={}){
   if(!/^[a-f0-9]{32}$/.test(nonce??''))throw new Error('Invalid Justelle diagnostic nonce');
   if(!Client?.prototype||typeof Client.prototype.doRequest!=='function'){
     throw new Error('Pinned Firebase CLI request hook is unavailable');
@@ -401,6 +442,24 @@ export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonc
   const prototype=Client.prototype;
   const installed=Symbol.for('justelle.firebaseCliSafeRequestDiagnostics');
   if(prototype[installed])return false;
+  if(filterValidationModule&&typeof filterValidationModule.checkFiltersIntegrity==='function'&&backendModule&&functionsDeployHelperModule){
+    const validationSymbol=Symbol.for('justelle.firebaseCliSafeFunctionFilterDiagnostics');
+    if(!filterValidationModule[validationSymbol]){
+      const originalCheck=filterValidationModule.checkFiltersIntegrity;
+      filterValidationModule.checkFiltersIntegrity=function(wantBackends,filters,...args){
+        try{
+          if(!Array.isArray(filters)||filters.length===0)return originalCheck.call(this,wantBackends,filters,...args);
+          const diagnostic=createSafeFirebaseCliFunctionFilterDiagnostic(wantBackends,filters,{
+            backendModule,
+            endpointMatchesFilter:functionsDeployHelperModule.endpointMatchesFilter
+          });
+          writeLine(filterDiagnosticPrefix+nonce+':'+JSON.stringify(diagnostic)+'\n');
+        }catch{}
+        return originalCheck.call(this,wantBackends,filters,...args);
+      };
+      Object.defineProperty(filterValidationModule,validationSymbol,{value:true});
+    }
+  }
   const original=prototype.doRequest;
   let emitted=0,overflowWritten=false;
   const requestEvents=new WeakMap();
@@ -450,6 +509,29 @@ export function installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonc
   return true;
 }
 
+export function parseFirebaseCliFunctionFilterDiagnostics(stderr,nonce){
+  if(!/^[a-f0-9]{32}$/.test(nonce??'')||!(typeof stderr==='string'||Buffer.isBuffer(stderr)))return null;
+  const bounded=(Buffer.isBuffer(stderr)?stderr.toString('utf8'):stderr).slice(-maxDiagnosticStderrBytes);
+  const marker=filterDiagnosticPrefix+nonce+':';
+  const lines=bounded.split(/\r?\n/).filter(line=>line.startsWith(marker));
+  if(lines.length!==1)return null;
+  let value;try{value=JSON.parse(lines[0].slice(marker.length));}catch{return null;}
+  if(!value||typeof value!=='object'||Array.isArray(value)||
+    Object.keys(value).sort().join(',')!=='discoveredEndpointCount,filterCount,matchedEndpointCount,matchedFilterCount,outcome,selectedCodebaseCategories,truncated'||
+    !Array.isArray(value.selectedCodebaseCategories)||value.selectedCodebaseCategories.length>maxFunctionFilters||
+    value.selectedCodebaseCategories.some(category=>!safeCodebaseCategories.has(category))||
+    new Set(value.selectedCodebaseCategories).size!==value.selectedCodebaseCategories.length||
+    !Number.isInteger(value.filterCount)||value.filterCount<0||value.filterCount>maxFunctionFilters||
+    !Number.isInteger(value.matchedFilterCount)||value.matchedFilterCount<0||value.matchedFilterCount>value.filterCount||
+    !Number.isInteger(value.discoveredEndpointCount)||value.discoveredEndpointCount<0||value.discoveredEndpointCount>maxFunctionEndpoints||
+    !Number.isInteger(value.matchedEndpointCount)||value.matchedEndpointCount<0||value.matchedEndpointCount>value.discoveredEndpointCount||
+    !['MATCH','NO_MATCH','UNKNOWN'].includes(value.outcome)||typeof value.truncated!=='boolean')return null;
+  if(value.truncated&&value.outcome!=='UNKNOWN')return null;
+  if(!value.truncated&&value.outcome==='MATCH'&&(!value.filterCount||value.matchedFilterCount!==value.filterCount))return null;
+  if(!value.truncated&&value.outcome==='NO_MATCH'&&value.matchedFilterCount===value.filterCount)return null;
+  return {...value,selectedCodebaseCategories:[...value.selectedCodebaseCategories]};
+}
+
 export function parseFirebaseCliRequestDiagnostics(stderr,nonce){
   const result={events:[],truncated:false};
   if(!/^[a-f0-9]{32}$/.test(nonce??'')||!(typeof stderr==='string'||Buffer.isBuffer(stderr)))return result;
@@ -497,5 +579,8 @@ if(nonce!==undefined){
   const firebaseToolsPackageRoot=dirname(packageMetadataPath);
   const {Client}=localRequire('../node_modules/firebase-tools/lib/apiv2.js');
   const errorOutModule=localRequire('../node_modules/firebase-tools/lib/errorOut.js');
-  installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,firebaseToolsPackageRoot});
+  const filterValidationModule=localRequire('../node_modules/firebase-tools/lib/deploy/functions/validate.js');
+  const backendModule=localRequire('../node_modules/firebase-tools/lib/deploy/functions/backend.js');
+  const functionsDeployHelperModule=localRequire('../node_modules/firebase-tools/lib/deploy/functions/functionsDeployHelper.js');
+  installFirebaseCliRequestDiagnostics({Client,errorOutModule,nonce,firebaseToolsPackageRoot,filterValidationModule,backendModule,functionsDeployHelperModule});
 }
