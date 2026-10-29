@@ -12,6 +12,7 @@ import {join} from 'node:path';
 
 const require=createRequire(import.meta.url);
 const {Client}=require('../node_modules/firebase-tools/lib/apiv2.js');
+const {endpointMatchesFilter,getEndpointFilters}=require('../node_modules/firebase-tools/lib/deploy/functions/functionsDeployHelper.js');
 
 test('Deployment diagnostics classify known provider failures without returning their text',()=>{
   const secret='SENSITIVE_CONFIG_PASSWORD_38a1';
@@ -350,9 +351,6 @@ test('Firebase CLI output shape is bounded and distinguishes empty, malformed, a
 
 test('Firebase CLI filter diagnostics distinguish empty discovery from codebase mismatch without names',()=>{
   const backendModule={allEndpoints:backend=>Object.values(backend.endpoints||{})};
-  const endpointMatchesFilter=(endpoint,filter)=>
-    (filter.codebase===undefined||endpoint.codebase===filter.codebase)&&
-    (!filter.idChunks?.length||filter.idChunks.every(chunk=>endpoint.id.includes(chunk)));
   const endpoint={id:'secret-function-id',codebase:'gateway'};
   const base={backendModule,endpointMatchesFilter};
   assert.equal(createSafeFirebaseCliFunctionFilterDiagnostic({},[],base).outcome,'UNKNOWN');
@@ -362,7 +360,21 @@ test('Firebase CLI filter diagnostics distinguish empty discovery from codebase 
   assert.deepEqual(mismatch,{selectedCodebaseCategories:['GATEWAY'],filterCount:1,matchedFilterCount:0,discoveredEndpointCount:1,matchedEndpointCount:0,outcome:'NO_MATCH',truncated:false});
   const match=createSafeFirebaseCliFunctionFilterDiagnostic({gateway:{endpoints:{[endpoint.id]:endpoint}}},[{codebase:'gateway',idChunks:['secret-function-id']}],base);
   assert.equal(match.outcome,'MATCH');
+  const unrestricted=createSafeFirebaseCliFunctionFilterDiagnostic({default:{endpoints:{one:{id:'default-one'}},},gateway:{endpoints:{two:{id:'gateway-two',codebase:'gateway'}}}},[{}],{backendModule,endpointMatchesFilter});
+  assert.deepEqual(unrestricted.selectedCodebaseCategories,['ANY']);
+  assert.equal(unrestricted.matchedEndpointCount,2);
   assert.equal(JSON.stringify([empty,mismatch,match]).includes('secret-function-id'),false);
+});
+
+test('pinned CLI parses functions:gateway as a default-codebase ID when gateway is not configured',()=>{
+  const filters=getEndpointFilters({only:'functions:gateway'},[]);
+  assert.deepEqual(filters,[{codebase:'default',idChunks:['gateway']}]);
+  const backendModule={allEndpoints:backend=>Object.values(backend.endpoints||{})};
+  const diagnostic=createSafeFirebaseCliFunctionFilterDiagnostic({
+    default:{endpoints:{gateway:{id:'gateway'},'gateway-child':{id:'gateway-child'}}},
+    gateway:{endpoints:{unrelated:{id:'unrelated',codebase:'gateway'}}}
+  },filters,{backendModule,endpointMatchesFilter});
+  assert.deepEqual(diagnostic,{selectedCodebaseCategories:['DEFAULT'],filterCount:1,matchedFilterCount:1,discoveredEndpointCount:3,matchedEndpointCount:2,outcome:'MATCH',truncated:false});
 });
 
 test('pinned CLI filter hook emits a strict bounded diagnostic adjacent to the real validator call',()=>{

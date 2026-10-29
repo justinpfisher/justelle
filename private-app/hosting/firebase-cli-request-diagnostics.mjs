@@ -30,7 +30,7 @@ const terminalDiagnosticPrefix='JUSTELLE_SAFE_TERMINAL_DIAG:';
 const filterDiagnosticPrefix='JUSTELLE_SAFE_FUNCTION_FILTER_DIAG:';
 const maxFunctionFilters=8;
 const maxFunctionEndpoints=256;
-const safeCodebaseCategories=new Set(['DEFAULT','GATEWAY','OTHER']);
+const safeCodebaseCategories=new Set(['ANY','DEFAULT','GATEWAY','OTHER']);
 const maxDiagnosticEvents=8;
 const maxDiagnosticStderrBytes=64*1024;
 const maxTerminalStackBytes=32*1024;
@@ -411,7 +411,7 @@ export function createSafeFirebaseCliFunctionFilterDiagnostic(wantBackends,filte
       if(allEndpoints.length>maxFunctionEndpoints){truncated=true;allEndpoints=allEndpoints.slice(0,maxFunctionEndpoints);break;}
     }
   }catch{return {selectedCodebaseCategories:[],filterCount:boundedFilters.length,matchedFilterCount:0,discoveredEndpointCount:0,matchedEndpointCount:0,outcome:'UNKNOWN',truncated:true};}
-  const category=filter=>filter?.codebase===undefined?'DEFAULT':filter.codebase==='gateway'?'GATEWAY':'OTHER';
+  const category=filter=>filter?.codebase===undefined?'ANY':filter.codebase==='default'?'DEFAULT':filter.codebase==='gateway'?'GATEWAY':'OTHER';
   const selectedCodebaseCategories=[...new Set(boundedFilters.map(category))].sort();
   let matchedFilterCount=0,matchedEndpointCount=0;
   try{
