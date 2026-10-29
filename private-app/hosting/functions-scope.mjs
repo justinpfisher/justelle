@@ -19,7 +19,30 @@ export function assertAuthorizedEndpointRoster(endpoints){
     ids.some((id,index)=>id!==expectedEndpoints[index])){
     throw scopeError('ENDPOINT_ROSTER_MISMATCH','Discovered Functions endpoint roster does not match the authorized roster');
   }
-  return {codebase:expectedCodebase,endpointCount:endpoints.length};
+  return {codebase:expectedCodebase,endpointCount:endpoints.length,endpointIds:ids};
+}
+
+export async function validateLegacyRollbackFunctionsScope({configPath,projectId}){
+  let config;
+  try{config=JSON.parse(await readFile(configPath,'utf8'));}
+  catch{throw scopeError('CONFIG_INVALID','Generated rollback Functions config is invalid');}
+  if(!['justelle-qualification','justelle-production'].includes(projectId))
+    throw scopeError('PROJECT_NOT_ALLOWED','Generated rollback Functions project is not authorized');
+  if(!Array.isArray(config.functions)||config.functions.length!==1)
+    throw scopeError('CODEBASE_COUNT_MISMATCH','Rollback must contain only the authorized Functions codebase');
+  const [functionConfig]=config.functions;
+  if(functionConfig?.codebase!==expectedCodebase||functionConfig?.source!==expectedSource)
+    throw scopeError('CODEBASE_CONFIG_MISMATCH','Rollback Functions source is not authorized');
+  const projectDirectory=dirname(configPath);
+  const sourceDirectory=resolve(projectDirectory,functionConfig.source);
+  let actualProjectDirectory,actualSourceDirectory;
+  try{
+    [actualProjectDirectory,actualSourceDirectory]=await Promise.all([realpath(projectDirectory),realpath(sourceDirectory)]);
+  }catch{throw scopeError('SOURCE_OUTSIDE_DEPLOYMENT','Rollback Functions source is outside its deployment directory');}
+  const rel=relative(actualProjectDirectory,actualSourceDirectory);
+  if(!rel||rel.startsWith('..')||isAbsolute(rel))
+    throw scopeError('SOURCE_OUTSIDE_DEPLOYMENT','Rollback Functions source is outside its deployment directory');
+  return {codebase:expectedCodebase,source:expectedSource};
 }
 
 export async function validateGeneratedFunctionsScope({configPath,projectId}){

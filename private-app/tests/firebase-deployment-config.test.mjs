@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {createRequire} from 'node:module';
 import {stageFirebaseDeploymentConfig} from '../hosting/firebase-deployment-config.mjs';
+import {validateLegacyRollbackFunctionsScope} from '../hosting/functions-scope.mjs';
 
 const require=createRequire(import.meta.url);
 const firebaseToolsPackage=require.resolve('firebase-tools/package.json');
@@ -13,6 +14,7 @@ const filtersHelper=cliRequire('./lib/deploy/functions/functionsDeployHelper.js'
 const hostingPrepare=cliRequire('./lib/deploy/hosting/prepare.js');
 const backend=cliRequire('./lib/deploy/functions/backend.js');
 const validate=cliRequire('./lib/deploy/functions/validate.js');
+const checkValidTargetFilters=cliRequire('./lib/checkValidTargetFilters.js').checkValidTargetFilters;
 const {filterTargets}=cliRequire('./lib/filterTargets.js');
 
 test('Firebase deployment stages canonical Firestore rules and indexes within its project directory',async()=>{
@@ -87,11 +89,31 @@ test('staging rejects a config paired with the wrong Firebase project',async()=>
   );
 });
 
+test('legacy rollback scope rejects extra codebases before the bare Functions target is used',async()=>{
+  const appDirectory=await mkdtemp(join(tmpdir(),'justelle-rollback-scope-'));
+  const sourceDirectory=join(appDirectory,'functions');
+  await mkdir(sourceDirectory);
+  try{
+    const configPath=join(appDirectory,'firebase.json');
+    await writeFile(configPath,JSON.stringify({functions:[{source:'functions',codebase:'gateway',runtime:'nodejs20'}]}));
+    assert.deepEqual(await validateLegacyRollbackFunctionsScope({configPath,projectId:'justelle-qualification'}),
+      {codebase:'gateway',source:'functions'});
+    await writeFile(configPath,JSON.stringify({functions:[
+      {source:'functions',codebase:'gateway',runtime:'nodejs20'},
+      {source:'other',codebase:'other',runtime:'nodejs20'}
+    ]}));
+    await assert.rejects(validateLegacyRollbackFunctionsScope({configPath,projectId:'justelle-qualification'}),
+      error=>error.scopeCode==='CODEBASE_COUNT_MISMATCH');
+  }finally{
+    await rm(appDirectory,{recursive:true,force:true});
+  }
+});
+
 test('Firebase deployment staging accepts only the two controlled environment configs',async()=>{
   await assert.rejects(stageFirebaseDeploymentConfig({appDirectory:tmpdir(),configName:'untrusted.json',projectId:'justelle-qualification'}),/Unsupported/);
 });
 
-test('pinned Hosting rewrite fallback does not add a mismatched default-codebase filter',async()=>{
+test('pinned Hosting rewrite fallback keeps the strictly validated gateway target compatible with CLI filters',async()=>{
   assert.equal(cliRequire('./package.json').version,'15.34.0');
   const functionsConfig=[{source:'functions',codebase:'gateway',runtime:'nodejs22'}];
   // These are the two fictional discovered endpoints exported by the gateway source.
@@ -100,37 +122,25 @@ test('pinned Hosting rewrite fallback does not add a mismatched default-codebase
     {id:'encryptedBackup',codebase:'gateway',region:'northamerica-northeast1'}
   ];
   const want={gateway:backend.of(...endpoints)};
-  const explicitSelector='hosting:justelle-private-qualification,functions:gateway,firestore,storage';
+  const invalidSelector='hosting:justelle-private-qualification,functions:gateway,functions,firestore,storage';
+  const safeOnly='hosting:justelle-private-qualification,functions,firestore,storage';
   const hostingConfig=[{site:'fictional-site',target:'justelle-private-qualification',rewrites:[{
     source:'/api/**',function:{functionId:'privateApi',region:'northamerica-northeast1',pinTag:true}
   }]}];
   const originalExistingBackend=backend.existingBackend;
   backend.existingBackend=async()=>backend.empty();
   try{
-    // With no deployed backend yet, the actual pinned Hosting helper appends
-    // functions:privateApi, which parses as a default-codebase filter.
-    const failingOptions={only:explicitSelector,normalizedHostingConfig:hostingConfig};
-    await hostingPrepare.addPinnedFunctionsToOnlyString({},failingOptions);
-    assert.equal(failingOptions.only,explicitSelector+',functions:privateApi');
-    const failingFilters=filtersHelper.getEndpointFilters({only:failingOptions.only},functionsConfig);
-    assert.deepEqual(failingFilters,[
-      {codebase:'gateway'},
-      {codebase:'default',idChunks:['privateApi']}
-    ]);
-    assert.throws(()=>validate.checkFiltersIntegrity(want,failingFilters),/default:privateApi/);
-
-    // A bare target tells that helper the Functions target is already included;
-    // the explicit gateway filter still restricts deployment to this codebase.
-    const safeOnly='hosting:justelle-private-qualification,functions:gateway,functions,firestore,storage';
+    // The previous mixed selector is rejected by the CLI top-level validator.
+    await assert.rejects(checkValidTargetFilters({only:invalidSelector}),/Cannot specify "--only functions"/);
+    // The bare selector is safe only because deploy.mjs first validates the generated
+    // config and actual discovery against the exact gateway endpoint roster.
+    await checkValidTargetFilters({only:safeOnly});
     const safeOptions={only:safeOnly,normalizedHostingConfig:hostingConfig};
     await hostingPrepare.addPinnedFunctionsToOnlyString({},safeOptions);
     assert.equal(safeOptions.only,safeOnly);
     const safeFilters=filtersHelper.getEndpointFilters({only:safeOptions.only},functionsConfig);
-    assert.deepEqual(safeFilters,[{codebase:'gateway'}]);
+    assert.equal(safeFilters,undefined,'bare Functions intentionally selects the already scope-validated config');
     assert.deepEqual(filtersHelper.targetCodebases(functionsConfig,safeFilters),['gateway']);
-    assert.deepEqual(filtersHelper.targetCodebases([
-      ...functionsConfig,{source:'other-functions',codebase:'other',runtime:'nodejs22'}
-    ],safeFilters),['gateway']);
     assert.equal(endpoints.every(endpoint=>filtersHelper.endpointMatchesAnyFilter(endpoint,safeFilters)),true);
     validate.checkFiltersIntegrity(want,safeFilters);
     // Rollback checkouts can use firebase-tools 14.27.0. Its ensureTargeted
@@ -143,7 +153,7 @@ test('pinned Hosting rewrite fallback does not add a mismatched default-codebase
       if(functionId){target+=':'+functionId;if(parts.includes(target))return only;}
       return only+','+target;
     };
-    const rollbackSelector='hosting:justelle-private-qualification,functions:gateway,functions,firestore,storage';
+    const rollbackSelector=safeOnly;
     assert.equal(legacyEnsureTargeted(rollbackSelector,'privateApi'),rollbackSelector);
     assert.deepEqual(filterTargets({config:{has:target=>['hosting','functions','firestore','storage'].includes(target)},only:safeOnly},
       ['hosting','functions','firestore','storage']),['hosting','functions','firestore','storage']);
