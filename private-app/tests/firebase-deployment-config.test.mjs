@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,readdir,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,basename,resolve} from 'node:path';
 import {createRequire} from 'node:module';
@@ -104,6 +104,46 @@ test('qualification rollback source staging also pins the verified explicit buck
       assert.equal(await readFile(join(hostingDirectory,'firebase.json'),'utf8'),original);
     }finally{await staged.cleanup();}
   }finally{await rm(appDirectory,{recursive:true,force:true});}
+});
+
+test('Hosting asset staging rejects outside symlinks and cleans partial staging',async()=>{
+  for(const linkKind of ['file','directory','root']){
+    const appDirectory=await mkdtemp(join(tmpdir(),'justelle-hosting-symlink-'));
+    const hostingDirectory=join(appDirectory,'hosting');
+    const distDirectory=join(appDirectory,'dist');
+    const outsideDirectory=join(appDirectory,'outside');
+    await mkdir(hostingDirectory);
+    await mkdir(join(appDirectory,'firebase'));
+    await mkdir(outsideDirectory);
+    await writeFile(join(outsideDirectory,'private-sentinel.txt'),'synthetic private sentinel');
+    await writeFile(join(appDirectory,'firebase/firestore.rules'),'rules');
+    await writeFile(join(appDirectory,'firebase/firestore.indexes.json'),'{}');
+    const config={hosting:{target:'justelle-private-qualification',public:'../dist'},
+      firestore:{rules:'../firebase/firestore.rules',indexes:'../firebase/firestore.indexes.json'},
+      storage:{rules:'storage.rules'}};
+    await writeFile(join(hostingDirectory,'firebase.json'),JSON.stringify(config));
+    if(linkKind==='root'){
+      await symlink(outsideDirectory,distDirectory,'dir');
+    }else{
+      await mkdir(distDirectory);
+      await writeFile(join(distDirectory,'index.html'),'fictional build output');
+      const target=linkKind==='file'
+        ?join(outsideDirectory,'private-sentinel.txt')
+        :outsideDirectory;
+      await symlink(target,join(distDirectory,linkKind==='file'?'linked.txt':'linked-directory'),
+        linkKind==='file'?'file':'dir');
+    }
+    try{
+      await assert.rejects(
+        stageFirebaseDeploymentConfig({appDirectory,configName:'firebase.json',projectId:'justelle-qualification'}),
+        /Hosting public (directory must be a real directory|assets cannot contain symbolic links)/
+      );
+      assert.deepEqual((await readdir(hostingDirectory)).sort(),['firebase.json'],
+        'config/rules/indexes and any partial public output are cleaned after rejection');
+    }finally{
+      await rm(appDirectory,{recursive:true,force:true});
+    }
+  }
 });
 
 test('staging rejects a config paired with the wrong Firebase project',async()=>{
