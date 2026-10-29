@@ -133,6 +133,18 @@ test('pinned Hosting rewrite fallback does not add a mismatched default-codebase
     ],safeFilters),['gateway']);
     assert.equal(endpoints.every(endpoint=>filtersHelper.endpointMatchesAnyFilter(endpoint,safeFilters)),true);
     validate.checkFiltersIntegrity(want,safeFilters);
+    // Rollback checkouts can use firebase-tools 14.27.0. Its ensureTargeted
+    // implementation also preserves any selector containing bare "functions".
+    const legacyEnsureTargeted=(only,codebaseOrFunction,functionId)=>{
+      const parts=only.split(',');
+      if(parts.includes('functions'))return only;
+      let target='functions:'+codebaseOrFunction;
+      if(parts.includes(target))return only;
+      if(functionId){target+=':'+functionId;if(parts.includes(target))return only;}
+      return only+','+target;
+    };
+    const rollbackSelector='hosting:justelle-private-qualification,functions:gateway,functions,firestore,storage';
+    assert.equal(legacyEnsureTargeted(rollbackSelector,'privateApi'),rollbackSelector);
     assert.deepEqual(filterTargets({config:{has:target=>['hosting','functions','firestore','storage'].includes(target)},only:safeOnly},
       ['hosting','functions','firestore','storage']),['hosting','functions','firestore','storage']);
     assert.deepEqual(endpoints.map(endpoint=>endpoint.id),['privateApi','encryptedBackup']);

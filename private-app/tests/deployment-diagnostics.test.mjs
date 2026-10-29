@@ -866,6 +866,26 @@ test('Functions predeploy package failures are separated and safely classified b
   assert.equal(missingTool.detail,'FUNCTIONS_PACKAGE_FAILURE_UNCLASSIFIED');
 });
 
+test('Functions scope validation reports only its fixed failure category',()=>{
+  const privateDetail='FUNCTIONS_SCOPE_ENDPOINT_ROSTER_MISMATCH';
+  const result=deploymentFailureDiagnostic('functions-scope-validation',{
+    scopeCode:'ENDPOINT_ROSTER_MISMATCH',
+    message:'private function name, project, and source path must never be emitted'
+  },{providerMutationMayHaveStarted:false});
+  assert.equal(result.phase,'functions-scope-validation');
+  assert.equal(result.code,'LOCAL_FUNCTIONS_SCOPE_FAILED');
+  assert.equal(result.detail,privateDetail);
+  assert.equal(result.providerStateNeedsReconciliation,false);
+  const serialized=JSON.stringify(result);
+  assert.equal(serialized.includes('private function name'),false);
+  assert.equal(serialized.includes('source path'),false);
+  const unknown=deploymentFailureDiagnostic('functions-scope-validation',{
+    scopeCode:'UNEXPECTED_PRIVATE_VALUE',message:'private fixture'
+  });
+  assert.equal(unknown.detail,'FUNCTIONS_SCOPE_UNCLASSIFIED');
+  assert.equal(JSON.stringify(unknown).includes('private fixture'),false);
+});
+
 test('Terminal CLI diagnostics retain only bounded Firebase CLI package-relative source frames',async()=>{
   const temp=await mkdtemp(join(tmpdir(),'justelle-terminal-stack-'));
   const privateRoot=join(temp,'private.owner@example.test');
