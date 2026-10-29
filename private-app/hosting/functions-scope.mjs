@@ -1,4 +1,4 @@
-import {readFile,access,mkdtemp,rm} from 'node:fs/promises';
+import {readFile,access,mkdtemp,rm,realpath} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {tmpdir} from 'node:os';
 import {dirname,join,resolve,relative,isAbsolute} from 'node:path';
@@ -38,14 +38,24 @@ export async function validateGeneratedFunctionsScope({configPath,projectId}){
   }
   const projectDirectory=dirname(configPath);
   const sourceDirectory=resolve(projectDirectory,functionConfig.source);
-  const rel=relative(projectDirectory,sourceDirectory);
+  let actualProjectDirectory,actualSourceDirectory;
+  try{
+    [actualProjectDirectory,actualSourceDirectory]=await Promise.all([realpath(projectDirectory),realpath(sourceDirectory)]);
+  }catch{throw scopeError('SOURCE_OUTSIDE_DEPLOYMENT','Generated Functions source is outside its deployment directory');}
+  const rel=relative(actualProjectDirectory,actualSourceDirectory);
   if(!rel||rel.startsWith('..')||isAbsolute(rel))
     throw scopeError('SOURCE_OUTSIDE_DEPLOYMENT','Generated Functions source is outside its deployment directory');
   let packageJson;
   try{packageJson=JSON.parse(await readFile(join(sourceDirectory,'package.json'),'utf8'));}
   catch{throw scopeError('PACKAGE_METADATA_MISSING','Generated Functions package metadata is missing');}
   if(packageJson.main!=='lib/index.mjs')throw scopeError('ENTRYPOINT_MISMATCH','Generated Functions entrypoint is not authorized');
-  try{await access(join(sourceDirectory,packageJson.main));}
+  try{
+    await access(join(sourceDirectory,packageJson.main));
+    const actualBundle=await realpath(join(sourceDirectory,packageJson.main));
+    const bundleRelative=relative(actualSourceDirectory,actualBundle);
+    if(!bundleRelative||bundleRelative.startsWith('..')||isAbsolute(bundleRelative))
+      throw new Error('bundle outside package');
+  }
   catch{throw scopeError('BUNDLE_MISSING','Generated Functions bundle is missing');}
 
   const require=createRequire(import.meta.url);
@@ -98,7 +108,7 @@ export async function validateGeneratedFunctionsScope({configPath,projectId}){
       JUSTELLE_BACKUP_SERVICE_ACCOUNT:'backup@demo-justelle-qualification.iam.gserviceaccount.com',
       FUNCTIONS_DISCOVERY_TIMEOUT:'30'
     });
-    const endpoints=Object.entries(discovered?.endpoints??{}).map(([id,endpoint])=>({id,...endpoint}));
+    const endpoints=Object.entries(discovered?.endpoints??{}).map(([id,endpoint])=>({...endpoint,id}));
     return assertAuthorizedEndpointRoster(endpoints);
   }catch(error){
     if(error?.scopeCode)throw error;
