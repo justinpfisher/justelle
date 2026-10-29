@@ -7,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {assertAuthorizedEndpointRoster,validateGeneratedFunctionsScope} from '../hosting/functions-scope.mjs';
+import {assertAuthorizedEndpointRoster,validateGeneratedFunctionsScope,validateLegacyRollbackFunctionsScope} from '../hosting/functions-scope.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const require=createRequire(import.meta.url);
 const cliPackagePath=require.resolve('firebase-tools/package.json');
@@ -30,6 +30,10 @@ test('Cloud upload package loads and routes real HTTP requests without any paren
     await writeFile(configPath,JSON.stringify({functions:[{source:'functions',codebase:'gateway',runtime:'nodejs22'}]}));
     const scope=await validateGeneratedFunctionsScope({configPath,projectId:'justelle-qualification'});
     assert.deepEqual(scope,{codebase:'gateway',endpointCount:2,endpointIds:['encryptedBackup','privateApi']});
+    const legacyConfigPath=join(isolated,'legacy-firebase.json');
+    await writeFile(legacyConfigPath,JSON.stringify({functions:[{source:'functions',codebase:'gateway',runtime:'nodejs20'}]}));
+    assert.deepEqual(await validateLegacyRollbackFunctionsScope({configPath:legacyConfigPath,projectId:'justelle-qualification'}),
+      {codebase:'gateway',source:'functions'});
     const only='hosting:justelle-private-qualification,functions,firestore,storage';
     const currentInvalidOnly='hosting:justelle-private-qualification,functions:gateway,functions,firestore,storage';
     await assert.rejects(checkValidTargetFilters({only:currentInvalidOnly}),/Cannot specify "--only functions"/);
@@ -66,6 +70,8 @@ test('Cloud upload package loads and routes real HTTP requests without any paren
       {source:'functions',codebase:'gateway',runtime:'nodejs22'},
       {source:'other',codebase:'other',runtime:'nodejs22'}
     ]}));
+    await assert.rejects(validateLegacyRollbackFunctionsScope({configPath:extraCodebasePath,projectId:'justelle-qualification'}),
+      error=>error.scopeCode==='CODEBASE_COUNT_MISMATCH');
     await assert.rejects(validateGeneratedFunctionsScope({configPath:extraCodebasePath,projectId:'justelle-qualification'}),
       error=>error.scopeCode==='CODEBASE_COUNT_MISMATCH');
     const missingFunctionsPath=join(isolated,'missing-functions.firebase.json');

@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {createRequire} from 'node:module';
 import {stageFirebaseDeploymentConfig} from '../hosting/firebase-deployment-config.mjs';
+import {validateLegacyRollbackFunctionsScope} from '../hosting/functions-scope.mjs';
 
 const require=createRequire(import.meta.url);
 const firebaseToolsPackage=require.resolve('firebase-tools/package.json');
@@ -86,6 +87,26 @@ test('staging rejects a config paired with the wrong Firebase project',async()=>
     stageFirebaseDeploymentConfig({appDirectory:tmpdir(),configName:'firebase.json',projectId:'justelle-production'}),
     /does not match its project/
   );
+});
+
+test('legacy rollback scope rejects extra codebases before the bare Functions target is used',async()=>{
+  const appDirectory=await mkdtemp(join(tmpdir(),'justelle-rollback-scope-'));
+  const sourceDirectory=join(appDirectory,'functions');
+  await mkdir(sourceDirectory);
+  try{
+    const configPath=join(appDirectory,'firebase.json');
+    await writeFile(configPath,JSON.stringify({functions:[{source:'functions',codebase:'gateway',runtime:'nodejs20'}]}));
+    assert.deepEqual(await validateLegacyRollbackFunctionsScope({configPath,projectId:'justelle-qualification'}),
+      {codebase:'gateway',source:'functions'});
+    await writeFile(configPath,JSON.stringify({functions:[
+      {source:'functions',codebase:'gateway',runtime:'nodejs20'},
+      {source:'other',codebase:'other',runtime:'nodejs20'}
+    ]}));
+    await assert.rejects(validateLegacyRollbackFunctionsScope({configPath,projectId:'justelle-qualification'}),
+      error=>error.scopeCode==='CODEBASE_COUNT_MISMATCH');
+  }finally{
+    await rm(appDirectory,{recursive:true,force:true});
+  }
 });
 
 test('Firebase deployment staging accepts only the two controlled environment configs',async()=>{

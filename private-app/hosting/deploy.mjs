@@ -11,7 +11,7 @@ import {release,disableInitialService} from './release-core.mjs';
 import {smoke} from './smoke.mjs';
 import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
 import {stageFirebaseDeploymentConfig} from './firebase-deployment-config.mjs';
-import {validateGeneratedFunctionsScope} from './functions-scope.mjs';
+import {validateGeneratedFunctionsScope,validateLegacyRollbackFunctionsScope} from './functions-scope.mjs';
 import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from './deployment-diagnostics.mjs';
@@ -52,12 +52,9 @@ try{
       // Run the same local bundle builder as Firebase's predeploy hook first,
       // so package failures are reported before any provider request.
       await atPhase('functions-package',()=>npm(['run','package:functions'],directory));
-      if(!allowLegacyRollbackDiagnostics){
-        await atPhase('functions-scope-validation',()=>validateGeneratedFunctionsScope({
-          configPath:stagedConfig.path,
-          projectId:config.projectId
-        }));
-      }
+      await atPhase('functions-scope-validation',()=>allowLegacyRollbackDiagnostics?
+        validateLegacyRollbackFunctionsScope({configPath:stagedConfig.path,projectId:config.projectId}):
+        validateGeneratedFunctionsScope({configPath:stagedConfig.path,projectId:config.projectId}));
       await atPhase('firebase-deploy',async()=>{
         const invocation=await buildFirebaseCliInvocation({
           directory,
