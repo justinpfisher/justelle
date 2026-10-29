@@ -72,7 +72,7 @@ try{
         providerMutationMayHaveStarted=true;
         return run(process.execPath,[...invocation.args,'deploy','--non-interactive','--json',
           '--project',config.projectId,'--config',stagedConfig.path,
-          '--only','hosting:'+target+',functions:gateway,functions,firestore,storage'],{cwd:directory,env:cliEnv,maxBuffer:8*1024*1024});
+          '--only','hosting:'+target+',functions,firestore,storage'],{cwd:directory,env:cliEnv,maxBuffer:8*1024*1024});
       });
     }finally{
       await atPhase('deployment-config-cleanup',()=>stagedConfig.cleanup());

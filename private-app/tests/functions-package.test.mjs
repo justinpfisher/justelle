@@ -4,10 +4,19 @@ import {mkdtemp,cp,rm,writeFile,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {assertAuthorizedEndpointRoster,validateGeneratedFunctionsScope} from '../hosting/functions-scope.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
+const require=createRequire(import.meta.url);
+const cliPackagePath=require.resolve('firebase-tools/package.json');
+const cliRequire=createRequire(cliPackagePath);
+const filtersHelper=cliRequire('./lib/deploy/functions/functionsDeployHelper.js');
+const hostingPrepare=cliRequire('./lib/deploy/hosting/prepare.js');
+const backend=cliRequire('./lib/deploy/functions/backend.js');
+const validate=cliRequire('./lib/deploy/functions/validate.js');
+const checkValidTargetFilters=cliRequire('./lib/checkValidTargetFilters.js').checkValidTargetFilters;
 test('Cloud upload package loads and routes real HTTP requests without any parent-directory source',async()=>{
   await run(process.execPath,[join(root,'tools/package-functions.mjs')],{cwd:root});
   const isolated=await mkdtemp(join(tmpdir(),'justelle-functions-package-'));
@@ -20,7 +29,30 @@ test('Cloud upload package loads and routes real HTTP requests without any paren
     const configPath=join(isolated,'firebase.json');
     await writeFile(configPath,JSON.stringify({functions:[{source:'functions',codebase:'gateway',runtime:'nodejs22'}]}));
     const scope=await validateGeneratedFunctionsScope({configPath,projectId:'justelle-qualification'});
-    assert.deepEqual(scope,{codebase:'gateway',endpointCount:2});
+    assert.deepEqual(scope,{codebase:'gateway',endpointCount:2,endpointIds:['encryptedBackup','privateApi']});
+    const only='hosting:justelle-private-qualification,functions,firestore,storage';
+    const currentInvalidOnly='hosting:justelle-private-qualification,functions:gateway,functions,firestore,storage';
+    await assert.rejects(checkValidTargetFilters({only:currentInvalidOnly}),/Cannot specify "--only functions"/);
+    await checkValidTargetFilters({only});
+    const functionsConfig=[{source:'functions',codebase:scope.codebase,runtime:'nodejs22'}];
+    const filters=filtersHelper.getEndpointFilters({only},functionsConfig);
+    assert.equal(filters,undefined,'the bare Functions selector is intentional after strict generated-roster validation');
+    const endpoints=scope.endpointIds.map(id=>({id,codebase:scope.codebase,region:'northamerica-northeast1'}));
+    const want={gateway:backend.of(...endpoints)};
+    validate.checkFiltersIntegrity(want,filters);
+    assert.deepEqual(filtersHelper.targetCodebases(functionsConfig,filters),['gateway']);
+    assert.equal(endpoints.every(endpoint=>filtersHelper.endpointMatchesAnyFilter(endpoint,filters)),true);
+    const originalExistingBackend=backend.existingBackend;
+    backend.existingBackend=async()=>backend.empty();
+    try{
+      const options={only,normalizedHostingConfig:[{site:'fictional-site',target:'justelle-private-qualification',rewrites:[{
+        source:'/api/**',function:{functionId:'privateApi',region:'northamerica-northeast1',pinTag:true}
+      }]}]};
+      await hostingPrepare.addPinnedFunctionsToOnlyString({},options);
+      assert.equal(options.only,only,'bare functions must prevent an invalid mismatched default-codebase filter');
+      await checkValidTargetFilters({only:options.only});
+      validate.checkFiltersIntegrity(want,filtersHelper.getEndpointFilters({only:options.only},functionsConfig));
+    }finally{backend.existingBackend=originalExistingBackend;}
     assert.throws(()=>assertAuthorizedEndpointRoster([{id:'privateApi'},{id:'otherEndpoint'}]),
       error=>error.scopeCode==='ENDPOINT_ROSTER_MISMATCH');
     assert.throws(()=>assertAuthorizedEndpointRoster([{id:'privateApi'}]),

@@ -19,7 +19,7 @@ export function assertAuthorizedEndpointRoster(endpoints){
     ids.some((id,index)=>id!==expectedEndpoints[index])){
     throw scopeError('ENDPOINT_ROSTER_MISMATCH','Discovered Functions endpoint roster does not match the authorized roster');
   }
-  return {codebase:expectedCodebase,endpointCount:endpoints.length};
+  return {codebase:expectedCodebase,endpointCount:endpoints.length,endpointIds:ids};
 }
 
 export async function validateGeneratedFunctionsScope({configPath,projectId}){
