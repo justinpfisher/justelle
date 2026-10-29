@@ -1,8 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,readFile,writeFile,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,readdir,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,basename} from 'node:path';
+import {join,basename,resolve} from 'node:path';
 import {createRequire} from 'node:module';
 import {stageFirebaseDeploymentConfig} from '../hosting/firebase-deployment-config.mjs';
 import {validateLegacyRollbackFunctionsScope} from '../hosting/functions-scope.mjs';
@@ -16,12 +16,16 @@ const backend=cliRequire('./lib/deploy/functions/backend.js');
 const validate=cliRequire('./lib/deploy/functions/validate.js');
 const checkValidTargetFilters=cliRequire('./lib/checkValidTargetFilters.js').checkValidTargetFilters;
 const {filterTargets}=cliRequire('./lib/filterTargets.js');
+const {Config}=cliRequire('./lib/config.js');
 
 test('Firebase deployment stages canonical Firestore rules and indexes within its project directory',async()=>{
   const appDirectory=await mkdtemp(join(tmpdir(),'justelle-firebase-config-'));
   const hostingDirectory=join(appDirectory,'hosting');
   await mkdir(hostingDirectory);
   await mkdir(join(appDirectory,'firebase'));
+  const distDirectory=join(appDirectory,'dist');
+  await mkdir(distDirectory);
+  await writeFile(join(distDirectory,'index.html'),'fictional build output');
   const rules='rules_version = \'2\';\nservice cloud.firestore { match /databases/{database}/documents { match /{document=**} { allow read, write: if false; } } }\n';
   const indexes=JSON.stringify({indexes:[],fieldOverrides:[]});
   await writeFile(join(appDirectory,'firebase/firestore.rules'),rules);
@@ -35,12 +39,24 @@ test('Firebase deployment stages canonical Firestore rules and indexes within it
   try{
     for(const configName of ['firebase.json','firebase.production.json']){
       const original=await readFile(join(hostingDirectory,configName),'utf8');
+      const sourceConfig=JSON.parse(original);
+      const sourceCliConfig=Config.load({cwd:appDirectory,configPath:join(hostingDirectory,configName)});
+      assert.throws(()=>sourceCliConfig.path(sourceConfig.hosting.public),/outside of project directory/);
       const staged=await stageFirebaseDeploymentConfig({appDirectory,configName,projectId:configName==='firebase.json'?'justelle-qualification':'justelle-production'});
       try{
         assert.equal(basename(staged.path).startsWith('.justelle-deploy-'),true);
         const config=JSON.parse(await readFile(staged.path,'utf8'));
         assert.equal(config.hosting.target,configName==='firebase.json'?
           'justelle-private-qualification':'justelle-private-production');
+        assert.equal(config.hosting.public.startsWith('justelle-public-'),true);
+        assert.equal(await readFile(join(hostingDirectory,config.hosting.public,'index.html'),'utf8'),
+          'fictional build output');
+        const stagedCliConfig=Config.load({cwd:appDirectory,configPath:staged.path});
+        const stagedHosting=stagedCliConfig.get('hosting');
+        const selectedHosting=Array.isArray(stagedHosting)?stagedHosting[0]:stagedHosting;
+        assert.doesNotThrow(()=>stagedCliConfig.path(selectedHosting.public));
+        assert.equal(resolve(stagedCliConfig.projectDir,selectedHosting.public),
+          join(hostingDirectory,config.hosting.public));
         assert.equal(config.firestore.rules.startsWith('.justelle-deploy-'),true);
         assert.equal(config.firestore.indexes.startsWith('.justelle-deploy-'),true);
         assert.equal(await readFile(join(hostingDirectory,config.firestore.rules),'utf8'),rules);
@@ -66,6 +82,9 @@ test('qualification rollback source staging also pins the verified explicit buck
   const hostingDirectory=join(appDirectory,'hosting');
   await mkdir(hostingDirectory);
   await mkdir(join(appDirectory,'firebase'));
+  const distDirectory=join(appDirectory,'dist');
+  await mkdir(distDirectory);
+  await writeFile(join(distDirectory,'index.html'),'rollback build');
   await writeFile(join(appDirectory,'firebase/firestore.rules'),'rules');
   await writeFile(join(appDirectory,'firebase/firestore.indexes.json'),'{}');
   const original=JSON.stringify({hosting:{target:'justelle-private-qualification',public:'../dist'},
@@ -76,10 +95,55 @@ test('qualification rollback source staging also pins the verified explicit buck
     const staged=await stageFirebaseDeploymentConfig({appDirectory,configName:'firebase.json',projectId:'justelle-qualification'});
     try{
       const config=JSON.parse(await readFile(staged.path,'utf8'));
+      const stagedCliConfig=Config.load({cwd:appDirectory,configPath:staged.path});
+      const stagedHosting=stagedCliConfig.get('hosting');
+      const selectedHosting=Array.isArray(stagedHosting)?stagedHosting[0]:stagedHosting;
+      assert.doesNotThrow(()=>stagedCliConfig.path(selectedHosting.public));
+      assert.equal(await readFile(join(hostingDirectory,selectedHosting.public,'index.html'),'utf8'),'rollback build');
       assert.deepEqual(config.storage,[{bucket:'justelle-qualification.firebasestorage.app',rules:'storage.rules'}]);
       assert.equal(await readFile(join(hostingDirectory,'firebase.json'),'utf8'),original);
     }finally{await staged.cleanup();}
   }finally{await rm(appDirectory,{recursive:true,force:true});}
+});
+
+test('Hosting asset staging rejects outside symlinks and cleans partial staging',async()=>{
+  for(const linkKind of ['file','directory','root']){
+    const appDirectory=await mkdtemp(join(tmpdir(),'justelle-hosting-symlink-'));
+    const hostingDirectory=join(appDirectory,'hosting');
+    const distDirectory=join(appDirectory,'dist');
+    const outsideDirectory=join(appDirectory,'outside');
+    await mkdir(hostingDirectory);
+    await mkdir(join(appDirectory,'firebase'));
+    await mkdir(outsideDirectory);
+    await writeFile(join(outsideDirectory,'private-sentinel.txt'),'synthetic private sentinel');
+    await writeFile(join(appDirectory,'firebase/firestore.rules'),'rules');
+    await writeFile(join(appDirectory,'firebase/firestore.indexes.json'),'{}');
+    const config={hosting:{target:'justelle-private-qualification',public:'../dist'},
+      firestore:{rules:'../firebase/firestore.rules',indexes:'../firebase/firestore.indexes.json'},
+      storage:{rules:'storage.rules'}};
+    await writeFile(join(hostingDirectory,'firebase.json'),JSON.stringify(config));
+    if(linkKind==='root'){
+      await symlink(outsideDirectory,distDirectory,'dir');
+    }else{
+      await mkdir(distDirectory);
+      await writeFile(join(distDirectory,'index.html'),'fictional build output');
+      const target=linkKind==='file'
+        ?join(outsideDirectory,'private-sentinel.txt')
+        :outsideDirectory;
+      await symlink(target,join(distDirectory,linkKind==='file'?'linked.txt':'linked-directory'),
+        linkKind==='file'?'file':'dir');
+    }
+    try{
+      await assert.rejects(
+        stageFirebaseDeploymentConfig({appDirectory,configName:'firebase.json',projectId:'justelle-qualification'}),
+        /Hosting public (directory must be a real directory|assets cannot contain symbolic links)/
+      );
+      assert.deepEqual((await readdir(hostingDirectory)).sort(),['firebase.json'],
+        'config/rules/indexes and any partial public output are cleaned after rejection');
+    }finally{
+      await rm(appDirectory,{recursive:true,force:true});
+    }
+  }
 });
 
 test('staging rejects a config paired with the wrong Firebase project',async()=>{
