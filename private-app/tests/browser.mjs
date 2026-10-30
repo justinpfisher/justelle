@@ -605,21 +605,21 @@ try{
   assert.equal(await A.locator('#planner-booking-title').inputValue(),'');
   await delayedPdf.restore();
 
-  // Submitting invalidates extraction before saving, so its completion cannot
-  // refill the form after the successful save has reset it.
+  // Submitting invalidates extraction before validation, so even a rejected
+  // submit cannot be followed by an old read filling the member's form.
   delayedPdf=await holdNextPdfArrayBuffer(A);
   await A.locator('#planner-booking-file').setInputFiles({name:'pending-submit.pdf',mimeType:'application/pdf',
-    buffer:syntheticBookingPdf('Supplier: Stale Supplier')});
+    buffer:syntheticBookingPdf('Hotel: Stale Submit Inn\nSupplier: Stale Supplier')});
   await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
-  await A.locator('#planner-booking-title').evaluate(input=>input.value='Synthetic submit race');
   await A.locator('#planner-booking-start').evaluate(input=>input.value='2026-11-02');
-  await A.locator('#planner-booking-end').evaluate(input=>input.value='2026-11-05');
-  await A.locator('#planner-add-booking button[type=submit]').click();
-  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Synthetic submit race'})
-    .waitFor({timeout:15000});
+  await A.locator('#planner-booking-end').evaluate(input=>input.value='2026-11-02');
+  await A.locator('#planner-add-booking').evaluate(form=>form.dispatchEvent(
+    new Event('submit',{bubbles:true,cancelable:true})));
+  await poll(async()=>/Hotel checkout must follow check-in/.test(await A.locator('#error').textContent()));
   await delayedPdf.release();await waitForBrowserFrame(A);
+  assert.equal(await A.locator('#planner-booking-title').inputValue(),'');
   assert.equal(await A.locator('#planner-booking-supplier').inputValue(),'',
-    'an old read cannot refill fields after save/reset');
+    'a rejected submit cannot be followed by an old read refilling the form');
   await delayedPdf.restore();
 
   await A.locator('#planner-booking-file').setInputFiles({
@@ -631,8 +631,7 @@ try{
   assert.equal(await A.locator('#planner-booking-start').inputValue(),'2026-11-02');
   assert.equal(await A.locator('#planner-booking-end').inputValue(),'2026-11-05');
   assert.match(await A.locator('#planner-booking-extraction-feedback').textContent(),/read locally/);
-  assert.equal(await B.locator('#planner-bookings .planner-booking-entry')
-    .filter({hasText:'Synthetic Waterfront Inn'}).count(),0,
+  assert.equal(await B.locator('#planner-bookings .planner-booking-entry').count(),0,
     'Reading a PDF only fills editable suggestions; it does not save a booking');
   await A.locator('#planner-booking-file').setInputFiles([]);
   await A.locator('#planner-booking-reference').fill('');
