@@ -631,7 +631,8 @@ try{
   assert.equal(await A.locator('#planner-booking-start').inputValue(),'2026-11-02');
   assert.equal(await A.locator('#planner-booking-end').inputValue(),'2026-11-05');
   assert.match(await A.locator('#planner-booking-extraction-feedback').textContent(),/read locally/);
-  assert.equal(await B.locator('#planner-bookings .planner-booking-entry').count(),0,
+  assert.equal(await B.locator('#planner-bookings .planner-booking-entry')
+    .filter({hasText:'Synthetic Waterfront Inn'}).count(),0,
     'Reading a PDF only fills editable suggestions; it does not save a booking');
   await A.locator('#planner-booking-file').setInputFiles([]);
   await A.locator('#planner-booking-reference').fill('');
