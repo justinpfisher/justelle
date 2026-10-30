@@ -10,6 +10,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
   let stopped=false,request=0,sourceRequest=0,originalRequest=0,pdfRequest=0;
   let pdfController=null,pdfPlanId=null,pdfSaving=false,pdfFormRevision=0;
   const pdfButton=()=>$('planner-booking-pdf-extract');
+  pdfButton().disabled=false;
   const invalidatePdf=()=>{
     pdfRequest++;
     const controller=pdfController;
@@ -59,13 +60,14 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
   }
   async function render(plan){
     if(pdfController&&(!plan||pdfPlanId!==plan.id))invalidatePdf();
+    if(!pdfController)pdfButton().disabled=stopped||pdfSaving;
     const ticket=++request,root=$('planner-bookings');root.replaceChildren();
     $('planner-booking-source').replaceChildren();
     const related=$('planner-booking-stop'),previous=related.value;
     related.replaceChildren(new Option('No specific place',''));
     if(!plan)return;
     for(const stop of plan.stops.slice().sort((a,b)=>a.from_day-b.from_day))
-      related.add(new Option(stop.title+' � day '+stop.from_day,stop.id));
+      related.add(new Option(stop.title+' · day '+stop.from_day,stop.id));
     if([...related.options].some(x=>x.value===previous))related.value=previous;
     if(!plan.bookings.length)root.append(node('li','empty','No saved booking details yet.'));
     let sources=[];
@@ -76,8 +78,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     for(const b of plan.bookings){
       const li=node('li','planner-booking-entry');
       li.append(node('strong','',b.summary));
-      li.append(node('p','meta',b.kind+' � '+b.starts_on+' to '+b.ends_on+
-        ' � '+bookingStatusText(b.status)));
+      li.append(node('p','meta',b.kind+' · '+b.starts_on+' to '+b.ends_on+
+        ' · '+bookingStatusText(b.status)));
       const view=node('button','text-button',b.source_id?'Show original details':'No source attached');
       view.type='button';view.disabled=!b.source_id;
       view.onclick=()=>void openBooking(b.id);
@@ -196,7 +198,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
   };
   const form=$('planner-add-booking'),fileInput=$('planner-booking-file'),panel=$('planner-bookings-panel');
   const pdfFields=['planner-booking-kind','planner-booking-title','planner-booking-supplier',
-    'planner-booking-reference','planner-booking-start','planner-booking-end','planner-booking-stop'];
+    'planner-booking-reference','planner-booking-start','planner-booking-end','planner-booking-stop',
+    'planner-booking-paste'];
   form.addEventListener('reset',onPdfFormReset);
   fileInput.addEventListener('change',onPdfFileChange);
   for(const id of pdfFields){$(id).addEventListener('input',onPdfFieldEdit);$(id).addEventListener('change',onPdfFieldEdit);}
