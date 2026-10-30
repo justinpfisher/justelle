@@ -7,7 +7,7 @@ const node=(tag,cls='',value='')=>{
   const n=document.createElement(tag);if(cls)n.className=cls;if(value)n.textContent=value;return n;
 };
 export function mountBookingUI({planner,user,getPlan,onError,announce}){
-  let stopped=false,request=0,sourceRequest=0,originalRequest=0;
+  let stopped=false,request=0,sourceRequest=0,originalRequest=0,pdfRequest=0;
   async function openSource(booking,source,isCurrent){
     if(stopped||!isCurrent())return;
     const out=$('planner-booking-source');out.replaceChildren();
@@ -86,10 +86,10 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       $('planner-booking-source').scrollIntoView({block:'nearest'});
     }catch(error){if(isCurrent())onError(error);}
   }
-  const extract=()=>{
+  const applyDraftText=(text,sourceLabel='')=>{
     const feedback=$('planner-booking-extraction-feedback');
     try{
-      const result=extractBookingDraft($('planner-booking-paste').value);
+      const result=extractBookingDraft(text);
       const mapping={kind:'planner-booking-kind',summary:'planner-booking-title',
         supplier:'planner-booking-supplier',reference:'planner-booking-reference',
         starts_on:'planner-booking-start',ends_on:'planner-booking-end'};
@@ -100,22 +100,39 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       for(const [field,id] of Object.entries(mapping)){
         const value=result.fields[field];if(!value)continue;
         const target=$(id);
-        // Preserve deliberate member-entered details unless the form is still
-        // at its untouched default kind; never overwrite an existing date.
         if(field==='kind'){
-          if(target.value==='stay'||target.value===value){
-            target.value=value;filled++;
-          }else notes.push('Kept your chosen booking type; review the pasted wording.');
-        }else if(!target.value){
-          target.value=value;filled++;
-        }else if(target.value!==value){
-          notes.push('Kept your existing '+names[field]+'; check it against the original.');
-        }
+          if(target.value==='stay'||target.value===value){target.value=value;filled++;}
+          else notes.push('Kept your chosen booking type; review the wording.');
+        }else if(!target.value){target.value=value;filled++;}
+        else if(target.value!==value)notes.push('Kept your existing '+names[field]+'; check it against the original.');
       }
-      feedback.textContent=filled+' field'+(filled===1?'':'s')+
-        ' filled for review. '+result.limitations+
-        (notes.length?' '+notes.join(' '):'');
-    }catch(error){feedback.textContent=error.message||'Could not read the pasted booking.';}
+      feedback.textContent=(sourceLabel?sourceLabel+' ':'')+filled+' field'+(filled===1?'':'s')+
+        ' filled for review. '+result.limitations+(notes.length?' '+notes.join(' '):'');
+    }catch(error){feedback.textContent=error.message||'Could not extract booking details.';}
+  };
+  const extract=()=>applyDraftText($('planner-booking-paste').value);
+  const extractPdf=async()=>{
+    const feedback=$('planner-booking-extraction-feedback');
+    const file=$('planner-booking-file').files?.[0];
+    const button=$('planner-booking-pdf-extract');
+    const ticket=++pdfRequest,planId=getPlan()?.id;
+    const current=()=>!stopped&&ticket===pdfRequest&&getPlan()?.id===planId;
+    if(!file||file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
+      feedback.textContent='Choose a PDF file to read selectable text.';return;
+    }
+    if(file.size>12*1024*1024){feedback.textContent='Choose a PDF that is 12 MiB or smaller.';return;}
+    button.disabled=true;
+    try{
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      if(!current())return;
+      const {extractPdfBookingText}=await import('./pdfjs-booking-extraction.mjs');
+      if(!current())return;
+      const result=await extractPdfBookingText(bytes);
+      if(!current())return;
+      if(!result.text){feedback.textContent='No selectable text was found. Scanned pages need manual entry; OCR is not used.';return;}
+      applyDraftText(result.text,'PDF text read locally; '+result.pages+' page'+(result.pages===1?'':'s')+'.');
+    }catch(error){if(current())feedback.textContent=error.message||'Could not read selectable PDF text.';}
+    finally{if(current())button.disabled=false;}
   };
   const submit=async e=>{
     e.preventDefault();const p=getPlan();if(stopped||!p)return;
@@ -153,10 +170,12 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     finally{if(!stopped)button.disabled=false;}
   };
   $('planner-booking-extract').addEventListener('click',extract);
+  $('planner-booking-pdf-extract').addEventListener('click',extractPdf);
   $('planner-add-booking').addEventListener('submit',submit);
   return {render,openBooking,dispose(){
-    stopped=true;request++;sourceRequest++;originalRequest++;
+    stopped=true;request++;sourceRequest++;originalRequest++;pdfRequest++;
     $('planner-booking-extract').removeEventListener('click',extract);
+    $('planner-booking-pdf-extract').removeEventListener('click',extractPdf);
     $('planner-add-booking').removeEventListener('submit',submit);
   }};
 }

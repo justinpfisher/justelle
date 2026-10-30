@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore,Timestamp} from 'firebase-admin/firestore';
 import {restoreArchive} from '../memory/restore.mjs';
+import {syntheticBookingPdf} from './synthetic-booking-pdf.mjs';
 
 const fixtureFile=process.argv[2];
 if(!fixtureFile)throw Error('Need disposable emulator credentials file');
@@ -525,6 +526,18 @@ try{
   // original through the shared itinerary. No supplier booking is amended.
   await A.getByText('Booking anchors',{exact:true}).click();
   await B.getByText('Booking anchors',{exact:true}).click();
+  await A.locator('#planner-booking-file').setInputFiles({
+    name:'synthetic-booking.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Hotel: Synthetic Waterfront Inn\nCheck-in: 2026-11-02\nCheck-out: 2026-11-05\nBooking reference: FICT-BOOKING-1')
+  });
+  await A.locator('#planner-booking-pdf-extract').click();
+  await poll(async()=>await A.locator('#planner-booking-title').inputValue()==='Synthetic Waterfront Inn');
+  assert.equal(await A.locator('#planner-booking-start').inputValue(),'2026-11-02');
+  assert.equal(await A.locator('#planner-booking-end').inputValue(),'2026-11-05');
+  assert.match(await A.locator('#planner-booking-extraction-feedback').textContent(),/read locally/);
+  assert.equal(await B.locator('#planner-bookings .planner-booking-entry').count(),0,
+    'Reading a PDF only fills editable suggestions; it does not save a booking');
+  await A.locator('#planner-booking-file').setInputFiles([]);
   await A.locator('#planner-booking-title').fill('Fictional inn confirmation');
   await A.locator('#planner-booking-kind').selectOption('stay');
   const relatedStop=await A.locator('#planner-booking-stop option').filter({hasText:'Fictional Harbour Revised'})
@@ -544,7 +557,7 @@ try{
   await A.locator('#planner-booking-reference').fill('SYNTHETIC-REF');
   await A.locator('#planner-booking-file').setInputFiles({
     name:'synthetic-source.pdf',mimeType:'application/pdf',
-    buffer:Buffer.from('%PDF-1.4\\n1 0 obj\\n<< /Type /Catalog >>\\nendobj\\n%%EOF\\n')
+    buffer:syntheticBookingPdf('Fictional original booking record')
   });
   await A.locator('#planner-add-booking button[type=submit]').click();
   await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
