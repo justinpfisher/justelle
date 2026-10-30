@@ -538,6 +538,7 @@ try{
   assert.equal(await B.locator('#planner-bookings .planner-booking-entry').count(),0,
     'Reading a PDF only fills editable suggestions; it does not save a booking');
   await A.locator('#planner-booking-file').setInputFiles([]);
+  await A.locator('#planner-booking-reference').fill('');
   await A.locator('#planner-booking-title').fill('Fictional inn confirmation');
   await A.locator('#planner-booking-kind').selectOption('stay');
   const relatedStop=await A.locator('#planner-booking-stop option').filter({hasText:'Fictional Harbour Revised'})
