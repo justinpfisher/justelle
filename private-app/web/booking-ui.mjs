@@ -136,7 +136,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     const ticket=pdfRequest,planId=getPlan()?.id,formRevision=pdfFormRevision;
     const controller=new AbortController();pdfController=controller;pdfPlanId=planId;
     const current=()=>!stopped&&ticket===pdfRequest&&pdfController===controller&&
-      !controller.signal.aborted&&getPlan()?.id===planId&&fileInput.files?.[0]===file&&
+      !controller.signal.aborted&&$('planner-bookings-panel').open&&
+      getPlan()?.id===planId&&fileInput.files?.[0]===file&&
       pdfFormRevision===formRevision;
     if(!file||file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
       feedback.textContent='Choose a PDF file to read selectable text.';return;

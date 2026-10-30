@@ -578,6 +578,20 @@ try{
   assert.notEqual(await A.locator('#planner-booking-title').inputValue(),'Stale Closed Inn');
   await delayedPdf.restore();
 
+  delayedPdf=await holdNextPdfArrayBuffer(A);
+  await A.locator('#planner-booking-file').setInputFiles({name:'pending-panel-close.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Hotel: Stale Panel Inn')});
+  await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
+  await A.getByText('Booking anchors',{exact:true}).click();
+  await poll(async()=>!(await A.locator('#planner-bookings-panel').evaluate(panel=>panel.open)));
+  assert.equal(await A.locator('#planner-booking-pdf-extract').isDisabled(),false,
+    'closing the booking panel releases the shared Extract button');
+  await delayedPdf.release();await waitForBrowserFrame(A);
+  await A.getByText('Booking anchors',{exact:true}).click();
+  assert.notEqual(await A.locator('#planner-booking-title').inputValue(),'Stale Panel Inn');
+  await A.locator('#planner-add-booking').evaluate(form=>form.reset());
+  await delayedPdf.restore();
+
   // Replacing the file or resetting the form invalidates an outstanding read.
   delayedPdf=await holdNextPdfArrayBuffer(A);
   await A.locator('#planner-booking-file').setInputFiles({name:'pending-replaced.pdf',mimeType:'application/pdf',
