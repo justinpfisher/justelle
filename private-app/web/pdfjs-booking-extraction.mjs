@@ -4,6 +4,6 @@ import { extractSelectablePdfText } from './pdf-text-extraction.mjs';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-export function extractPdfBookingText(bytes) {
-  return extractSelectablePdfText(bytes, { getDocument: pdfjs.getDocument });
+export function extractPdfBookingText(bytes, { signal } = {}) {
+  return extractSelectablePdfText(bytes, { getDocument: pdfjs.getDocument, signal });
 }

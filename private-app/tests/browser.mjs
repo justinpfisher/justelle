@@ -77,6 +77,25 @@ async function holdFirstRequest(page,url,method){
   return {started,continued,release:releaseResolve,captured:()=>captured,
     get responseStatus(){return responseStatus;},get responseFinished(){return responseFinished;}};
 }
+async function holdNextPdfArrayBuffer(page){
+  await page.evaluate(()=>{
+    const original=File.prototype.arrayBuffer;let held=true;
+    window.__pdfReadStarted=false;window.__releasePdfRead=null;
+    window.__restorePdfArrayBuffer=()=>{File.prototype.arrayBuffer=original;delete window.__restorePdfArrayBuffer;};
+    File.prototype.arrayBuffer=function(){
+      const read=original.call(this);if(!held)return read;held=false;window.__pdfReadStarted=true;
+      return new Promise((resolve,reject)=>{window.__releasePdfRead=()=>read.then(resolve,reject);});
+    };
+  });
+  return {
+    waitStarted:()=>page.waitForFunction(()=>window.__pdfReadStarted===true),
+    release:()=>page.evaluate(()=>window.__pdfReadRelease?.()),
+    restore:()=>page.evaluate(()=>window.__restorePdfArrayBuffer?.())
+  };
+}
+async function waitForBrowserFrame(page){
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));
+}
 async function assertPrivateUiCleared(page){
   assert.equal(await page.locator('#private-app').isVisible(),false);
   assert.doesNotMatch(await page.locator('#private-app').textContent(),
@@ -229,7 +248,7 @@ try{
   await B.locator('#planner-edit-experience button[type=submit]').click();
   await A.locator('#planner-experiences').getByText('Fictional gallery').waitFor({timeout:15000});
   await A.locator('#planner-experiences .planner-stay').getByRole('button',{name:'Show day 2'}).click();
-  await A.locator('#planner-day-detail').getByText('Planned experience · Fictional gallery',{exact:false}).waitFor();
+  await A.locator('#planner-day-detail').getByText('Planned experience � Fictional gallery',{exact:false}).waitFor();
   assert.equal((await A.locator('#planner-day-detail').textContent()).includes('booking confirmation'),false);
   assert.equal(await A.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+2),true,
     'The journey must not require horizontal scrolling on a 390px phone');
@@ -479,7 +498,7 @@ try{
     'completion of an older Apply cannot switch the currently selected plan');
   assert.equal(await A.locator('#planner-instruction').inputValue(),
     'Draft for the alternate fictional plan',
-    'completion of an older Apply cannot erase the new plan’s draft');
+    'completion of an older Apply cannot erase the new plan's draft');
   await saveThenSwitchPlan.remove();
   await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
     .getByRole('button',{name:'Open plan'}).click();
@@ -526,6 +545,83 @@ try{
   // original through the shared itinerary. No supplier booking is amended.
   await A.getByText('Booking anchors',{exact:true}).click();
   await B.getByText('Booking anchors',{exact:true}).click();
+
+  // A delayed local read is discarded when its adventure is closed or switched.
+  let delayedPdf=await holdNextPdfArrayBuffer(A);
+  await A.locator('#planner-booking-file').setInputFiles({name:'pending-switch.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Hotel: Stale Switch Inn')});
+  await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Alternate Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail-title').getByText('Fictional Alternate Coast',{exact:true}).waitFor();
+  assert.equal(await A.locator('#planner-booking-pdf-extract').isDisabled(),false,
+    'switching adventures releases the shared Extract button');
+  await delayedPdf.release();await waitForBrowserFrame(A);
+  assert.notEqual(await A.locator('#planner-booking-title').inputValue(),'Stale Switch Inn');
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail-title').getByText('Fictional Shared Coast',{exact:true}).waitFor();
+  await A.locator('#planner-add-booking').evaluate(form=>form.reset());
+  await delayedPdf.restore();
+
+  delayedPdf=await holdNextPdfArrayBuffer(A);
+  await A.locator('#planner-booking-file').setInputFiles({name:'pending-close.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Hotel: Stale Closed Inn')});
+  await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
+  await A.locator('#planner-close').click();
+  assert.equal(await A.locator('#planner-booking-pdf-extract').isDisabled(),false,
+    'closing the adventure releases the shared Extract button');
+  await delayedPdf.release();await waitForBrowserFrame(A);
+  await A.locator('#planner-list .planner-card').filter({hasText:'Fictional Shared Coast'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await A.locator('#planner-detail-title').getByText('Fictional Shared Coast',{exact:true}).waitFor();
+  assert.notEqual(await A.locator('#planner-booking-title').inputValue(),'Stale Closed Inn');
+  await delayedPdf.restore();
+
+  // Replacing the file or resetting the form invalidates an outstanding read.
+  delayedPdf=await holdNextPdfArrayBuffer(A);
+  await A.locator('#planner-booking-file').setInputFiles({name:'pending-replaced.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Hotel: Stale Replaced Inn')});
+  await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
+  await A.locator('#planner-booking-file').setInputFiles({name:'newer.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Hotel: New File Inn')});
+  await A.locator('#planner-booking-title').fill('Member entered title');
+  assert.equal(await A.locator('#planner-booking-pdf-extract').isDisabled(),false,
+    'changing the selected file cancels the old read');
+  await delayedPdf.release();await waitForBrowserFrame(A);
+  assert.equal(await A.locator('#planner-booking-title').inputValue(),'Member entered title',
+    'an old file cannot overwrite newer member input');
+  await A.locator('#planner-add-booking').evaluate(form=>form.reset());
+  await delayedPdf.restore();
+
+  delayedPdf=await holdNextPdfArrayBuffer(A);
+  await A.locator('#planner-booking-file').setInputFiles({name:'pending-reset.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Hotel: Stale Reset Inn')});
+  await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
+  await A.locator('#planner-add-booking').evaluate(form=>form.reset());
+  assert.equal(await A.locator('#planner-booking-pdf-extract').isDisabled(),false,
+    'resetting the form cancels its old read');
+  await delayedPdf.release();await waitForBrowserFrame(A);
+  assert.equal(await A.locator('#planner-booking-title').inputValue(),'');
+  await delayedPdf.restore();
+
+  // Submitting invalidates extraction before saving, so its completion cannot
+  // refill the form after the successful save has reset it.
+  delayedPdf=await holdNextPdfArrayBuffer(A);
+  await A.locator('#planner-booking-file').setInputFiles({name:'pending-submit.pdf',mimeType:'application/pdf',
+    buffer:syntheticBookingPdf('Supplier: Stale Supplier')});
+  await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
+  await A.locator('#planner-booking-title').evaluate(input=>input.value='Synthetic submit race');
+  await A.locator('#planner-booking-start').evaluate(input=>input.value='2026-11-02');
+  await A.locator('#planner-booking-end').evaluate(input=>input.value='2026-11-05');
+  await A.locator('#planner-add-booking button[type=submit]').click();
+  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Synthetic submit race'})
+    .waitFor({timeout:15000});
+  await delayedPdf.release();await waitForBrowserFrame(A);
+  assert.equal(await A.locator('#planner-booking-supplier').inputValue(),'',
+    'an old read cannot refill fields after save/reset');
+  await delayedPdf.restore();
+
   await A.locator('#planner-booking-file').setInputFiles({
     name:'synthetic-booking.pdf',mimeType:'application/pdf',
     buffer:syntheticBookingPdf('Hotel: Synthetic Waterfront Inn\nCheck-in: 2026-11-02\nCheck-out: 2026-11-05\nBooking reference: FICT-BOOKING-1')
@@ -567,7 +663,7 @@ try{
     .getByRole('button',{name:'Show original details'}).click();
   await B.getByText('SYNTHETIC-REF',{exact:false}).waitFor({timeout:15000});
   await B.locator('#planner-map .planner-map-places button').filter({hasText:'Fictional Harbour Revised'}).click();
-  await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details · Fictional inn confirmation/}).waitFor({timeout:15000});
+  await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details � Fictional inn confirmation/}).waitFor({timeout:15000});
   assert.match(await B.locator('#planner-map .planner-map-selected').textContent(),/different dates/i);
   await B.locator('#planner-map .planner-map-selected').getByRole('button',{name:/Booking details/}).click();
   await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
@@ -579,7 +675,7 @@ try{
   if(!(await B.locator('.journey-days').evaluate(n=>n.open)))
     await B.getByText('Explore days',{exact:true}).click();
   await B.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
-  await B.locator('#planner-day-detail').getByRole('button',{name:/View booking · Fictional inn confirmation/}).click();
+  await B.locator('#planner-day-detail').getByRole('button',{name:/View booking � Fictional inn confirmation/}).click();
   assert.equal(await B.locator('#planner-booking-source').textContent(),'',
     'opening a new booking clears the previous source while current details load');
   await B.locator('#planner-booking-source').getByText('SYNTHETIC-REF',{exact:false}).waitFor();
@@ -795,14 +891,14 @@ try{
   await A.getByText(/Started in our chat/).waitFor({timeout:15000});
   await B.locator('#topic-list [data-topic-id="'+topic1+'"]').waitFor();
   await openDiscussion(B,topic1);
-  await B.locator('#message-input').fill('Fictional museum thread — from member B.');
+  await B.locator('#message-input').fill('Fictional museum thread - from member B.');
   await B.locator('#message-input').press('Enter');
-  await A.getByText('Fictional museum thread — from member B.',{exact:true}).waitFor();
-  await A.locator('#message-input').fill('Fictional museum thread — from member A.');
+  await A.getByText('Fictional museum thread - from member B.',{exact:true}).waitFor();
+  await A.locator('#message-input').fill('Fictional museum thread - from member A.');
   await A.locator('#message-input').press('Enter');
-  await B.getByText('Fictional museum thread — from member A.',{exact:true}).waitFor();
+  await B.getByText('Fictional museum thread - from member A.',{exact:true}).waitFor();
   await openDiscussion(B,'conversation-shared');
-  assert.equal(await B.getByText('Fictional museum thread — from member A.',{exact:true}).count(),0,
+  assert.equal(await B.getByText('Fictional museum thread - from member A.',{exact:true}).count(),0,
     'Adventure discussion text must not spill into Our chat');
   await B.getByText('Please suggest a plan for a fictional floating museum visit.',{exact:true}).first().waitFor();
 
@@ -956,7 +1052,7 @@ try{
   await again.locator('[data-tab="adventures"]').click();
   const memoryCard=again.locator('#adventures .record-card').filter({hasText:'Fictional spontaneous memory'});
   await memoryCard.getByText('Remembering',{exact:true}).waitFor();
-  await memoryCard.getByText('Change how we’re keeping this',{exact:true}).click();
+  await memoryCard.getByText('Change how we're keeping this',{exact:true}).click();
   await memoryCard.getByRole('button',{name:'Exploring',exact:true}).click();
   await memoryCard.locator('.tag').getByText('Exploring',{exact:true}).waitFor();
   const screenshots=fileURLToPath(new URL('../screenshots/',import.meta.url));await mkdir(screenshots,{recursive:true});

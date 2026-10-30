@@ -28,6 +28,21 @@ test('bounds pages, text and load duration', async () => {
   await assert.rejects(extractSelectablePdfText(bytes, { getDocument: () => ({ promise: Promise.resolve(pdf), destroy: async () => {} }), limits: { maxCharacters: 4 } }), /more text/);
   await assert.rejects(extractSelectablePdfText(bytes, { getDocument: () => ({ promise: new Promise(() => {}), destroy: async () => {} }), limits: { timeoutMs: 5 } }), /too long/);
 });
+test('cancels an in-flight PDF.js task when the owning form is invalidated', async () => {
+  const bytes = syntheticBookingPdf('Synthetic text');
+  const controller = new AbortController();
+  let destroyed = 0;
+  const pending = extractSelectablePdfText(bytes, {
+    signal: controller.signal,
+    getDocument: () => ({
+      promise: new Promise(() => {}),
+      destroy: async () => { destroyed++; }
+    })
+  });
+  controller.abort();
+  await assert.rejects(pending, error => error.name === 'AbortError');
+  assert.equal(destroyed, 1);
+});
 test('returns no suggestions for a PDF without selectable text', async () => {
   const bytes = syntheticBookingPdf('');
   const result = await extractSelectablePdfText(bytes, { getDocument: pdfjs.getDocument });
