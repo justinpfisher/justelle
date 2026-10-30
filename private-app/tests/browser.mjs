@@ -620,6 +620,7 @@ try{
   assert.equal(await A.locator('#planner-booking-title').inputValue(),'');
   assert.equal(await A.locator('#planner-booking-supplier').inputValue(),'',
     'a rejected submit cannot be followed by an old read refilling the form');
+  await A.locator('#planner-add-booking').evaluate(form=>form.reset());
   await delayedPdf.restore();
 
   await A.locator('#planner-booking-file').setInputFiles({
