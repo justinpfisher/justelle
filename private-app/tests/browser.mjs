@@ -80,16 +80,21 @@ async function holdFirstRequest(page,url,method){
 async function holdNextPdfArrayBuffer(page){
   await page.evaluate(()=>{
     const original=File.prototype.arrayBuffer;let held=true;
-    window.__pdfReadStarted=false;window.__releasePdfRead=null;
+    window.__pdfReadStarted=false;window.__releasePdfRead=null;window.__pdfReadReleaseCount=0;
     window.__restorePdfArrayBuffer=()=>{File.prototype.arrayBuffer=original;delete window.__restorePdfArrayBuffer;};
     File.prototype.arrayBuffer=function(){
       const read=original.call(this);if(!held)return read;held=false;window.__pdfReadStarted=true;
-      return new Promise((resolve,reject)=>{window.__releasePdfRead=()=>read.then(resolve,reject);});
+      return new Promise((resolve,reject)=>{window.__releasePdfRead=()=>{window.__pdfReadReleaseCount++;return read.then(resolve,reject);};});
     };
   });
   return {
     waitStarted:()=>page.waitForFunction(()=>window.__pdfReadStarted===true),
-    release:()=>page.evaluate(()=>window.__pdfReadRelease?.()),
+    release:()=>page.evaluate(()=>{
+      if(typeof window.__releasePdfRead!=='function')throw new Error('Held PDF read was not ready to release');
+      const release=window.__releasePdfRead;window.__releasePdfRead=null;release();
+      if(window.__pdfReadReleaseCount!==1)throw new Error('Held PDF read was not released exactly once');
+      return true;
+    }),
     restore:()=>page.evaluate(()=>window.__restorePdfArrayBuffer?.())
   };
 }
