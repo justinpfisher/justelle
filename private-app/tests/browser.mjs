@@ -584,6 +584,7 @@ try{
   await A.locator('#planner-booking-pdf-extract').click();await delayedPdf.waitStarted();
   await A.getByText('Booking anchors',{exact:true}).click();
   await poll(async()=>!(await A.locator('#planner-bookings-panel').evaluate(panel=>panel.open)));
+  await poll(async()=>!(await A.locator('#planner-booking-pdf-extract').isDisabled()));
   assert.equal(await A.locator('#planner-booking-pdf-extract').isDisabled(),false,
     'closing the booking panel releases the shared Extract button');
   await delayedPdf.release();await waitForBrowserFrame(A);
