@@ -30,9 +30,55 @@ test('manual one-run qualification input is opt-in and restricted to main',()=>{
   assert.doesNotMatch(job('production-release'),/inputs\.qualify_once|workflow_dispatch/);
 });
 
+test('read-only Hosting preflight is opt-in, main-only, held-only and isolated from deployment',()=>{
+  assert.match(workflow,/hosting_preflight_once:\s*\n\s+description: Run one read-only qualification Hosting site readiness check from main without deployment\s*\n\s+type: boolean\s*\n\s+required: false\s*\n\s+default: false/);
+  const preflight=job('qualification-hosting-preflight');
+  assert.match(preflight,/github\.event_name == 'workflow_dispatch'/);
+  assert.match(preflight,/github\.ref == 'refs\/heads\/main'/);
+  assert.match(preflight,/inputs\.hosting_preflight_once == true/);
+  assert.match(preflight,/inputs\.qualify_once != true/);
+  assert.match(preflight,/inputs\.storage_probe_once != true/);
+  assert.match(preflight,/vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true'/);
+  assert.match(preflight,/vars\.JUSTELLE_HOSTED_CONFIGURED == 'true'/);
+  assert.match(preflight,/environment: justelle-qualification/);
+  assert.match(preflight,/secrets\.JUSTELLE_WIF_PROVIDER/);
+  assert.match(preflight,/secrets\.JUSTELLE_DEPLOY_SERVICE_ACCOUNT/);
+  assert.match(preflight,/secrets\.JUSTELLE_DEPLOY_CONFIG/);
+  assert.match(preflight,/hosting\/qualification-site-preflight\.mjs/);
+  assert.match(preflight,/if: always\(\)/);
+  assert.doesNotMatch(preflight,/hosting\/deploy\.mjs|accept-hosted\.mjs|gcloud secrets|JUSTELLE_BACKUP_CONFIG|npm run build/);
+  assert.match(job('hosted-qualification'),/inputs\.hosting_preflight_once != true/);
+  assert.match(job('production-release'),/inputs\.hosting_preflight_once != true/);
+  assert.match(job('firebase-storage-default-bucket-probe'),/inputs\.hosting_preflight_once != true/);
+  assert.match(job('hosted-qualification-hold'),/inputs\.hosting_preflight_once != true/);
+});
+
+test('read-only Hosting preflight requires only the held main dispatch and never qualifies or releases',()=>{
+  const common={event:'workflow_dispatch',branch:'main',hostingPreflightOnce:true,qualifyOnce:false,
+    storageProbeOnce:false,hold:'true',hostedConfigured:'true',privatePilot:'success',windowsPreview:'skipped'};
+  assert.deepEqual(hostedQualificationPolicy(common),{
+    qualification:'skipped',holdReport:'not-applicable',production:'skipped',hostingPreflight:'run'
+  });
+  for(const overrides of [
+    {event:'pull_request'},
+    {branch:'feature'},
+    {hold:'false'},
+    {hostedConfigured:'false'},
+    {privatePilot:'failure'},
+    {windowsPreview:'failure'},
+    {qualifyOnce:true},
+    {storageProbeOnce:true}
+  ]){
+    const result=hostedQualificationPolicy({...common,...overrides});
+    assert.equal(result.hostingPreflight,'skipped');
+    assert.equal(result.production,'skipped');
+  }
+  assert.equal(firebaseStorageProbePolicy({...common,storageProbeOnce:true}), 'skipped');
+});
+
 test('production guard remains ineligible for a read-only probe and retains its existing acceptance conditions',()=>{
   const release=job('production-release');
-  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*inputs\.storage_probe_once != true &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
+  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*inputs\.storage_probe_once != true &&\s*inputs\.hosting_preflight_once != true &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
   assert.doesNotMatch(release,/qualify_once|workflow_dispatch/);
 });
 
@@ -167,3 +213,4 @@ test('probe selector cannot qualify or release when the persistent hold is false
     qualification:'skipped',holdReport:'not-applicable',production:'skipped'
   });
 });
+
