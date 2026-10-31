@@ -219,6 +219,7 @@ const safeMessageTemplates=[
   ['QUOTA_EXCEEDED',/resource exhausted|quota.{0,40}exceeded|rate limit/i],
   ['MODULE_RESOLUTION',/cannot find (?:package|module)|module not found|package path not exported/i],
   ['FUNCTIONS_DISCOVERY_FAILURE',/failed to load function definition from source|user code failed to load\. cannot determine backend specification|discovery process failed/i],
+  ['ARTIFACT_CLEANUP_POLICY_REQUIRED',/functions successfully deployed but could not set up cleanup policy/i],
   ['RESOURCE_NOT_FOUND',/not found|does not exist|no such file or directory/i],
   ['INVALID_ARGUMENT',/invalid argument|bad request|malformed/i],
   ['NETWORK_FAILURE',/getaddrinfo|network|socket|connection (?:refused|reset|timed out)|timed out/i],
