@@ -15,6 +15,11 @@ on:
         type: boolean
         required: false
         default: false
+      hosting_preflight_once:
+        description: Run one read-only qualification Hosting site readiness check from main without deployment
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +53,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
+      inputs.hosting_preflight_once != true &&
       !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
         inputs.qualify_once == true && inputs.storage_probe_once != true && vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
         needs.private-pilot.result == 'success' &&
@@ -116,6 +122,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       inputs.storage_probe_once == true &&
       inputs.qualify_once != true &&
+      inputs.hosting_preflight_once != true &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
       vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
       needs.private-pilot.result == 'success' &&
@@ -142,6 +149,54 @@ jobs:
       - name: Read Firebase Storage default-bucket metadata
         run: node hosting/firebase-storage-default-bucket-probe.mjs
         working-directory: private-app
+
+  qualification-hosting-preflight:
+    name: Qualification Hosting target preflight (read only)
+    needs: [changes, private-pilot, windows-preview]
+    if: >-
+      always() && !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.hosting_preflight_once == true &&
+      inputs.qualify_once != true &&
+      inputs.storage_probe_once != true &&
+      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
+      vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
+      needs.private-pilot.result == 'success' &&
+      (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: justelle-qualification
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: justelle-hosting-site-preflight
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
+          service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
+      - name: Prepare private deployment configuration
+        env:
+          CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('/tmp/justelle-qa.preflight.json',process.env.CONFIG,{mode:0o600});"
+      - name: Check qualification Hosting site without deploying
+        env:
+          JUSTELLE_PROJECT_ID: ${{ secrets.JUSTELLE_PROJECT_ID }}
+        run: node hosting/qualification-site-preflight.mjs /tmp/justelle-qa.preflight.json
+        working-directory: private-app
+      - name: Remove ephemeral private configuration
+        if: always()
+        run: rm -f /tmp/justelle-qa.preflight.json
 
   windows-preview:
     needs: changes
@@ -173,6 +228,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
       inputs.storage_probe_once != true &&
+      inputs.hosting_preflight_once != true &&
       (vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' ||
         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.qualify_once == true)) &&
       needs.private-pilot.result == 'success' &&
@@ -236,6 +292,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
       inputs.storage_probe_once != true &&
+      inputs.hosting_preflight_once != true &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&
       vars.JUSTELLE_INITIAL_ACCEPTANCE == 'verified' && needs.private-pilot.result == 'success' &&
       (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped') &&
@@ -281,3 +338,4 @@ jobs:
       - name: Remove ephemeral private configuration
         if: always()
         run: rm -f /tmp/justelle-production.release.json
+
