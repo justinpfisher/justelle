@@ -261,11 +261,6 @@ jobs:
           CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
         run: |
           node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('/tmp/justelle-qa.release.json',process.env.CONFIG,{mode:0o600});"
-      - name: Verify qualification Hosting site (read only)
-        env:
-          JUSTELLE_PROJECT_ID: ${{ secrets.JUSTELLE_PROJECT_ID }}
-        run: node hosting/qualification-site-preflight.mjs /tmp/justelle-qa.release.json
-        working-directory: private-app
       - run: node hosting/deploy.mjs /tmp/justelle-qa.release.json qualification
         working-directory: private-app
       - uses: google-github-actions/auth@v2

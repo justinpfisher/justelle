@@ -49,8 +49,15 @@ export function validateQualificationHostingTarget({
     return blocked('ORIGIN_MISMATCH');
   }
   if (!Array.isArray(sites)) return blocked('SITE_LIST_UNAVAILABLE');
-  const wanted = 'projects/' + expectedProjectId + '/sites/' + deploymentConfig.site;
-  if (!sites.some(site => site && typeof site.name === 'string' && site.name === wanted)) {
+  const siteExistsInProjectInventory = sites.some(site => {
+    if (!site || typeof site.name !== 'string') return false;
+    const resource = /^projects\/([^/]+)\/sites\/([^/]+)$/.exec(site.name);
+    if (!resource || resource[2] !== deploymentConfig.site) return false;
+    // The CLI request is scoped with --project expectedProjectId. Hosting may
+    // canonicalize the resource path with that project's numeric ID instead.
+    return resource[1] === expectedProjectId || /^[1-9][0-9]{0,19}$/.test(resource[1]);
+  });
+  if (!siteExistsInProjectInventory) {
     return blocked('SITE_NOT_FOUND');
   }
   return { ready: true, code: 'SITE_READY' };

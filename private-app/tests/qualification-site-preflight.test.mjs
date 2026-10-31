@@ -25,6 +25,7 @@ const deploymentConfig = {
 };
 const firebaseConfig = { hosting: { target: 'justelle-private-qualification' } };
 const siteResource = { name: 'projects/' + projectId + '/sites/' + siteId };
+const numberedProjectSiteResource = { name: 'projects/123456789012/sites/' + siteId };
 let configPath;
 let tempDirectory;
 
@@ -57,12 +58,27 @@ test('reports ready only when the private target resolves to an existing site', 
   }), { ready: true, code: 'SITE_READY' });
 });
 
-test('blocks when the configured site is not in the project site inventory', () => {
+test('accepts a canonical numeric project resource name from the project-scoped site inventory', () => {
   assert.deepEqual(validateQualificationHostingTarget({
     deploymentConfig,
     firebaseConfig,
     expectedProjectId: projectId,
-    sites: [{ name: 'projects/' + projectId + '/sites/other-site' }]
+    sites: [numberedProjectSiteResource]
+  }), { ready: true, code: 'SITE_READY' });
+});
+
+test('blocks wrong-project, wrong-site and malformed resources in the site inventory', () => {
+  for (const site of [
+    { name: 'projects/another-project/sites/' + siteId },
+    { name: 'projects/123456789012/sites/other-site' },
+    { name: 'projects/123456789012/other/' + siteId },
+    { name: 'projects//sites/' + siteId },
+    { name: 'projects/000000000000/sites/' + siteId }
+  ]) assert.deepEqual(validateQualificationHostingTarget({
+    deploymentConfig,
+    firebaseConfig,
+    expectedProjectId: projectId,
+    sites: [site]
   }), { ready: false, code: 'SITE_NOT_FOUND' });
 });
 
@@ -91,7 +107,7 @@ test('uses only the read-only Hosting sites list and keeps CLI failures private'
       assert.deepEqual(args.slice(1, 4), ['hosting:sites:list', '--json', '--project']);
       assert.equal(args[4], projectId);
       assert.equal(basename(options.cwd), 'private-app');
-      return { stdout: JSON.stringify({ status: 'success', result: { sites: [siteResource] } }) };
+      return { stdout: JSON.stringify({ status: 'success', result: { sites: [numberedProjectSiteResource] } }) };
     }
   });
   assert.equal(called, true);

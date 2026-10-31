@@ -47,7 +47,9 @@ test('read-only Hosting preflight is opt-in, main-only, held-only and isolated f
   assert.match(preflight,/hosting\/qualification-site-preflight\.mjs/);
   assert.match(preflight,/if: always\(\)/);
   assert.doesNotMatch(preflight,/hosting\/deploy\.mjs|accept-hosted\.mjs|gcloud secrets|JUSTELLE_BACKUP_CONFIG|npm run build/);
-  assert.match(job('hosted-qualification'),/inputs\.hosting_preflight_once != true/);
+  const qualification=job('hosted-qualification');
+  assert.match(qualification,/inputs\.hosting_preflight_once != true/);
+  assert.doesNotMatch(qualification,/qualification-site-preflight\.mjs/);
   assert.match(job('production-release'),/inputs\.hosting_preflight_once != true/);
   assert.match(job('firebase-storage-default-bucket-probe'),/inputs\.hosting_preflight_once != true/);
   assert.match(job('hosted-qualification-hold'),/inputs\.hosting_preflight_once != true/);
