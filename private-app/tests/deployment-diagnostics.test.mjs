@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from '../hosting/deployment-diagnostics.mjs';
-import {buildFirebaseCliInvocation,createSafeFirebaseCliFunctionFilterDiagnostic,createSafeFirebaseRequestEvent,installFirebaseCliRequestDiagnostics,parseFirebaseCliFunctionFilterDiagnostics,parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from '../hosting/firebase-cli-request-diagnostics.mjs';
+import {buildFirebaseCliInvocation,createSafeFirebaseCliFunctionFilterDiagnostic,createSafeFirebaseRequestEvent,createSafeTerminalErrorDiagnostic,installFirebaseCliRequestDiagnostics,parseFirebaseCliFunctionFilterDiagnostics,parseFirebaseCliRequestDiagnostics,parseFirebaseCliTerminalErrorDiagnostic} from '../hosting/firebase-cli-request-diagnostics.mjs';
 import {mkdtemp,mkdir,rm,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -946,4 +946,16 @@ test('Terminal diagnostic parser rejects dot-segment source frame paths',()=>{
     const record={...base,terminalError:{...base.terminalError,sourceFrames:{frames:[{file,line:17}],truncated:false}}};
     assert.equal(parseFirebaseCliTerminalErrorDiagnostic(prefix+JSON.stringify(record),nonce),null,file);
   }
+});
+
+
+test('Firebase CLI cleanup-policy prompt is classified without emitting dynamic location text',()=>{
+  const privateLocation='private-region-identifier owner@example.test';
+  const message=`Functions successfully deployed but could not set up cleanup policy in location ${privateLocation}. Pass the --force option`;
+  const result=createSafeTerminalErrorDiagnostic(new Error(message),new Map());
+  assert.equal(result.terminalError.nodes[0].messageTemplate,'ARTIFACT_CLEANUP_POLICY_REQUIRED');
+  const serialized=JSON.stringify(result);
+  assert.equal(serialized.includes(privateLocation),false);
+  assert.equal(serialized.includes('owner@example.test'),false);
+  assert.equal(serialized.includes(message),false);
 });
