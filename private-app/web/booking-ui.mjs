@@ -7,7 +7,21 @@ const node=(tag,cls='',value='')=>{
   const n=document.createElement(tag);if(cls)n.className=cls;if(value)n.textContent=value;return n;
 };
 export function mountBookingUI({planner,user,getPlan,onError,announce}){
-  let stopped=false,request=0,sourceRequest=0,originalRequest=0;
+  let stopped=false,request=0,sourceRequest=0,originalRequest=0,pdfRequest=0;
+  let pdfController=null,pdfPlanId=null,pdfSaving=false,pdfFormRevision=0;
+  const pdfButton=()=>$('planner-booking-pdf-extract');
+  pdfButton().disabled=false;
+  const invalidatePdf=()=>{
+    pdfRequest++;
+    const controller=pdfController;
+    pdfController=null;pdfPlanId=null;
+    controller?.abort();
+    const button=pdfButton();if(button)button.disabled=stopped||pdfSaving;
+  };
+  const onPdfFormReset=()=>{pdfFormRevision++;invalidatePdf();};
+  const onPdfFileChange=()=>{pdfFormRevision++;invalidatePdf();};
+  const onPdfFieldEdit=()=>{pdfFormRevision++;invalidatePdf();};
+  const onBookingsPanelToggle=()=>{if(!$('planner-bookings-panel').open)invalidatePdf();};
   async function openSource(booking,source,isCurrent){
     if(stopped||!isCurrent())return;
     const out=$('planner-booking-source');out.replaceChildren();
@@ -45,6 +59,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     out.append(button);
   }
   async function render(plan){
+    if(pdfController&&(!plan||pdfPlanId!==plan.id))invalidatePdf();
+    if(!pdfController)pdfButton().disabled=stopped||pdfSaving;
     const ticket=++request,root=$('planner-bookings');root.replaceChildren();
     $('planner-booking-source').replaceChildren();
     const related=$('planner-booking-stop'),previous=related.value;
@@ -86,10 +102,10 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       $('planner-booking-source').scrollIntoView({block:'nearest'});
     }catch(error){if(isCurrent())onError(error);}
   }
-  const extract=()=>{
+  const applyDraftText=(text,sourceLabel='')=>{
     const feedback=$('planner-booking-extraction-feedback');
     try{
-      const result=extractBookingDraft($('planner-booking-paste').value);
+      const result=extractBookingDraft(text);
       const mapping={kind:'planner-booking-kind',summary:'planner-booking-title',
         supplier:'planner-booking-supplier',reference:'planner-booking-reference',
         starts_on:'planner-booking-start',ends_on:'planner-booking-end'};
@@ -100,25 +116,51 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       for(const [field,id] of Object.entries(mapping)){
         const value=result.fields[field];if(!value)continue;
         const target=$(id);
-        // Preserve deliberate member-entered details unless the form is still
-        // at its untouched default kind; never overwrite an existing date.
         if(field==='kind'){
-          if(target.value==='stay'||target.value===value){
-            target.value=value;filled++;
-          }else notes.push('Kept your chosen booking type; review the pasted wording.');
-        }else if(!target.value){
-          target.value=value;filled++;
-        }else if(target.value!==value){
-          notes.push('Kept your existing '+names[field]+'; check it against the original.');
-        }
+          if(target.value==='stay'||target.value===value){target.value=value;filled++;}
+          else notes.push('Kept your chosen booking type; review the wording.');
+        }else if(!target.value){target.value=value;filled++;}
+        else if(target.value!==value)notes.push('Kept your existing '+names[field]+'; check it against the original.');
       }
-      feedback.textContent=filled+' field'+(filled===1?'':'s')+
-        ' filled for review. '+result.limitations+
-        (notes.length?' '+notes.join(' '):'');
-    }catch(error){feedback.textContent=error.message||'Could not read the pasted booking.';}
+      feedback.textContent=(sourceLabel?sourceLabel+' ':'')+filled+' field'+(filled===1?'':'s')+
+        ' filled for review. '+result.limitations+(notes.length?' '+notes.join(' '):'');
+    }catch(error){feedback.textContent=error.message||'Could not extract booking details.';}
+  };
+  const extract=()=>{invalidatePdf();applyDraftText($('planner-booking-paste').value);};
+  const extractPdf=async()=>{
+    const feedback=$('planner-booking-extraction-feedback');
+    if(pdfSaving||stopped)return;
+    const fileInput=$('planner-booking-file'),file=fileInput.files?.[0];
+    const button=$('planner-booking-pdf-extract');
+    invalidatePdf();
+    const ticket=pdfRequest,planId=getPlan()?.id,formRevision=pdfFormRevision;
+    const controller=new AbortController();pdfController=controller;pdfPlanId=planId;
+    const current=()=>!stopped&&ticket===pdfRequest&&pdfController===controller&&
+      !controller.signal.aborted&&$('planner-bookings-panel').open&&
+      getPlan()?.id===planId&&fileInput.files?.[0]===file&&
+      pdfFormRevision===formRevision;
+    if(!file||file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
+      feedback.textContent='Choose a PDF file to read selectable text.';return;
+    }
+    if(file.size>12*1024*1024){feedback.textContent='Choose a PDF that is 12 MiB or smaller.';return;}
+    button.disabled=true;
+    try{
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      if(!current())return;
+      const {extractPdfBookingText}=await import('./pdfjs-booking-extraction.mjs');
+      if(!current())return;
+      const result=await extractPdfBookingText(bytes,{signal:controller.signal});
+      if(!current())return;
+      if(!result.text){feedback.textContent='No selectable text was found. Scanned pages need manual entry; OCR is not used.';return;}
+      applyDraftText(result.text,'PDF text read locally; '+result.pages+' page'+(result.pages===1?'':'s')+'.');
+    }catch(error){if(current())feedback.textContent=error.message||'Could not read selectable PDF text.';}
+    finally{
+      if(pdfController===controller){pdfController=null;pdfPlanId=null;button.disabled=stopped||pdfSaving;}
+    }
   };
   const submit=async e=>{
     e.preventDefault();const p=getPlan();if(stopped||!p)return;
+    invalidatePdf();pdfSaving=true;$('planner-booking-pdf-extract').disabled=true;
     const button=$('planner-add-booking').querySelector('[type=submit]');button.disabled=true;
     try{
       const title=$('planner-booking-title').value.trim();
@@ -150,13 +192,31 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
         'You can also save the original text without extraction. Extracted fields are suggestions only; review before saving.';
       announce('Booking details and original text saved privately. The supplier reservation was not changed.');
     }catch(error){if(!stopped)onError(error);}
-    finally{if(!stopped)button.disabled=false;}
+    finally{
+      pdfSaving=false;
+      if(!stopped){button.disabled=false;$('planner-booking-pdf-extract').disabled=false;}
+    }
   };
+  const form=$('planner-add-booking'),fileInput=$('planner-booking-file'),panel=$('planner-bookings-panel');
+  const pdfFields=['planner-booking-kind','planner-booking-title','planner-booking-supplier',
+    'planner-booking-reference','planner-booking-start','planner-booking-end','planner-booking-stop',
+    'planner-booking-paste'];
+  form.addEventListener('reset',onPdfFormReset);
+  fileInput.addEventListener('change',onPdfFileChange);
+  for(const id of pdfFields){$(id).addEventListener('input',onPdfFieldEdit);$(id).addEventListener('change',onPdfFieldEdit);}
+  panel.addEventListener('toggle',onBookingsPanelToggle);
   $('planner-booking-extract').addEventListener('click',extract);
+  $('planner-booking-pdf-extract').addEventListener('click',extractPdf);
   $('planner-add-booking').addEventListener('submit',submit);
   return {render,openBooking,dispose(){
     stopped=true;request++;sourceRequest++;originalRequest++;
+    invalidatePdf();
+    form.removeEventListener('reset',onPdfFormReset);
+    fileInput.removeEventListener('change',onPdfFileChange);
+    for(const id of pdfFields){$(id).removeEventListener('input',onPdfFieldEdit);$(id).removeEventListener('change',onPdfFieldEdit);}
+    panel.removeEventListener('toggle',onBookingsPanelToggle);
     $('planner-booking-extract').removeEventListener('click',extract);
+    $('planner-booking-pdf-extract').removeEventListener('click',extractPdf);
     $('planner-add-booking').removeEventListener('submit',submit);
   }};
 }
