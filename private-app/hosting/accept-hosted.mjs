@@ -242,7 +242,9 @@ try{
   assert((await A.backend.messageById(failureSource)).body==='Fictional failure test.');results.push('ai_disabled_failure_preserves_message');
   progress.complete('AI_DISABLED_FAILURE_PRESERVATION');
   progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
-  const backup=await runScheduledBackup({db,bucket,roomId:'fictional-room',config:backupConfig});assert(backup.verified);results.push('encrypted_b2_download_and_independent_restore');
+  const backup=await runScheduledBackup({db,bucket,roomId:'fictional-room',config:backupConfig,progress});
+  progress.startSubcheck('BACKUP_VERIFIED_RESULT');assert(backup.verified);progress.completeSubcheck('BACKUP_VERIFIED_RESULT');
+  results.push('encrypted_b2_download_and_independent_restore');
   progress.complete('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
   console.log(JSON.stringify({hosted_fictional_acceptance:'passed',checks:results}));
 }catch(error){
