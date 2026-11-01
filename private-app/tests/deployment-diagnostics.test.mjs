@@ -996,3 +996,19 @@ test('Hosted acceptance progress rejects identifiers outside the static allowlis
   assert.equal(summary.includes(secret),false);
   assert.match(summary,/Failed stage \(exact assertion not identified\): `UNKNOWN`/);
 });
+
+
+test('AI planner failure summary localizes the failed request stage without retaining response details',()=>{
+  const sensitive='owner@example.test private-room source-id token-value model-response';
+  const progress=createHostedAcceptanceProgress();
+  progress.start('PLANNER_HISTORY_AND_PROTECTED_DOCUMENTS');progress.complete('PLANNER_HISTORY_AND_PROTECTED_DOCUMENTS');
+  progress.start('AI_PLAN_SOURCE_CREATION');progress.complete('AI_PLAN_SOURCE_CREATION');
+  progress.start('AI_PLAN_SUGGESTION_REQUEST');progress.failCurrent();
+  progress.start('FINAL_TEARDOWN');progress.markUnknown('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  const summary=renderHostedAcceptanceFailureSummary(progress);
+  assert.match(summary,/Failed stage \(exact assertion not identified\): `AI_PLAN_SUGGESTION_REQUEST`/);
+  assert.match(summary,/Last completed check: `AI_PLAN_SOURCE_CREATION`/);
+  assert.match(summary,/Final teardown: UNKNOWN/);
+  for(const value of ['owner@example.test','private-room','source-id','token-value','model-response'])assert.equal(summary.includes(value),false);
+  assert.equal(summary.includes(sensitive),false);
+});
