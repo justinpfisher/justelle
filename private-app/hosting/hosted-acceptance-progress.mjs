@@ -16,19 +16,23 @@ const allowedCheckIds=new Set(checkIds);
 
 export function createHostedAcceptanceProgress(){
   const entries=[];
-  let active=null;
+  let active=null,ambiguousActive=false;
   function record(check,result){
-    if(!allowedCheckIds.has(check)||!['PASS','FAIL'].includes(result))throw Error('Invalid acceptance diagnostic state');
+    if(!allowedCheckIds.has(check)||!['PASS','FAIL','UNKNOWN'].includes(result))throw Error('Invalid acceptance diagnostic state');
     entries.push({check,result});
   }
   return Object.freeze({
     start(check){
       if(!allowedCheckIds.has(check)||active!==null)throw Error('Invalid acceptance diagnostic stage');
-      active=check;
+      active=check;ambiguousActive=false;
+    },
+    markUnknown(check){
+      if(active!==check||!allowedCheckIds.has(check))throw Error('Invalid acceptance diagnostic ambiguity');
+      ambiguousActive=true;
     },
     complete(check){
       if(active!==check||!allowedCheckIds.has(check))throw Error('Invalid acceptance diagnostic completion');
-      record(check,'PASS');active=null;
+      record(check,ambiguousActive?'UNKNOWN':'PASS');active=null;ambiguousActive=false;
     },
     failCurrent(){
       if(active!==null){record(active,'FAIL');active=null;}
@@ -53,12 +57,12 @@ export function renderHostedAcceptanceFailureSummary(progress){
   const failed=snapshot.failedChecks.filter(check=>check==='UNKNOWN'||allowedCheckIds.has(check));
   const completed=snapshot.completedChecks.filter(check=>allowedCheckIds.has(check));
   const last=snapshot.lastCompletedCheck==='NONE'||allowedCheckIds.has(snapshot.lastCompletedCheck)?snapshot.lastCompletedCheck:'UNKNOWN';
-  const teardown=['PASS','FAIL'].includes(snapshot.teardownStatus)?snapshot.teardownStatus:'UNKNOWN';
+  const teardown=['PASS','FAIL','UNKNOWN'].includes(snapshot.teardownStatus)?snapshot.teardownStatus:'UNKNOWN';
   return [
     '### Hosted fictional acceptance progress (safe diagnostic)',
     '',
     '- Outcome: FAIL',
-    `- Failed check: ${failed.map(check=>'`'+check+'`').join(', ')||'`UNKNOWN`'}`,
+    `- Failed stage (exact assertion not identified): ${failed.map(check=>'`'+check+'`').join(', ')||'`UNKNOWN`'}`,
     `- Last completed check: ${'`'+last+'`'}`,
     `- Completed checks: ${completed.map(check=>'`'+check+'`').join(', ')||'`NONE`'}`,
     `- Final teardown: ${teardown}`,
