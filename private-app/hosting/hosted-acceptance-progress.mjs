@@ -63,7 +63,7 @@ export function renderHostedAcceptanceFailureSummary(progress){
     `- Completed checks: ${completed.map(check=>'`'+check+'`').join(', ')||'`NONE`'}`,
     `- Final teardown: ${teardown}`,
     ''
-  ].join('\\n');
+  ].join('\n');
 }
 
 export async function appendHostedAcceptanceFailureSummary(summaryPath,progress){
