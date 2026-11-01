@@ -5,6 +5,7 @@ import {Readable} from 'node:stream';
 import {createHash,randomBytes} from 'node:crypto';
 import {runScheduledBackup} from '../hosting/scheduled-backup.mjs';
 import {createB2Store,validateB2Retention,validateB2ObjectRetention} from '../hosting/functions/b2-store.mjs';
+import {createHostedAcceptanceProgress,renderHostedAcceptanceFailureSummary} from '../hosting/hosted-acceptance-progress.mjs';
 const id='00000000-0000-4000-8000-000000000001';
 const image=Buffer.from('synthetic-original-image');
 const records={persons:[{id:'person-a'},{id:'person-b'}],conversations:[{id:'conversation-shared'}],
@@ -13,7 +14,7 @@ const records={persons:[{id:'person-a'},{id:'person-b'}],conversations:[{id:'con
     {id:'reply',body:'Synthetic AI',author_id:'ai-justelle',kind:'ai',conversation_id:'conversation-shared',source_message_id:'note',attachment_ids:[]}],
   decisions:[{id:'agreement',author_id:'person-b',conversation_id:'conversation-shared',status:'locked',locked_at:'2026-10-14T00:00:00Z',approvals:[{person_id:'person-a'},{person_id:'person-b'}]}],adventures:[],attachments:[{id,author_id:'person-a',mime:'image/png',size:image.length,sha256:createHash('sha256').update(image).digest('hex')}]};
 const config={bucket:'justelle-qualification-backups',prefix:'qualification',recoveryKeyBase64:randomBytes(32).toString('base64')};
-const source=()=>({records,media:[{id,mime:'image/png',stream:Readable.from([image])}]});
+const source=()=>({records:structuredClone(records),media:[{id,mime:'image/png',stream:Readable.from([image])}]});
 test('Scheduled backup uploads ciphertext and downloads/restores exact original history without Firebase',async()=>{
   let stored,closed=false;const calls=[];
   const store={verifyRetention:async()=>calls.push('retention'),put:async(n,p,size)=>{stored=await readFile(p);assert.equal(stored.length,size);calls.push('put');return 'fictional-version';},
@@ -24,15 +25,47 @@ test('Scheduled backup uploads ciphertext and downloads/restores exact original 
   assert.equal(stored.includes(image),false);assert.equal(stored.includes(Buffer.from('Synthetic original')),false);
 });
 test('Retention failure, upload failure and corrupt downloads cannot report a successful backup',async()=>{
-  for(const fault of ['retention','upload','object-retention','corrupt']){
+  const expectedSubcheck={retention:'BACKUP_RETENTION_PREFLIGHT',upload:'BACKUP_UPLOAD',
+    'object-retention':'BACKUP_OBJECT_RETENTION',corrupt:'BACKUP_DOWNLOAD_CHECKSUM'};
+  for(const fault of Object.keys(expectedSubcheck)){
+    const progress=createHostedAcceptanceProgress();progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
     let stored,uploaded=false,downloaded=false;
     const store={verifyRetention:async()=>{if(fault==='retention')throw Error('Retention missing');},put:async(n,p)=>{if(fault==='upload')throw Error('Upload unavailable');stored=await readFile(p);uploaded=true;},
       verifyObjectRetention:async()=>{if(fault==='object-retention')throw Error('Object lock missing');},
       get:async()=>{downloaded=true;const corrupt=Buffer.from(stored);corrupt[70]^=1;return Readable.from([corrupt]);}};
-    await assert.rejects(runScheduledBackup({config,source:source(),store}));
+    await assert.rejects(runScheduledBackup({config,source:source(),store,progress}));
     assert.equal(uploaded,['object-retention','corrupt'].includes(fault));
     assert.equal(downloaded,fault==='corrupt');
+    progress.failCurrent();progress.start('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+    assert.match(renderHostedAcceptanceFailureSummary(progress),new RegExp('Failed subcheck: `'+expectedSubcheck[fault]+'`'));
   }
+});
+
+test('Backup failure summary names the fixed failing stage without exposing error or archive data',async()=>{
+  const sensitive='owner@example.test private-room recovery-key ciphertext';
+  const progress=createHostedAcceptanceProgress();
+  progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
+  const store={verifyRetention:async()=>{},put:async()=>{throw Error('Upload failed '+sensitive);},close(){}};
+  await assert.rejects(runScheduledBackup({config,source:source(),store,progress}),/Upload failed/);
+  progress.failCurrent();
+  progress.start('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  const summary=renderHostedAcceptanceFailureSummary(progress);
+  assert.match(summary,/Failed subcheck: `BACKUP_UPLOAD`/);
+  for(const value of ['owner@example.test','private-room','recovery-key','ciphertext'])assert.equal(summary.includes(value),false);
+  assert.equal(summary.includes(sensitive),false);
+});
+
+test('A changed in-memory source fails at the restored-record comparison subcheck',async()=>{
+  const fixture=source();let stored;
+  const progress=createHostedAcceptanceProgress();progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
+  const store={verifyRetention:async()=>{},put:async(_name,path)=>{stored=await readFile(path);return 'fictional-version';},
+    verifyObjectRetention:async()=>{},get:async()=>{
+      fixture.records.messages[0].body='Changed after snapshot';
+      return Readable.from([stored]);
+    }};
+  await assert.rejects(runScheduledBackup({config,source:fixture,store,progress}),/Restored history differs/);
+  progress.failCurrent();progress.start('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  assert.match(renderHostedAcceptanceFailureSummary(progress),/Failed subcheck: `BACKUP_RECORDS_MATCH`/);
 });
 test('B2 store cannot send credentials to an unrelated endpoint',()=>{
   assert.throws(()=>createB2Store({endpoint:'https://attacker.invalid',bucket:'fictional',keyId:'synthetic',applicationKey:'synthetic'}),/destination/);

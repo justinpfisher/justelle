@@ -26,7 +26,24 @@ const subcheckIds=Object.freeze([
   'SUGGESTION_RESPONSE_CHANGE_TYPE',
   'SUGGESTION_RESPONSE_SOURCE_ID',
   'SUGGESTION_RESPONSE_REVISION',
-  'SUGGESTION_RESPONSE_PLAN_UNCHANGED'
+  'SUGGESTION_RESPONSE_PLAN_UNCHANGED',
+  'BACKUP_TARGET_VALIDATION',
+  'BACKUP_RECOVERY_KEY_VALIDATION',
+  'BACKUP_LOCAL_WORKSPACE',
+  'BACKUP_STORE_SETUP',
+  'BACKUP_FIREBASE_SNAPSHOT',
+  'BACKUP_ENCRYPTION',
+  'BACKUP_SIZE_LIMIT',
+  'BACKUP_RETENTION_PREFLIGHT',
+  'BACKUP_UPLOAD',
+  'BACKUP_OBJECT_RETENTION',
+  'BACKUP_DOWNLOAD',
+  'BACKUP_DOWNLOAD_CHECKSUM',
+  'BACKUP_DECRYPTION_RESTORE',
+  'BACKUP_RESTORED_RECORDS_READ',
+  'BACKUP_RECORDS_MATCH',
+  'BACKUP_VERIFIED_RESULT',
+  'BACKUP_LOCAL_CLEANUP'
 ]);
 const allowedSubcheckIds=new Set(subcheckIds);
 
@@ -43,14 +60,22 @@ export function createHostedAcceptanceProgress(){
       active=check;ambiguousActive=false;
     },
     startSubcheck(check){
-      if(active!=='AI_PLAN_SUGGESTION_RESPONSE_VALIDATION'||activeSubcheck!==null||!allowedSubcheckIds.has(check))
+      if(!['AI_PLAN_SUGGESTION_RESPONSE_VALIDATION','ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE'].includes(active)||
+        activeSubcheck!==null||!allowedSubcheckIds.has(check))
         throw Error('Invalid acceptance diagnostic subcheck');
       activeSubcheck=check;
     },
     completeSubcheck(check){
-      if(active!=='AI_PLAN_SUGGESTION_RESPONSE_VALIDATION'||activeSubcheck!==check||!allowedSubcheckIds.has(check))
+      if(!['AI_PLAN_SUGGESTION_RESPONSE_VALIDATION','ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE'].includes(active)||
+        activeSubcheck!==check||!allowedSubcheckIds.has(check))
         throw Error('Invalid acceptance diagnostic subcheck completion');
       entries.push({check:active,subcheck:check,result:'PASS'});activeSubcheck=null;
+    },
+    failSubcheck(check){
+      if(!['AI_PLAN_SUGGESTION_RESPONSE_VALIDATION','ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE'].includes(active)||
+        activeSubcheck!==check||!allowedSubcheckIds.has(check))
+        throw Error('Invalid acceptance diagnostic subcheck failure');
+      entries.push({check:active,subcheck:check,result:'FAIL'});activeSubcheck=null;
     },
     markUnknown(check){
       if(active!==check||!allowedCheckIds.has(check))throw Error('Invalid acceptance diagnostic ambiguity');
