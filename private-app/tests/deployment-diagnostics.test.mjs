@@ -1012,3 +1012,22 @@ test('AI planner failure summary localizes the failed request stage without reta
   for(const value of ['owner@example.test','private-room','source-id','token-value','model-response'])assert.equal(summary.includes(value),false);
   assert.equal(summary.includes(sensitive),false);
 });
+
+test('AI planner response subchecks identify only the failed fixed validation label',()=>{
+  const sensitive='owner@example.test private-room source-id token-value model-response';
+  const progress=createHostedAcceptanceProgress();
+  progress.start('AI_PLAN_SUGGESTION_RESPONSE_VALIDATION');
+  progress.startSubcheck('SUGGESTION_RESPONSE_PREVIEW_KIND');
+  progress.failCurrent();
+  progress.start('FINAL_TEARDOWN');progress.markUnknown('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  const summary=renderHostedAcceptanceFailureSummary(progress);
+  assert.match(summary,/Failed stage .*`AI_PLAN_SUGGESTION_RESPONSE_VALIDATION`/);
+  assert.match(summary,/Failed subcheck: `SUGGESTION_RESPONSE_PREVIEW_KIND`/);
+  for(const value of ['owner@example.test','private-room','source-id','token-value','model-response'])
+    assert.equal(summary.includes(value),false);
+  assert.throws(()=>{
+    const invalid=createHostedAcceptanceProgress();
+    invalid.start('AI_PLAN_SUGGESTION_RESPONSE_VALIDATION');
+    invalid.startSubcheck(sensitive);
+  },/Invalid acceptance diagnostic subcheck/);
+});
