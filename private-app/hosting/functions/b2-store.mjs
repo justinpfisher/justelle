@@ -1,5 +1,14 @@
 import {S3Client,PutObjectCommand,GetObjectCommand,GetObjectLockConfigurationCommand,GetObjectRetentionCommand} from '@aws-sdk/client-s3';
 import {createReadStream} from 'node:fs';
+import {createHash} from 'node:crypto';
+
+// Object Lock uploads require a request checksum. Bucket default retention is
+// applied by B2 even when the PUT does not set per-object retention headers.
+export async function calculateContentMd5(path){
+  const hash=createHash('md5');
+  for await(const chunk of createReadStream(path))hash.update(chunk);
+  return hash.digest('base64');
+}
 // A configured Object Lock bucket can still use the wrong mode or an
 // ineffective default period. New ciphertext generations require the
 // owner-approved governance retention before any remote upload begins.
@@ -42,8 +51,9 @@ export function createB2Store(config){
       validateB2Retention(result);
     },
     async put(name,path,size){
+      const contentMD5=await calculateContentMd5(path);
       const result=await client.send(new PutObjectCommand({Bucket:config.bucket,Key:name,Body:createReadStream(path),ContentLength:size,
-        ContentType:'application/octet-stream',CacheControl:'private, no-store'}));
+        ContentMD5:contentMD5,ContentType:'application/octet-stream',CacheControl:'private, no-store'}));
       return result.VersionId||null;
     },
     async verifyObjectRetention(name,versionId){
