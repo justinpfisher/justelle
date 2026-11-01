@@ -46,6 +46,40 @@ const subcheckIds=Object.freeze([
   'BACKUP_LOCAL_CLEANUP'
 ]);
 const allowedSubcheckIds=new Set(subcheckIds);
+const b2UploadErrorCategories=Object.freeze({
+  AccessDenied:'ACCESS_DENIED',
+  AuthorizationHeaderMalformed:'AUTHORIZATION_MALFORMED',
+  BadDigest:'BAD_DIGEST',
+  EntityTooLarge:'ENTITY_TOO_LARGE',
+  IncompleteBody:'INCOMPLETE_BODY',
+  InternalError:'INTERNAL_ERROR',
+  InvalidAccessKeyId:'INVALID_ACCESS_KEY',
+  InvalidArgument:'INVALID_ARGUMENT',
+  InvalidBucketName:'INVALID_BUCKET_NAME',
+  InvalidDigest:'INVALID_DIGEST',
+  InvalidRequest:'INVALID_REQUEST',
+  MissingContentLength:'MISSING_CONTENT_LENGTH',
+  NoSuchBucket:'BUCKET_NOT_FOUND',
+  RequestTimeTooSkewed:'REQUEST_TIME_SKEW',
+  RequestTimeout:'REQUEST_TIMEOUT',
+  ServiceUnavailable:'SERVICE_UNAVAILABLE',
+  SignatureDoesNotMatch:'SIGNATURE_MISMATCH',
+  SlowDown:'THROTTLED',
+  XAmzContentSHA256Mismatch:'CHECKSUM_MISMATCH'
+});
+const allowedB2UploadStatuses=new Set([400,401,403,404,408,409,413,429,500,502,503,504]);
+function classifyB2UploadError(error){
+  let status='UNKNOWN',code='UNKNOWN';
+  try{
+    const value=error?.$metadata?.httpStatusCode;
+    if(Number.isInteger(value)&&allowedB2UploadStatuses.has(value))status='HTTP_'+value;
+    for(const candidate of [error?.Code,error?.code,error?.name])
+      if(typeof candidate==='string'&&Object.hasOwn(b2UploadErrorCategories,candidate)){
+        code=b2UploadErrorCategories[candidate];break;
+      }
+  }catch{}
+  return Object.freeze({status,code});
+}
 
 export function createHostedAcceptanceProgress(){
   const entries=[];
@@ -71,11 +105,12 @@ export function createHostedAcceptanceProgress(){
         throw Error('Invalid acceptance diagnostic subcheck completion');
       entries.push({check:active,subcheck:check,result:'PASS'});activeSubcheck=null;
     },
-    failSubcheck(check){
+    failSubcheck(check,error){
       if(!['AI_PLAN_SUGGESTION_RESPONSE_VALIDATION','ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE'].includes(active)||
         activeSubcheck!==check||!allowedSubcheckIds.has(check))
         throw Error('Invalid acceptance diagnostic subcheck failure');
-      entries.push({check:active,subcheck:check,result:'FAIL'});activeSubcheck=null;
+      entries.push({check:active,subcheck:check,result:'FAIL',
+        ...(check==='BACKUP_UPLOAD'?{failure:classifyB2UploadError(error)}:{})});activeSubcheck=null;
     },
     markUnknown(check){
       if(active!==check||!allowedCheckIds.has(check))throw Error('Invalid acceptance diagnostic ambiguity');
@@ -95,12 +130,16 @@ export function createHostedAcceptanceProgress(){
     snapshot(){
       const failedChecks=entries.filter(entry=>entry.result==='FAIL'&&!entry.subcheck).map(entry=>entry.check);
       const failedSubchecks=entries.filter(entry=>entry.result==='FAIL'&&entry.subcheck&&allowedSubcheckIds.has(entry.subcheck)).map(entry=>entry.subcheck);
+      const failedSubcheckDetails=entries.filter(entry=>entry.result==='FAIL'&&entry.subcheck==='BACKUP_UPLOAD').map(entry=>Object.freeze({
+        subcheck:'BACKUP_UPLOAD',status:entry.failure?.status??'UNKNOWN',code:entry.failure?.code??'UNKNOWN'
+      }));
       const completedChecks=entries.filter(entry=>entry.result==='PASS'&&!entry.subcheck&&entry.check!=='FINAL_TEARDOWN').map(entry=>entry.check);
       const teardown=entries.find(entry=>entry.check==='FINAL_TEARDOWN');
       return Object.freeze({
         outcome:'FAIL',
         failedChecks:Object.freeze(failedChecks.length?failedChecks:['UNKNOWN']),
         failedSubchecks:Object.freeze(failedSubchecks),
+        failedSubcheckDetails:Object.freeze(failedSubcheckDetails),
         lastCompletedCheck:completedChecks.at(-1)??'NONE',
         completedChecks:Object.freeze(completedChecks),
         teardownStatus:teardown?.result??'UNKNOWN'
@@ -113,6 +152,9 @@ export function renderHostedAcceptanceFailureSummary(progress){
   const snapshot=progress.snapshot();
   const failed=snapshot.failedChecks.filter(check=>check==='UNKNOWN'||allowedCheckIds.has(check));
   const failedSubchecks=(snapshot.failedSubchecks??[]).filter(check=>allowedSubcheckIds.has(check));
+  const uploadDetails=(snapshot.failedSubcheckDetails??[]).filter(detail=>detail?.subcheck==='BACKUP_UPLOAD'&&
+    (detail.status==='UNKNOWN'||allowedB2UploadStatuses.has(Number(detail.status.slice?.(5))))&&
+    ['UNKNOWN',...Object.values(b2UploadErrorCategories)].includes(detail.code));
   const completed=snapshot.completedChecks.filter(check=>allowedCheckIds.has(check));
   const last=snapshot.lastCompletedCheck==='NONE'||allowedCheckIds.has(snapshot.lastCompletedCheck)?snapshot.lastCompletedCheck:'UNKNOWN';
   const teardown=['PASS','FAIL','UNKNOWN'].includes(snapshot.teardownStatus)?snapshot.teardownStatus:'UNKNOWN';
@@ -122,6 +164,7 @@ export function renderHostedAcceptanceFailureSummary(progress){
     '- Outcome: FAIL',
     `- Failed stage (exact assertion not identified): ${failed.map(check=>'`'+check+'`').join(', ')||'`UNKNOWN`'}`,
     ...(failedSubchecks.length?[`- Failed subcheck: ${failedSubchecks.map(check=>'`'+check+'`').join(', ')}`]:[]),
+    ...uploadDetails.map(detail=>`- B2 upload error category: status \`${detail.status}\`; code \`${detail.code}\``),
     `- Last completed check: ${'`'+last+'`'}`,
     `- Completed checks: ${completed.map(check=>'`'+check+'`').join(', ')||'`NONE`'}`,
     `- Final teardown: ${teardown}`,

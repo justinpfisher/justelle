@@ -1,10 +1,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {Readable} from 'node:stream';
 import {createHash,randomBytes} from 'node:crypto';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {runScheduledBackup} from '../hosting/scheduled-backup.mjs';
-import {createB2Store,validateB2Retention,validateB2ObjectRetention} from '../hosting/functions/b2-store.mjs';
+import {calculateContentMd5,createB2Store,validateB2Retention,validateB2ObjectRetention} from '../hosting/functions/b2-store.mjs';
 import {createHostedAcceptanceProgress,renderHostedAcceptanceFailureSummary} from '../hosting/hosted-acceptance-progress.mjs';
 const id='00000000-0000-4000-8000-000000000001';
 const image=Buffer.from('synthetic-original-image');
@@ -15,6 +17,14 @@ const records={persons:[{id:'person-a'},{id:'person-b'}],conversations:[{id:'con
   decisions:[{id:'agreement',author_id:'person-b',conversation_id:'conversation-shared',status:'locked',locked_at:'2026-10-14T00:00:00Z',approvals:[{person_id:'person-a'},{person_id:'person-b'}]}],adventures:[],attachments:[{id,author_id:'person-a',mime:'image/png',size:image.length,sha256:createHash('sha256').update(image).digest('hex')}]};
 const config={bucket:'justelle-qualification-backups',prefix:'qualification',recoveryKeyBase64:randomBytes(32).toString('base64')};
 const source=()=>({records:structuredClone(records),media:[{id,mime:'image/png',stream:Readable.from([image])}]});
+test('B2 upload checksum is the base64 MD5 of the exact staged encrypted bytes',async()=>{
+  const directory=await mkdtemp(join(tmpdir(),'justelle-b2-checksum-'));
+  try{
+    const path=join(directory,'synthetic-encrypted-backup.jmb');
+    const bytes=Buffer.from('fictional encrypted backup bytes');await writeFile(path,bytes);
+    assert.equal(await calculateContentMd5(path),createHash('md5').update(bytes).digest('base64'));
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 test('Scheduled backup uploads ciphertext and downloads/restores exact original history without Firebase',async()=>{
   let stored,closed=false;const calls=[];
   const store={verifyRetention:async()=>calls.push('retention'),put:async(n,p,size)=>{stored=await readFile(p);assert.equal(stored.length,size);calls.push('put');return 'fictional-version';},
@@ -53,6 +63,38 @@ test('Backup failure summary names the fixed failing stage without exposing erro
   assert.match(summary,/Failed subcheck: `BACKUP_UPLOAD`/);
   for(const value of ['owner@example.test','private-room','recovery-key','ciphertext'])assert.equal(summary.includes(value),false);
   assert.equal(summary.includes(sensitive),false);
+});
+
+test('B2 upload error summary emits only allowlisted status and error categories',async()=>{
+  const sensitive='owner@example.test private-room https://b2.invalid/object app-key ciphertext request-id';
+  const progress=createHostedAcceptanceProgress();progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
+  const providerError=Object.assign(new Error('raw provider text '+sensitive),{
+    name:'InvalidRequest',Code:'InvalidRequest',$metadata:{httpStatusCode:400,requestId:sensitive},
+    responseBody:'secret response '+sensitive
+  });
+  const store={verifyRetention:async()=>{},put:async()=>{throw providerError;},close(){}};
+  await assert.rejects(runScheduledBackup({config,source:source(),store,progress}));progress.failCurrent();
+  progress.start('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  const summary=renderHostedAcceptanceFailureSummary(progress);
+  assert.match(summary,/Failed subcheck: `BACKUP_UPLOAD`/);
+  assert.match(summary,/B2 upload error category: status `HTTP_400`; code `INVALID_REQUEST`/);
+  assert.equal(summary.includes(sensitive),false);
+  for(const value of ['owner@example.test','private-room','b2.invalid','app-key','ciphertext','request-id','raw provider text','secret response'])
+    assert.equal(summary.includes(value),false);
+});
+
+test('Unknown B2 upload errors remain unknown and do not emit arbitrary provider fields',async()=>{
+  const secret='fictional-token-value';
+  const progress=createHostedAcceptanceProgress();progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
+  const providerError=Object.assign(new Error(secret),{
+    name:secret,Code:secret,$metadata:{httpStatusCode:599,requestId:secret},responseBody:secret
+  });
+  const store={verifyRetention:async()=>{},put:async()=>{throw providerError;},close(){}};
+  await assert.rejects(runScheduledBackup({config,source:source(),store,progress}));progress.failCurrent();
+  progress.start('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  const summary=renderHostedAcceptanceFailureSummary(progress);
+  assert.match(summary,/B2 upload error category: status `UNKNOWN`; code `UNKNOWN`/);
+  assert.equal(summary.includes(secret),false);
 });
 
 test('A changed in-memory source fails at the restored-record comparison subcheck',async()=>{

@@ -16,7 +16,7 @@ export async function runScheduledBackup({db,bucket,roomId,productionApproved=fa
       progress?.completeSubcheck(check);
       return result;
     }catch(error){
-      progress?.failSubcheck(check);
+      progress?.failSubcheck(check,error);
       throw error;
     }
   };
