@@ -222,7 +222,7 @@ try{
 }finally{
   progress.start('FINAL_TEARDOWN');
   try{
-    await db.doc('rooms/fictional-room/operations/runtime').set({ai_enabled:false}).catch(()=>{});
+    await db.doc('rooms/fictional-room/operations/runtime').set({ai_enabled:false}).catch(()=>progress.markUnknown('FINAL_TEARDOWN'));
     for(const client of clientDBs)await terminate(client);
     for(const app of clientApps)await deleteApp(app);
     await db.terminate();await deleteAdmin(admin);
