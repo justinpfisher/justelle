@@ -152,25 +152,35 @@ try{
   assert([401,403].includes(rawDocument.status));await rawDocument.body?.cancel();
   results.push('immediate_two_member_planner_edits_history_undo_and_protected_booking_original');
   progress.complete('PLANNER_HISTORY_AND_PROTECTED_DOCUMENTS');
-  progress.start('AI_PLAN_SUGGESTION_AND_APPLY_UNDO');
   // Qualify the real on-demand planner model against the *private* original
   // note and its current revision, not client-written JSON or a public image URL.
+  progress.start('AI_PLAN_SOURCE_CREATION');
   const planningSourceId=randomUUID();
   await A.planner.addSource(A.user,{id:planningSourceId,adventureId:planId,kind:'note',
     title:'Original fictional planning request',
     notes:'Consider a visit to the fictional art gallery on day 3'});
   const noteRequest={plan_id:planId,revision:4,source_id:planningSourceId};
+  progress.complete('AI_PLAN_SOURCE_CREATION');
+  progress.start('AI_PLAN_SUGGESTION_REQUEST');
   const noteResponse=await http('/api/plan/suggest',{method:'POST',token:A.token,
     contentType:'application/json',body:JSON.stringify(noteRequest)});
+  progress.complete('AI_PLAN_SUGGESTION_REQUEST');
+  progress.start('AI_PLAN_SUGGESTION_RESPONSE_VALIDATION');
   const suggestion=await noteResponse.json();
   assert(suggestion.kind==='preview'&&suggestion.change?.type==='add_experience');
   assert(suggestion.source_id===planningSourceId&&suggestion.revision===4);
   assert((await A.planner.readPlan(planId)).revision===4);
+  progress.complete('AI_PLAN_SUGGESTION_RESPONSE_VALIDATION');
+  progress.start('AI_PLAN_MEMBER_APPLY');
   await B.planner.editPlan(B.user,planId,suggestion.change,4,{sourceId:planningSourceId});
   const attributed=(await B.planner.readHistory(planId)).at(-1);
   assert(attributed.actor_id==='person-b'&&attributed.source_id===planningSourceId);
+  progress.complete('AI_PLAN_MEMBER_APPLY');
+  progress.start('AI_PLAN_MEMBER_UNDO');
   await A.planner.editPlan(A.user,planId,{type:'undo_last'},5);
   assert((await A.planner.readPlan(planId)).bookings[0].starts_on==='2026-11-01');
+  progress.complete('AI_PLAN_MEMBER_UNDO');
+  progress.start('SCREENSHOT_SOURCE_CREATION');
   const screenshotId=randomUUID(),screenshotSourceId=randomUUID();
   await A.planner.addDocument(A.user,{id:screenshotId,adventureId:planId,
     file:{type:'image/png',size:bytes.length,name:'synthetic-planning-screenshot.png',
@@ -179,14 +189,18 @@ try{
     title:'Original fictional screenshot',documentId:screenshotId,
     notes:'Suggest a possible day 4 activity only if the image supports it; otherwise ask for clarification.'});
   const screenshotRequest={plan_id:planId,revision:6,source_id:screenshotSourceId};
+  progress.complete('SCREENSHOT_SOURCE_CREATION');
+  progress.start('SCREENSHOT_SUGGESTION_REQUEST');
   const screenshotResponse=await http('/api/plan/suggest',{method:'POST',token:A.token,
     contentType:'application/json',body:JSON.stringify(screenshotRequest)});
+  progress.complete('SCREENSHOT_SUGGESTION_REQUEST');
+  progress.start('SCREENSHOT_RESPONSE_VALIDATION');
   const screenshotIdea=await screenshotResponse.json();
   assert(['preview','needs_detail'].includes(screenshotIdea.kind));
   assert(screenshotIdea.revision===6&&screenshotIdea.source_id===screenshotSourceId);
   assert((await B.planner.readPlan(planId)).revision===6);
   results.push('protected_ai_plan_source_screenshot_preview_member_apply_and_undo');
-  progress.complete('AI_PLAN_SUGGESTION_AND_APPLY_UNDO');
+  progress.complete('SCREENSHOT_RESPONSE_VALIDATION');
   progress.start('OUTSIDER_AND_REVOKED_MEMBER_DENIAL');
   await denial(X.backend.messageById(original));
   for(const token of [undefined,X.token]){
