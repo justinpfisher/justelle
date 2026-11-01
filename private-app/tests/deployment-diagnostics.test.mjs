@@ -969,12 +969,12 @@ test('Hosted acceptance failure summary identifies the failed safe stage and las
   progress.start('FICTIONAL_IDENTITIES_AND_MEMBERSHIP');progress.complete('FICTIONAL_IDENTITIES_AND_MEMBERSHIP');
   progress.start('AI_DISABLED_FAILURE_PRESERVATION');progress.complete('AI_DISABLED_FAILURE_PRESERVATION');
   progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');progress.failCurrent();
-  progress.start('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  progress.start('FINAL_TEARDOWN');progress.markUnknown('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
   const summary=renderHostedAcceptanceFailureSummary(progress);
   assert.match(summary,/Outcome: FAIL/);
-  assert.match(summary,/Failed check: `ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE`/);
+  assert.match(summary,/Failed stage \(exact assertion not identified\): `ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE`/);
   assert.match(summary,/Last completed check: `AI_DISABLED_FAILURE_PRESERVATION`/);
-  assert.match(summary,/Final teardown: PASS/);
+  assert.match(summary,/Final teardown: UNKNOWN/);
   assert.equal(summary.includes(privateFixture),false);
   assert.equal(summary.includes('owner@example.test'),false);
   assert.equal(summary.includes('token-value'),false);
@@ -994,5 +994,5 @@ test('Hosted acceptance progress rejects identifiers outside the static allowlis
   assert.throws(()=>progress.start(secret),/Invalid acceptance diagnostic stage/);
   const summary=renderHostedAcceptanceFailureSummary(progress);
   assert.equal(summary.includes(secret),false);
-  assert.match(summary,/Failed check: `UNKNOWN`/);
+  assert.match(summary,/Failed stage \(exact assertion not identified\): `UNKNOWN`/);
 });
