@@ -9,6 +9,8 @@ import {buildFirebaseCliInvocation,createSafeFirebaseCliFunctionFilterDiagnostic
 import {mkdtemp,mkdir,rm,symlink,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {readFile} from 'node:fs/promises';
+import {appendHostedAcceptanceFailureSummary,createHostedAcceptanceProgress,renderHostedAcceptanceFailureSummary} from '../hosting/hosted-acceptance-progress.mjs';
 
 const require=createRequire(import.meta.url);
 const {Client}=require('../node_modules/firebase-tools/lib/apiv2.js');
@@ -958,4 +960,39 @@ test('Firebase CLI cleanup-policy prompt is classified without emitting dynamic 
   assert.equal(serialized.includes(privateLocation),false);
   assert.equal(serialized.includes('owner@example.test'),false);
   assert.equal(serialized.includes(message),false);
+});
+
+
+test('Hosted acceptance failure summary identifies the failed safe stage and last completed stage only',async()=>{
+  const privateFixture='owner@example.test private-room token-value message-payload';
+  const progress=createHostedAcceptanceProgress();
+  progress.start('FICTIONAL_IDENTITIES_AND_MEMBERSHIP');progress.complete('FICTIONAL_IDENTITIES_AND_MEMBERSHIP');
+  progress.start('AI_DISABLED_FAILURE_PRESERVATION');progress.complete('AI_DISABLED_FAILURE_PRESERVATION');
+  progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');progress.failCurrent();
+  progress.start('FINAL_TEARDOWN');progress.complete('FINAL_TEARDOWN');
+  const summary=renderHostedAcceptanceFailureSummary(progress);
+  assert.match(summary,/Outcome: FAIL/);
+  assert.match(summary,/Failed check: `ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE`/);
+  assert.match(summary,/Last completed check: `AI_DISABLED_FAILURE_PRESERVATION`/);
+  assert.match(summary,/Final teardown: PASS/);
+  assert.equal(summary.includes(privateFixture),false);
+  assert.equal(summary.includes('owner@example.test'),false);
+  assert.equal(summary.includes('token-value'),false);
+  const directory=await mkdtemp(join(tmpdir(),'justelle-safe-acceptance-summary-'));
+  try{
+    const path=join(directory,'summary.txt');
+    assert.equal(await appendHostedAcceptanceFailureSummary(path,progress),true);
+    const durable=await readFile(path,'utf8');
+    assert.equal(durable,summary);
+    assert.equal(durable.includes(privateFixture),false);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('Hosted acceptance progress rejects identifiers outside the static allowlist',()=>{
+  const secret='private-uid owner@example.test credential';
+  const progress=createHostedAcceptanceProgress();
+  assert.throws(()=>progress.start(secret),/Invalid acceptance diagnostic stage/);
+  const summary=renderHostedAcceptanceFailureSummary(progress);
+  assert.equal(summary.includes(secret),false);
+  assert.match(summary,/Failed check: `UNKNOWN`/);
 });
