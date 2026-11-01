@@ -1,6 +1,7 @@
 // Creates/uses only disposable fictional identities in the separate qualification project.
 // No tokens, credentials, AI text or image bytes are printed.
 import {readFile} from 'node:fs/promises';
+import {appendHostedAcceptanceFailureSummary,createHostedAcceptanceProgress} from './hosted-acceptance-progress.mjs';
 import {randomUUID,createHash} from 'node:crypto';
 import {initializeApp as initializeAdmin,deleteApp as deleteAdmin} from 'firebase-admin/app';
 import {getAuth as adminAuth} from 'firebase-admin/auth';
@@ -25,6 +26,8 @@ const admin=initializeAdmin({projectId:config.projectId,storageBucket:env.VITE_F
 const auth=adminAuth(admin),db=adminFirestore(admin),bucket=adminStorage(admin).bucket();
 const clientApps=[],clientDBs=[];
 const results=[];
+const progress=createHostedAcceptanceProgress();
+let acceptanceFailed=false,teardownFailed=false;
 function assert(condition){if(!condition)throw Error('Hosted fictional acceptance failed');}
 async function denial(promise){try{await promise;}catch{return;}throw Error('An unauthorised operation succeeded');}
 async function http(path,{method='GET',token,body,contentType}={},expected=[200]){
@@ -33,6 +36,7 @@ async function http(path,{method='GET',token,body,contentType}={},expected=[200]
   assert(expected.includes(result.status));return result;
 }
 try{
+  progress.start('FICTIONAL_IDENTITIES_AND_MEMBERSHIP');
   const fixtures=[...config.members.map((m,i)=>({...m,uid:'fictional-'+(i?'b':'a')})),{...config.outsider,uid:'fictional-outsider'}];
   for(const f of fixtures){
     try{const existing=await auth.getUser(f.uid);assert(existing.email===f.email);}
@@ -57,12 +61,16 @@ try{
     clients.push({user,db:clientDB,backend,planner,token:await user.getIdToken()});
   }
   const [A,B,X]=clients;
+  progress.complete('FICTIONAL_IDENTITIES_AND_MEMBERSHIP');
+  progress.start('TWO_MEMBER_MESSAGES_AND_CORRECTIONS');
   const original=await A.backend.addMessage(A.user,{body:'A fictional museum plan, contributed by member A.'});
   const second=await B.backend.addMessage(B.user,{body:'Member B contributes independently.'});
   assert((await B.backend.messageById(original)).author_id==='person-a');
   assert((await A.backend.messageById(second)).author_id==='person-b');results.push('two_member_interaction');
   const correction=await A.backend.addMessage(A.user,{body:'A fictional correction.',correctsId:original});
   assert((await B.backend.messageById(correction)).corrects_id===original);assert((await A.backend.messageById(original)).body.startsWith('A fictional'));results.push('preserved_correction');
+  progress.complete('TWO_MEMBER_MESSAGES_AND_CORRECTIONS');
+  progress.start('PROTECTED_MEDIA_AND_LIVE_VISION');
   const bytes=await readFile(new URL('../tests/fictional-landscape.png',import.meta.url));
   const checksum=createHash('sha256').update(bytes).digest('hex'),imageId=randomUUID(),path='rooms/fictional-room/media/'+imageId;
   await http('/api/media/'+imageId+'/original',{method:'PUT',token:A.token,body:bytes,contentType:'image/png'},[201]);
@@ -79,6 +87,8 @@ try{
   const answer=await ai.json();assert(answer.message_id==='ai-'+source);
   const generated=(await db.doc('rooms/fictional-room/messages/'+answer.message_id).get()).data();assert(generated.kind==='ai'&&generated.author_id==='ai-justelle'&&generated.body.length>0);
   const replay=await http('/api/respond',{method:'POST',token:B.token,contentType:'application/json',body:JSON.stringify({source_message_id:source})});assert((await replay.json()).replayed===true);results.push('protected_images_immutable_retry_and_live_vision');
+  progress.complete('PROTECTED_MEDIA_AND_LIVE_VISION');
+  progress.start('SYNTHETIC_IMAGE_COLOUR_DISCRIMINATION');
   // A generic clarification is not proof that the real hosted model read
   // screenshot pixels. Both inputs have identical text and non-descriptive
   // filenames; only their protected PNG bytes differ.
@@ -106,6 +116,8 @@ try{
     assert(result.proposal_created!==true);
   }
   results.push('live_model_distinguishes_two_protected_synthetic_png_colours');
+  progress.complete('SYNTHETIC_IMAGE_COLOUR_DISCRIMINATION');
+  progress.start('PLANNER_HISTORY_AND_PROTECTED_DOCUMENTS');
   // Qualify the current immediate-edit planner; legacy approvals are compatibility tests only.
   const planId=randomUUID(),documentId=randomUUID(),sourceId=randomUUID();
   await A.planner.createPlan(A.user,{id:planId,title:'Synthetic shared journey',durationDays:4,startsOn:'2026-11-01'});
@@ -139,6 +151,8 @@ try{
     '/rooms/fictional-room/documents/'+documentId,{redirect:'error',cache:'no-store'});
   assert([401,403].includes(rawDocument.status));await rawDocument.body?.cancel();
   results.push('immediate_two_member_planner_edits_history_undo_and_protected_booking_original');
+  progress.complete('PLANNER_HISTORY_AND_PROTECTED_DOCUMENTS');
+  progress.start('AI_PLAN_SUGGESTION_AND_APPLY_UNDO');
   // Qualify the real on-demand planner model against the *private* original
   // note and its current revision, not client-written JSON or a public image URL.
   const planningSourceId=randomUUID();
@@ -172,6 +186,8 @@ try{
   assert(screenshotIdea.revision===6&&screenshotIdea.source_id===screenshotSourceId);
   assert((await B.planner.readPlan(planId)).revision===6);
   results.push('protected_ai_plan_source_screenshot_preview_member_apply_and_undo');
+  progress.complete('AI_PLAN_SUGGESTION_AND_APPLY_UNDO');
+  progress.start('OUTSIDER_AND_REVOKED_MEMBER_DENIAL');
   await denial(X.backend.messageById(original));
   for(const token of [undefined,X.token]){
     await http('/api/media/'+imageId+'/original',{token},[401,403]);
@@ -190,15 +206,31 @@ try{
   await http('/api/plan/suggest',{method:'POST',token:B.token,
     contentType:'application/json',body:JSON.stringify(screenshotRequest)},[401]);
   results.push('outsider_direct_file_and_revoked_session_denial');
+  progress.complete('OUTSIDER_AND_REVOKED_MEMBER_DENIAL');
+  progress.start('AI_DISABLED_FAILURE_PRESERVATION');
   await db.doc('rooms/fictional-room/operations/runtime').set({ai_enabled:false});
   const failureSource=await A.backend.addMessage(A.user,{body:'Fictional failure test.'});
   await http('/api/respond',{method:'POST',token:A.token,contentType:'application/json',body:JSON.stringify({source_message_id:failureSource})},[503]);
   assert((await A.backend.messageById(failureSource)).body==='Fictional failure test.');results.push('ai_disabled_failure_preserves_message');
+  progress.complete('AI_DISABLED_FAILURE_PRESERVATION');
+  progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
   const backup=await runScheduledBackup({db,bucket,roomId:'fictional-room',config:backupConfig});assert(backup.verified);results.push('encrypted_b2_download_and_independent_restore');
+  progress.complete('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
   console.log(JSON.stringify({hosted_fictional_acceptance:'passed',checks:results}));
+}catch(error){
+  acceptanceFailed=true;progress.failCurrent();throw error;
 }finally{
-  await db.doc('rooms/fictional-room/operations/runtime').set({ai_enabled:false}).catch(()=>{});
-  for(const client of clientDBs)await terminate(client);
-  for(const app of clientApps)await deleteApp(app);
-  await db.terminate();await deleteAdmin(admin);
+  progress.start('FINAL_TEARDOWN');
+  try{
+    await db.doc('rooms/fictional-room/operations/runtime').set({ai_enabled:false}).catch(()=>progress.markUnknown('FINAL_TEARDOWN'));
+    for(const client of clientDBs)await terminate(client);
+    for(const app of clientApps)await deleteApp(app);
+    await db.terminate();await deleteAdmin(admin);
+    progress.complete('FINAL_TEARDOWN');
+  }catch{
+    teardownFailed=true;progress.failCurrent();throw Error('Hosted fictional acceptance teardown failed');
+  }finally{
+    if(acceptanceFailed||teardownFailed)
+      await appendHostedAcceptanceFailureSummary(process.env.GITHUB_STEP_SUMMARY,progress).catch(()=>{});
+  }
 }
