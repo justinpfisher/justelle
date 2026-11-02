@@ -1314,7 +1314,7 @@ try{
     'the cold-start case is running with browser networking disabled');
   await B.getByRole('heading',{name:'Saved essentials on this device'}).waitFor();
   await B.getByText('Fictional inn confirmation',{exact:true}).waitFor();
-  await B.getByText('Member-recorded confirmation',{exact:true}).waitFor();
+  await B.locator('.offline-essential').filter({hasText:'Member-recorded confirmation'}).waitFor();
   await B.getByText(/Booking details saved .*This is a stale snapshot/).waitFor();
   await B.getByText(/Original confirmation saved .*This is a stale snapshot/).waitFor();
   assert.equal(await B.locator('#private-app').isVisible(),false,
