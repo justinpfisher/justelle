@@ -198,6 +198,25 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       }
       assertCurrent();return data;
     },
+    async listEssentials(){
+      assertCurrent();await ready();assertCurrent();
+      const rows=await backend.listOwner(ownerKey);assertCurrent();
+      const essentials=[],linkedDocuments=new Set();
+      for(const row of rows){
+        if(row.scopeKey!==scopeKey||row.kind!=='booking'||typeof row.recordId!=='string')continue;
+        const booking=await this.getBooking(row.recordId);
+        if(!booking||!isCurrent())continue;
+        const savedOriginal=booking.documentId?await this.getDocument(booking.documentId):null;
+        if(savedOriginal)linkedDocuments.add(savedOriginal.id);
+        essentials.push({booking,savedOriginal});
+      }
+      for(const row of rows){
+        if(row.scopeKey!==scopeKey||row.kind!=='document'||typeof row.recordId!=='string'||linkedDocuments.has(row.recordId))continue;
+        const savedOriginal=await this.getDocument(row.recordId);
+        if(savedOriginal&&isCurrent())essentials.push({booking:null,savedOriginal});
+      }
+      return essentials;
+    },
     async saveDocument({id:documentId,name,mime,size,sha256:expectedHash,bytes,revision}){
       if(!UUID.test(documentId||'')||typeof name!=='string'||!name.trim()||name.length>180||
         !DOCUMENT_MIMES.has(mime)||!Number.isSafeInteger(size)||size<1||size>MAX_DOCUMENT_BYTES||
@@ -237,6 +256,9 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       channel?.close?.();
       closePromise=backend.removeScope(scopeKey).finally(()=>backend.close?.());
       return closePromise;
+    },
+    closeReadOnly(){
+      active=false;channel?.close?.();channel=null;backend.close?.();
     }
   };
 }

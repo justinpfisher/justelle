@@ -90,6 +90,26 @@ test('original confirmation is separately saved, bounded, and checksum verified'
   await cache.close();
 });
 
+test('a persisted signed-in scope can list only its selected offline essentials read-only',async()=>{
+  const store=fakeStore(),cache=memoryCache(store),bytes=new Uint8Array([7,8,9]),hash=await sha256(bytes);
+  await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',documentId,
+    summary:'Synthetic booking',kind:'stay',startsOn:'2026-11-12',endsOn:'2026-11-13',
+    status:'unverified',revision:3});
+  await cache.saveDocument({id:documentId,name:'synthetic-confirmation.pdf',mime:'application/pdf',
+    size:bytes.length,sha256:hash,bytes,revision:3});
+  await cache.saveBooking({id:'booking-2',adventureId:'adventure-2',summary:'Second selected item',
+    kind:'activity',startsOn:'2026-11-14',endsOn:'2026-11-14',status:'unverified',revision:4});
+  const essentials=await cache.listEssentials();
+  assert.deepEqual(essentials.map(item=>item.booking?.summary),['Synthetic booking','Second selected item']);
+  assert.equal(essentials[0].savedOriginal.name,'synthetic-confirmation.pdf');
+  assert.deepEqual([...essentials[0].savedOriginal.bytes],[7,8,9]);
+  cache.closeReadOnly();
+  assert.equal(store.rows.size,3,'reading offline after reopening does not delete saved copies');
+  const signedOut=memoryCache(store,{isCurrent:()=>false});
+  await assert.rejects(signedOut.listEssentials(),/session/);
+  signedOut.closeReadOnly();
+});
+
 test('a permission denial never falls back to an offline copy',()=>{
   assert.equal(isConfirmedAccessDenied(Object.assign(Error('denied'),{code:'permission-denied'})),true);
   assert.equal(isConfirmedAccessDenied(Object.assign(Error('denied'),{code:'unauthenticated'})),true);

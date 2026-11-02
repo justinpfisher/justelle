@@ -21,6 +21,10 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 #error{color:#9c332d}
 .login-card,.panel{background:#fff;border:1px solid #dcebe5;box-shadow:0 12px 35px #2a64550a;border-radius:22px;padding:18px}
 .login-card{margin-top:20px}
+.offline-essentials-list{list-style:none;padding:0;display:grid;gap:12px}
+.offline-essential{border-top:1px solid #dcebe5;padding-top:12px}
+.offline-essential h3{font-size:1.05rem;margin:0 0 5px}
+.offline-essential p{margin:5px 0}
 .login-card h2,.section-header h2{font-family:Georgia,serif;font-weight:normal;letter-spacing:-.035em;font-size:1.7rem;margin:0}
 .login-card p,.intro{color:#536c6c;line-height:1.55;font-size:.94rem}
 .login-card label,.soft-card label{display:block;font-size:.88rem;font-weight:650;margin:15px 0 7px}

@@ -1258,6 +1258,35 @@ try{
   assert.equal(offlineBooking.stale,true);
   assert.equal(offlineBooking.reference,undefined,'booking cache excludes confirmation reference text');
   assert.equal(offlineBooking.notes,undefined,'booking cache excludes pasted source notes');
+  // Reopen the private app offline on the same persistent, previously
+  // authorized browser profile. Only explicitly saved essentials are shown.
+  await B.evaluate(()=>navigator.serviceWorker.ready);
+  await B.reload();
+  await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
+  await B.waitForFunction(()=>Boolean(navigator.serviceWorker.controller),null,{timeout:15000});
+  await ctxB.setOffline(true);
+  await B.reload({waitUntil:'domcontentloaded'});
+  await B.locator('#offline-essentials').waitFor({state:'visible',timeout:25000});
+  await B.getByRole('heading',{name:'Saved essentials on this device'}).waitFor();
+  await B.getByText('Fictional inn confirmation',{exact:true}).waitFor();
+  assert.equal(await B.locator('#private-app').isVisible(),false,
+    'offline reopening does not restore the cloud-backed application or edits');
+  assert.equal(await B.locator('#login-form').isVisible(),false,
+    'a persisted signed-in browser shows only the selected read-only offline copies');
+  const [offlineDownload]=await Promise.all([
+    B.waitForEvent('download',{timeout:15000}),
+    B.getByRole('button',{name:'Open saved original on this device'}).click()
+  ]);
+  assert.equal(offlineDownload.suggestedFilename(),'fictional-confirmation.pdf');
+  await B.locator('#sign-out').click();
+  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
+  await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
+  await ctxB.setOffline(false);
+  await signInOnCurrentPage(B,fixture.b);
+  await B.locator('[data-tab="adventures"]').click();
+  await B.getByText('Booking anchors',{exact:true}).click();
+  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
+    .getByRole('button',{name:'Show original details'}).waitFor({state:'visible'});
   const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
   let staleDownloadCount=0;
   const recordStaleDownload=()=>{staleDownloadCount++;};

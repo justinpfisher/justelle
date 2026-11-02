@@ -8,10 +8,12 @@ import {firebaseBackend} from './firebase-backend.mjs';
 import {mountPlannerUI} from './planner-ui.mjs';
 import {prepareImage,revokePrepared} from './media.mjs';
 import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
-import {purgeOfflineDocumentCache} from './offline-document-cache.mjs';
+import {createOfflineDocumentCache,isConfirmedOffline,purgeOfflineDocumentCache} from './offline-document-cache.mjs';
 
 const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
 const {projectId,roomId}=runtime;
+if('serviceWorker' in navigator)
+  void navigator.serviceWorker.register('/offline-shell-worker.js',{scope:'/',updateViaCache:'none'}).catch(()=>{});
 const historicalReadOnly=runtime.mode==='production';
 // A query-gated hook exists only for fictional localhost browser regressions.
 // It delays UI completion after a real emulator write has already completed.
@@ -671,6 +673,7 @@ $('login-form').addEventListener('submit',async e=>{
   }catch(e){error(e);}
 });
 function clearPrivateSessionUi(){
+  $('offline-essentials').hidden=true;$('offline-essentials-list').replaceChildren();$('login-form').hidden=false;
   for(const unsub of unsubscribers)unsub();unsubscribers=[];
   stopTopic();stopTopic=()=>{};const plannerCleanup=stopPlanner();stopPlanner=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
@@ -732,6 +735,40 @@ function invalidatePrivateSession(){
   const cleanup=clearPrivateSessionUi();
   $('login').hidden=false;
   return cleanup;
+}
+function renderOfflineEssentials(saved){
+  const list=$('offline-essentials-list');list.replaceChildren();
+  for(const {booking,savedOriginal} of saved){
+    const item=window.document.createElement('li');item.className='offline-essential';
+    const heading=window.document.createElement('h3');
+    heading.textContent=booking?booking.summary:'Saved original confirmation';item.append(heading);
+    if(booking){
+      const details=window.document.createElement('p');details.textContent=[booking.sourceTitle,booking.sourceSupplier,
+        booking.kind+' · '+booking.startsOn+' to '+booking.endsOn,booking.stopName].filter(Boolean).join(' · ');
+      item.append(details);
+    }
+    const savedAt=booking?.savedAt||savedOriginal?.savedAt;
+    const revision=booking?.revision??savedOriginal?.revision;
+    const time=new Date(savedAt).toLocaleString('en-CA',{
+      dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'});
+    const stale=window.document.createElement('p');stale.className='meta';
+    stale.textContent='Saved '+time+(Number.isSafeInteger(revision)?' from plan revision '+revision:'')+
+      '. This copy may be out of date. Cloud access and changes are unavailable offline.';
+    if(savedOriginal){
+      const original=window.document.createElement('button');original.type='button';original.className='secondary';
+      original.textContent='Open saved original on this device';
+      original.addEventListener('click',()=>{
+        const url=URL.createObjectURL(new Blob([savedOriginal.bytes],{type:savedOriginal.mime}));
+        const link=window.document.createElement('a');link.href=url;link.download=savedOriginal.name;
+        window.document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
+      });
+      item.append(original);
+    }
+    list.append(item);
+  }
+  $('login-form').hidden=true;$('offline-essentials').hidden=false;$('login').hidden=false;
+  $('private-app').hidden=true;$('notice').textContent='Saved essentials are available on this device only. They may be out of date; reconnect and reload to verify access. Sign out to clear them.';
+  $('error').textContent='';
 }
 $('sign-out').onclick=async()=>{
   clearError();
@@ -805,6 +842,15 @@ onAuthStateChanged(auth,async user=>{
     },sessionError));
   }catch(e){
     if(!isCurrentSession())return;
+    if(!denied&&user&&isConfirmedOffline(e,navigator.onLine===false)){
+      const offlineCache=createOfflineDocumentCache({scope:{environment:runtime.mode,
+        projectId:runtime.projectId,roomId,memberUid:user.uid},isCurrent:isCurrentSession});
+      try{
+        const saved=await offlineCache.listEssentials();
+        if(isCurrentSession()&&saved.length){renderOfflineEssentials(saved);return;}
+      }catch{}
+      finally{offlineCache.closeReadOnly();}
+    }
     error(e);
     $('private-app').hidden=true;
     if(denied){
