@@ -1241,6 +1241,40 @@ try{
     .filter({hasText:'Fictional inn confirmation'});
   await originalEntry.getByRole('button',{name:'Show original details'}).click();
   await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
+  // Closing a session during a protected-original read suppresses the
+  // completion, clears member-recorded source fields/options and creates no download.
+  const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
+  let staleDownloadCount=0;
+  const recordStaleDownload=()=>{staleDownloadCount++;};
+  B.on('download',recordStaleDownload);
+  await B.getByRole('button',{name:'Open protected original'}).click();
+  await poll(async()=>delayedOriginal.captured(),15000);
+  await B.locator('#sign-out').click();
+  await B.locator('#login').waitFor({state:'visible'});
+  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
+  await assertPrivateUiCleared(B);
+  await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
+  delayedOriginal.release();
+  await delayedOriginal.continued;
+  assert.ok([200,206].includes(delayedOriginal.responseStatus),
+    'the protected original request completed successfully before checking stale-download suppression');
+  assert.equal(delayedOriginal.responseFinished,true,
+    'the protected original response body completed without a network error');
+  await B.waitForTimeout(250);
+  B.off('download',recordStaleDownload);
+  assert.equal(staleDownloadCount,0,
+    'a protected original response from the signed-out session cannot trigger a download');
+  await B.unroute('http://127.0.0.1:9199/**');
+  await signInOnCurrentPage(B,fixture.b);
+  await B.locator('[data-tab="adventures"]').click();
+  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await openTripBasics(B);
+  await B.getByText('Booking anchors',{exact:true}).click();
+  const refreshedOriginalEntry=B.locator('#planner-bookings .planner-booking-entry')
+    .filter({hasText:'Fictional inn confirmation'});
+  await refreshedOriginalEntry.getByRole('button',{name:'Show original details'}).waitFor({state:'visible'});
+  await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
   await B.getByRole('button',{name:'Save booking details for offline on this device'}).click();
   await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).first().waitFor();
   await B.getByRole('button',{name:'Remove saved booking details from this device'}).waitFor({state:'visible'});
@@ -1294,40 +1328,6 @@ try{
   await B.locator('#sign-out').click();
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
-  await ctxB.setOffline(false);
-  B.off('request',recordOfflineCloudRequest);
-  await signInOnCurrentPage(B,fixture.b);
-  await B.locator('[data-tab="adventures"]').click();
-  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
-    .getByRole('button',{name:'Open plan'}).click();
-  await openTripBasics(B);
-  await B.getByText('Booking anchors',{exact:true}).click();
-  await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
-    .getByRole('button',{name:'Show original details'}).waitFor({state:'visible'});
-  await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
-  const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
-  let staleDownloadCount=0;
-  const recordStaleDownload=()=>{staleDownloadCount++;};
-  B.on('download',recordStaleDownload);
-  await B.getByRole('button',{name:'Open protected original'}).click();
-  await poll(async()=>delayedOriginal.captured(),15000);
-  await B.locator('#sign-out').click();
-  await B.locator('#login').waitFor({state:'visible'});
-  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
-  await assertPrivateUiCleared(B);
-  await poll(async()=>(await offlineCacheRows(B)).length===0,
-    5000);
-  delayedOriginal.release();
-  await delayedOriginal.continued;
-  assert.ok([200,206].includes(delayedOriginal.responseStatus),
-    'the protected original request completed successfully before checking stale-download suppression');
-  assert.equal(delayedOriginal.responseFinished,true,
-    'the protected original response body completed without a network error');
-  await B.waitForTimeout(250);
-  B.off('download',recordStaleDownload);
-  assert.equal(staleDownloadCount,0,
-    'a protected original response from the signed-out session cannot trigger a download');
-  await B.unroute('http://127.0.0.1:9199/**');
   assert.deepEqual(pageErrors,[]);
   console.log('BROWSER PASS: scoped chats, two-member plans, stale AI protection, archive restore, outsider denial, session revocation, sign-out clearing, stale auth/image response suppression and persistence');
 }finally{
