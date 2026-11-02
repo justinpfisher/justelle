@@ -1,6 +1,6 @@
 import {initializeApp} from 'firebase/app';
 import {getAuth,connectAuthEmulator,setPersistence,browserLocalPersistence,signInWithEmailAndPassword,signOut,onAuthStateChanged,getIdTokenResult} from 'firebase/auth';
-import {getFirestore,connectFirestoreEmulator,doc,getDoc} from 'firebase/firestore';
+import {getFirestore,connectFirestoreEmulator,doc,getDocFromServer} from 'firebase/firestore';
 import {getStorage,connectStorageEmulator} from 'firebase/storage';
 import {resolveRuntime} from './runtime-config.mjs';
 import {protectedMediaTransport} from './protected-media.mjs';
@@ -869,7 +869,9 @@ onAuthStateChanged(auth,async user=>{
       denied=true;
       throw Error('This account does not have access to this shared space.');
     }
-    const membership=await getDoc(doc(db,'rooms',roomId));
+    // A local Firestore cache must not count as a successful reconnect or
+    // authorize mounting the editable planner without a server check.
+    const membership=await getDocFromServer(doc(db,'rooms',roomId));
     if(!isCurrentSession())return;
     if(!membership.exists()||!membership.data().uids.includes(user.uid)){
       denied=true;
