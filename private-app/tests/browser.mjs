@@ -1304,8 +1304,14 @@ try{
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   const offlineCloudRequests=[];
   const recordOfflineCloudRequest=request=>{
-    if(/127\.0\.0\.1:(?:8081|9199)|firestore\.googleapis\.com|firebasestorage\.googleapis\.com/.test(request.url()))
-      offlineCloudRequests.push(request.method());
+    const url=new URL(request.url());
+    if(/127\.0\.0\.1:(?:8081|9199)|firestore\.googleapis\.com|firebasestorage\.googleapis\.com/.test(url.origin)){
+      const storage=url.port==='9199'||url.hostname==='firebasestorage.googleapis.com';
+      const pathClass=storage?(url.pathname.startsWith('/v0/b/')?'storage-object':'storage-other'):
+        (url.pathname.includes('/Listen/')?'firestore-listen':url.pathname.includes('/Write/')?'firestore-write':
+          url.pathname.includes('/documents')?'firestore-document':'firestore-other');
+      offlineCloudRequests.push({method:request.method(),service:storage?'storage':'firestore',pathClass});
+    }
   };
   B.on('request',recordOfflineCloudRequest);
   await B.goto(base,{waitUntil:'domcontentloaded'});
