@@ -8,7 +8,7 @@ import {firebaseBackend} from './firebase-backend.mjs';
 import {mountPlannerUI} from './planner-ui.mjs';
 import {prepareImage,revokePrepared} from './media.mjs';
 import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
-import {createOfflineDocumentCache,isConfirmedOffline,purgeOfflineDocumentCache} from './offline-document-cache.mjs';
+import {createOfflineDocumentCache,isConfirmedAccessDenied,isConfirmedOffline,purgeOfflineDocumentCache} from './offline-document-cache.mjs';
 
 const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
 const {projectId,roomId}=runtime;
@@ -842,6 +842,9 @@ onAuthStateChanged(auth,async user=>{
     },sessionError));
   }catch(e){
     if(!isCurrentSession())return;
+    if(isConfirmedAccessDenied(e)){
+      denied=true;$('error').textContent=e?.message||String(e)||'Access denied';setNotice('');
+    }else error(e);
     if(!denied&&user&&isConfirmedOffline(e,navigator.onLine===false)){
       const offlineCache=createOfflineDocumentCache({scope:{environment:runtime.mode,
         projectId:runtime.projectId,roomId,memberUid:user.uid},isCurrent:isCurrentSession});
@@ -851,7 +854,6 @@ onAuthStateChanged(auth,async user=>{
       }catch{}
       finally{offlineCache.closeReadOnly();}
     }
-    error(e);
     $('private-app').hidden=true;
     if(denied){
       try{await invalidatePrivateSession();await purgeOfflineDocumentCache();offlineClearWarning=false;}
