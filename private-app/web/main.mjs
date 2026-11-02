@@ -759,7 +759,9 @@ onAuthStateChanged(auth,async user=>{
     if(testSessionRaces)testSessionRaces.currentPlanner=backend.planner;
     stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),
       onError:sessionError,announce:message=>{if(isCurrentSession())setNotice(message);},
-      planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken()});
+      planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken(),
+      offlineCacheScope:{environment:runtime.mode,projectId:runtime.projectId,roomId,memberUid:user.uid},
+      isSessionCurrent:isCurrentSession});
     if(!isCurrentSession()){
       stopPlanner();stopPlanner=()=>{};backend=null;return;
     }

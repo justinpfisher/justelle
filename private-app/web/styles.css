@@ -5,6 +5,7 @@ button,input,select,textarea{font:inherit}
 button{cursor:pointer}
 button:disabled{opacity:.52;cursor:default}
 button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,.attachment-button:focus-within,.timeline-scroll:focus-visible{outline:3px solid #0c7d7d;outline-offset:3px}
+.planner-offline-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
 .shell{width:min(100%,760px);margin:auto;padding:18px 13px 28px;min-height:100svh}
 .masthead{display:flex;align-items:center;gap:15px}
 .brand-art{width:70px;height:70px;object-fit:cover;object-position:center;border-radius:50%;border:3px solid #fff;box-shadow:0 3px 16px #285b5a1c}

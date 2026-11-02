@@ -2,13 +2,22 @@
 import {sha256} from './media.mjs';
 import {bookingStatusText} from './journey-view.mjs';
 import {extractBookingDraft} from './booking-extraction.mjs';
+import {createOfflineDocumentCache,isConfirmedAccessDenied,isConfirmedOffline} from './offline-document-cache.mjs';
 const $=id=>document.getElementById(id);
 const node=(tag,cls='',value='')=>{
   const n=document.createElement(tag);if(cls)n.className=cls;if(value)n.textContent=value;return n;
 };
-export function mountBookingUI({planner,user,getPlan,onError,announce}){
+export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCacheScope=null,isSessionCurrent=()=>true}){
   let stopped=false,request=0,sourceRequest=0,originalRequest=0,pdfRequest=0;
   let pdfController=null,pdfPlanId=null,pdfSaving=false,pdfFormRevision=0;
+  const offlineCache=offlineCacheScope?createOfflineDocumentCache({scope:offlineCacheScope,
+    isCurrent:()=>!stopped&&isSessionCurrent()}):null;
+  if(offlineCache)void offlineCache.activate().catch(()=>{});
+  const reportError=(error,current=()=>!stopped)=>{
+    if(!current())return;
+    if(isConfirmedAccessDenied(error))void offlineCache?.close().catch(()=>{});
+    onError(error);
+  };
   const pdfButton=()=>$('planner-booking-pdf-extract');
   pdfButton().disabled=false;
   const invalidatePdf=()=>{
@@ -22,41 +31,150 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
   const onPdfFileChange=()=>{pdfFormRevision++;invalidatePdf();};
   const onPdfFieldEdit=()=>{pdfFormRevision++;invalidatePdf();};
   const onBookingsPanelToggle=()=>{if(!$('planner-bookings-panel').open)invalidatePdf();};
+  function downloadOriginal(bytes,mime,name){
+    const url=URL.createObjectURL(new Blob([bytes],{type:mime}));
+    const a=node('a');a.href=url;a.download=name||'justelle-original';
+    document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
+  }
+  const savedLabel=saved=>'Saved on this device '+new Date(saved.savedAt).toLocaleString('en-CA',{
+    dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'})+' from plan revision '+saved.revision+
+    '. It may be out of date and is not encrypted by the app. Protect this browser profile; signing out clears it. Opening it after a cold start still requires normal sign-in and membership checks.';
+  async function renderOfflineFallback(booking,isCurrent){
+    if(!offlineCache||!isCurrent())return false;
+    const saved=await offlineCache.getBooking(booking.id);
+    if(!saved||!isCurrent())return false;
+    const out=$('planner-booking-source');out.replaceChildren();
+    out.append(node('h4','','Saved booking details (may be out of date)'));
+    out.append(node('p','',saved.summary));
+    out.append(node('p','meta',saved.kind+' · '+saved.startsOn+' to '+saved.endsOn+
+      ' · '+bookingStatusText(saved.status)));
+    if(saved.stopName)out.append(node('p','meta','Planned place: '+saved.stopName));
+    out.append(node('p','planner-warning',savedLabel(saved)));
+    if(saved.documentId){
+      const cached=await offlineCache.getDocument(saved.documentId);
+      if(!isCurrent())return true;
+      if(cached){
+        const open=node('button','secondary','Open saved original on this device');open.type='button';
+        open.onclick=async()=>{
+          try{const current=await offlineCache.getDocument(saved.documentId);if(isCurrent()&&current)downloadOriginal(current.bytes,current.mime,current.name);}
+          catch(error){reportError(error,isCurrent);}
+        };
+        out.append(open);
+        const remove=node('button','text-button','Remove saved original from this device');remove.type='button';
+        remove.onclick=async()=>{try{await offlineCache.removeDocument(saved.documentId);if(isCurrent())remove.remove();}
+          catch(error){reportError(error,isCurrent);}};
+        out.append(remove);
+      }else out.append(node('p','meta','The original confirmation was not separately saved offline.'));
+    }
+    const removeBooking=node('button','text-button','Remove saved booking details from this device');
+    removeBooking.type='button';removeBooking.onclick=async()=>{
+      try{await offlineCache.removeBooking(booking.id);if(isCurrent())out.replaceChildren(node('p','meta','Offline copy removed.'));}
+      catch(error){reportError(error,isCurrent);}
+    };
+    out.append(removeBooking);return true;
+  }
+  async function appendOfflineControls(out,booking,source,isCurrent){
+    if(!offlineCache)return;
+    if(!globalThis.indexedDB){out.append(node('p','meta','This browser does not support private offline copies.'));return;}
+    const p=getPlan();if(!p)return;
+    const status=node('p','meta');out.append(status);
+    const bookingButtons=node('div','planner-offline-actions');
+    const saveBooking=node('button','secondary','Save booking details for offline on this device');
+    saveBooking.type='button';bookingButtons.append(saveBooking);out.append(bookingButtons);
+    const updateBookingStatus=async()=>{
+      try{const saved=await offlineCache.getBooking(booking.id);if(isCurrent()){
+        status.textContent=saved?savedLabel(saved):'Booking details are not saved offline.';
+        saveBooking.textContent=saved?'Update offline booking details':'Save booking details for offline on this device';
+      }}catch{if(isCurrent())status.textContent='Private offline storage is unavailable in this browser.';}
+    };
+    saveBooking.onclick=async()=>{
+      saveBooking.disabled=true;
+      try{
+        const currentPlan=getPlan();if(!isCurrent()||!currentPlan||currentPlan.id!==booking.adventure_id)return;
+        const stopName=currentPlan.stops.find(s=>s.id===booking.stop_id)?.title||null;
+        const saved=await offlineCache.saveBooking({id:booking.id,adventureId:currentPlan.id,
+          documentId:source?.document_id||null,summary:booking.summary,kind:booking.kind,
+          startsOn:booking.starts_on,endsOn:booking.ends_on,status:booking.status,stopName,
+          revision:currentPlan.revision});
+        if(isCurrent())status.textContent=savedLabel(saved);
+      }catch(error){reportError(error,isCurrent);}
+      finally{if(isCurrent())saveBooking.disabled=false;}
+    };
+    await updateBookingStatus();if(!isCurrent())return;
+    if(!source?.document_id)return;
+    const originalStatus=node('p','meta','The original confirmation is not saved offline.');out.append(originalStatus);
+    const originalButtons=node('div','planner-offline-actions');
+    const saveOriginal=node('button','secondary','Save original confirmation for offline on this device');
+    saveOriginal.type='button';originalButtons.append(saveOriginal);out.append(originalButtons);
+    const openSaved=node('button','text-button','Open saved original on this device');openSaved.type='button';
+    const removeSaved=node('button','text-button','Remove saved original from this device');removeSaved.type='button';
+    const updateOriginalStatus=async()=>{
+      try{const saved=await offlineCache.getDocument(source.document_id);if(!isCurrent())return;
+        originalStatus.textContent=saved?savedLabel(saved):'The original confirmation is not saved offline.';
+        openSaved.hidden=!saved;removeSaved.hidden=!saved;
+      }catch{if(isCurrent())originalStatus.textContent='Private offline storage is unavailable in this browser.';}
+    };
+    saveOriginal.onclick=async()=>{
+      saveOriginal.disabled=true;
+      try{
+        const currentPlan=getPlan();if(!isCurrent()||!currentPlan||currentPlan.id!==booking.adventure_id)return;
+        const documents=await planner.readDocuments(currentPlan.id);if(!isCurrent())return;
+        const d=documents.find(x=>x.id===source.document_id);if(!d)throw Error('The original document cannot be found');
+        const bytes=await planner.documentBytes(d.id);if(!isCurrent())return;
+        if(bytes.byteLength!==d.size||await sha256(bytes)!==d.sha256)throw Error('Original document failed its integrity check');
+        const saved=await offlineCache.saveDocument({id:d.id,name:d.name,mime:d.mime,size:d.size,
+          sha256:d.sha256,bytes,revision:currentPlan.revision});
+        if(isCurrent()){originalStatus.textContent=savedLabel(saved);openSaved.hidden=false;removeSaved.hidden=false;}
+      }catch(error){reportError(error,isCurrent);}
+      finally{if(isCurrent())saveOriginal.disabled=false;}
+    };
+    openSaved.onclick=async()=>{
+      try{const saved=await offlineCache.getDocument(source.document_id);if(isCurrent()&&saved)downloadOriginal(saved.bytes,saved.mime,saved.name);}
+      catch(error){reportError(error,isCurrent);}
+    };
+    removeSaved.onclick=async()=>{
+      try{await offlineCache.removeDocument(source.document_id);if(isCurrent())await updateOriginalStatus();}
+      catch(error){reportError(error,isCurrent);}
+    };
+    originalButtons.append(openSaved,removeSaved);await updateOriginalStatus();
+  }
   async function openSource(booking,source,isCurrent){
     if(stopped||!isCurrent())return;
     const out=$('planner-booking-source');out.replaceChildren();
-    if(!source){out.append(node('p','planner-warning','Original source not available; this is not independently verified.'));return;}
-    out.append(node('h4','',source.title));
-    if(source.supplier)out.append(node('p','meta','Supplier: '+source.supplier));
-    if(source.reference)out.append(node('p','meta','Reference recorded by a member: '+source.reference));
-    if(source.notes)out.append(node('p','meta',source.notes));
-    out.append(node('p','meta','Editing the plan does not alter the supplier booking.'));
-    if(!source.document_id)return;
-    const button=node('button','secondary','Open protected original');button.type='button';
-    button.onclick=async()=>{
-      const ticket=++originalRequest;
-      const current=()=>!stopped&&ticket===originalRequest&&isCurrent();
-      button.disabled=true;
-      try{
-        if(!current())return;
-        const p=getPlan();if(!p||p.id!==booking.adventure_id)return;
-        const documents=await planner.readDocuments(p.id);
-        if(!current())return;
-        const d=documents.find(x=>x.id===source.document_id);
-        if(!d)throw Error('The original document cannot be found');
-        const bytes=await planner.documentBytes(d.id);
-        if(!current())return;
-        if(bytes.byteLength!==d.size)throw Error('Original document failed its integrity check');
-        const digest=await sha256(bytes);
-        if(!current())return;
-        if(digest!==d.sha256)throw Error('Original document failed its integrity check');
-        const url=URL.createObjectURL(new Blob([bytes],{type:d.mime}));
-        const a=node('a');a.href=url;a.download=d.name||'justelle-original';
-        document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
-      }catch(error){if(current())onError(error);}
-      finally{if(current())button.disabled=false;}
-    };
-    out.append(button);
+    if(!source)out.append(node('p','planner-warning','Original source not available; this is not independently verified.'));
+    else{
+      out.append(node('h4','',source.title));
+      if(source.supplier)out.append(node('p','meta','Supplier: '+source.supplier));
+      if(source.reference)out.append(node('p','meta','Reference recorded by a member: '+source.reference));
+      if(source.notes)out.append(node('p','meta',source.notes));
+      out.append(node('p','meta','Editing the plan does not alter the supplier booking.'));
+    }
+    if(source?.document_id){
+      const button=node('button','secondary','Open protected original');button.type='button';
+      button.onclick=async()=>{
+        const ticket=++originalRequest;
+        const current=()=>!stopped&&ticket===originalRequest&&isCurrent();
+        button.disabled=true;
+        try{
+          if(!current())return;
+          const p=getPlan();if(!p||p.id!==booking.adventure_id)return;
+          const documents=await planner.readDocuments(p.id);
+          if(!current())return;
+          const d=documents.find(x=>x.id===source.document_id);
+          if(!d)throw Error('The original document cannot be found');
+          const bytes=await planner.documentBytes(d.id);
+          if(!current())return;
+          if(bytes.byteLength!==d.size)throw Error('Original document failed its integrity check');
+          const digest=await sha256(bytes);
+          if(!current())return;
+          if(digest!==d.sha256)throw Error('Original document failed its integrity check');
+          downloadOriginal(bytes,d.mime,d.name);
+        }catch(error){reportError(error,current);}
+        finally{if(current())button.disabled=false;}
+      };
+      out.append(button);
+    }
+    await appendOfflineControls(out,booking,source,isCurrent);
   }
   async function render(plan){
     if(pdfController&&(!plan||pdfPlanId!==plan.id))invalidatePdf();
@@ -72,7 +190,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
     if(!plan.bookings.length)root.append(node('li','empty','No saved booking details yet.'));
     let sources=[];
     try{sources=await planner.readSources(plan.id);}
-    catch(error){if(!stopped&&ticket===request)onError(error);return;}
+    catch(error){reportError(error,()=>!stopped&&ticket===request);return;}
     if(stopped||ticket!==request)return;
     const map=new Map(sources.map(s=>[s.id,s]));
     for(const b of plan.bookings){
@@ -100,7 +218,13 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
         sources.find(source=>source.id===booking.source_id),isCurrent);
       if(!isCurrent())return;
       $('planner-booking-source').scrollIntoView({block:'nearest'});
-    }catch(error){if(isCurrent())onError(error);}
+    }catch(error){
+      if(!isCurrent())return;
+      if(isConfirmedAccessDenied(error)){reportError(error,isCurrent);return;}
+      if(isConfirmedOffline(error,globalThis.navigator?.onLine!==false)&&
+        await renderOfflineFallback(booking,isCurrent))return;
+      reportError(error,isCurrent);
+    }
   }
   const applyDraftText=(text,sourceLabel='')=>{
     const feedback=$('planner-booking-extraction-feedback');
@@ -191,7 +315,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
       $('planner-booking-extraction-feedback').textContent=
         'You can also save the original text without extraction. Extracted fields are suggestions only; review before saving.';
       announce('Booking details and original text saved privately. The supplier reservation was not changed.');
-    }catch(error){if(!stopped)onError(error);}
+    }catch(error){reportError(error);}
     finally{
       pdfSaving=false;
       if(!stopped){button.disabled=false;$('planner-booking-pdf-extract').disabled=false;}
@@ -210,6 +334,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce}){
   $('planner-add-booking').addEventListener('submit',submit);
   return {render,openBooking,dispose(){
     stopped=true;request++;sourceRequest++;originalRequest++;
+    void offlineCache?.close().catch(()=>{});
     invalidatePdf();
     form.removeEventListener('reset',onPdfFormReset);
     fileInput.removeEventListener('change',onPdfFileChange);

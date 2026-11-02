@@ -120,6 +120,19 @@ async function assertPrivateUiCleared(page){
   const tripDataset=await page.locator('#planner-trip-form').evaluate(form=>({...form.dataset}));
   for(const key of ['planId','baseRevision','dirty'])assert.equal(tripDataset[key],undefined,key+' must clear on sign-out');
 }
+async function offlineCacheRows(page){
+  return page.evaluate(()=>new Promise((resolve,reject)=>{
+    const opened=indexedDB.open('justelle-private-offline-v1',1);
+    opened.onerror=()=>reject(opened.error||Error('Offline cache database could not be opened'));
+    opened.onsuccess=()=>{
+      const db=opened.result,tx=db.transaction('items','readonly'),request=tx.objectStore('items').getAll();
+      request.onsuccess=()=>resolve(request.result.map(row=>({kind:row.kind,data:row.data,scopeKey:row.scopeKey})));
+      request.onerror=()=>reject(request.error||Error('Offline cache rows could not be read'));
+      tx.oncomplete=()=>db.close();
+      tx.onerror=()=>{db.close();reject(tx.error||Error('Offline cache rows could not be read'));};
+    };
+  }));
+}
 async function openTripBasics(page){
   const section=page.locator('#planner-detail > details').first();
   if(!(await section.evaluate(node=>node.open)))await section.locator('summary').click();
@@ -1212,6 +1225,18 @@ try{
     .filter({hasText:'Fictional inn confirmation'});
   await originalEntry.getByRole('button',{name:'Show original details'}).click();
   await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
+  await B.getByRole('button',{name:'Save booking details for offline on this device'}).click();
+  await B.locator('#planner-booking-source').getByText(/Saved on this device from plan revision/).first().waitFor();
+  await B.getByRole('button',{name:'Save original confirmation for offline on this device'}).click();
+  await poll(async()=>await B.locator('#planner-booking-source').getByText(/Saved on this device from plan revision/).count()===2);
+  const savedOffline=await offlineCacheRows(B);
+  assert.deepEqual(savedOffline.map(row=>row.kind).sort(),['booking','document'],
+    'the selected booking and its separately selected original are stored as two scoped offline copies');
+  const offlineBooking=savedOffline.find(row=>row.kind==='booking').data;
+  assert.equal(offlineBooking.summary,'Fictional inn confirmation');
+  assert.equal(offlineBooking.stale,true);
+  assert.equal(offlineBooking.reference,undefined,'booking cache excludes confirmation reference text');
+  assert.equal(offlineBooking.notes,undefined,'booking cache excludes pasted source notes');
   const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
   let staleDownloadCount=0;
   const recordStaleDownload=()=>{staleDownloadCount++;};
@@ -1222,6 +1247,8 @@ try{
   await B.locator('#login').waitFor({state:'visible'});
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await assertPrivateUiCleared(B);
+  await poll(async()=>(await offlineCacheRows(B)).length===0,
+    5000);
   delayedOriginal.release();
   await delayedOriginal.continued;
   assert.ok([200,206].includes(delayedOriginal.responseStatus),
