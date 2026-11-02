@@ -1304,6 +1304,7 @@ try{
   await B.getByText('Booking anchors',{exact:true}).click();
   await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
     .getByRole('button',{name:'Show original details'}).waitFor({state:'visible'});
+  await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
   const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
   let staleDownloadCount=0;
   const recordStaleDownload=()=>{staleDownloadCount++;};
