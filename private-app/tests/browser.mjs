@@ -1124,6 +1124,7 @@ try{
   await again.locator('#image-viewer').waitFor({state:'hidden'});
   await again.locator('#sign-out').click();
   await again.locator('#login').waitFor({state:'visible'});
+  await again.locator('#notice').getByText('Sign in once on a trusted browser. Sessions normally persist after reopening.').waitFor();
   await assertPrivateUiCleared(again);
 
   // Hold a member bootstrap read, then switch to an unprivileged fictional
@@ -1136,6 +1137,7 @@ try{
   await again.locator('#sign-out').waitFor({state:'visible'});
   await again.locator('#sign-out').click();
   await again.locator('#login').waitFor({state:'visible'});
+  await again.locator('#notice').getByText('Sign in once on a trusted browser. Sessions normally persist after reopening.').waitFor();
   await again.locator('#email').fill(fixture.outsider.email);
   await again.locator('#password').fill(fixture.outsider.password);
   const outsiderAuthResponse=again.waitForResponse(response=>
