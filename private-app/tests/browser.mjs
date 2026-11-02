@@ -1302,7 +1302,10 @@ try{
   await ctxB.close();
   ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},
     acceptDownloads:true,offline:true});
+  await ctxB.setOffline(true);
   B=await ctxB.newPage();
+  assert.equal(await B.evaluate(()=>navigator.onLine),false,
+    'the reopened browser profile is offline before application startup');
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   const offlineCloudRequests=[];
   const recordOfflineCloudRequest=request=>{
@@ -1336,17 +1339,24 @@ try{
     B.getByRole('button',{name:'Open saved original on this device'}).click()
   ]);
   assert.equal(offlineDownload.suggestedFilename(),'synthetic-source.pdf');
+  const reconnectRequestStart=offlineCloudRequests.length;
   await ctxB.setOffline(false);
   await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
   await B.locator('#offline-essentials').waitFor({state:'hidden'});
   assert.equal((await offlineCacheRows(B)).length,2,
     'reconnecting reruns normal online membership checks without deleting selected local copies');
+  assert.ok(offlineCloudRequests.slice(reconnectRequestStart).some(request=>request.service==='firestore'),
+    'reconnecting performs the normal Firestore membership check before restoring the private app');
   B.off('request',recordOfflineCloudRequest);
+  offlineCloudRequests.length=0;
   await B.close();
   await ctxB.close();
   ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},
     acceptDownloads:true,offline:true});
+  await ctxB.setOffline(true);
   B=await ctxB.newPage();
+  assert.equal(await B.evaluate(()=>navigator.onLine),false,
+    'the second reopened browser profile is offline before application startup');
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   B.on('request',recordOfflineCloudRequest);
   await B.goto(base,{waitUntil:'domcontentloaded'});
