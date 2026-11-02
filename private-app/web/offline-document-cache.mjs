@@ -130,17 +130,21 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
   }
   return {
     activate(){return ready();},
-    async saveBooking({id:bookingId,adventureId,documentId=null,summary,kind,startsOn,endsOn,status,stopName=null,revision}){
+    async saveBooking({id:bookingId,adventureId,documentId=null,summary,kind,startsOn,endsOn,status,
+      sourceTitle=null,sourceSupplier=null,stopName=null,revision}){
       if(!ID.test(bookingId||'')||!ID.test(adventureId||'')||!Number.isSafeInteger(revision)||revision<0||
         (documentId!==null&&!UUID.test(documentId||''))||
         typeof summary!=='string'||!summary.trim()||summary.length>180||
         !['stay','flight','transport','activity'].includes(kind)||!/^\d{4}-\d{2}-\d{2}$/.test(startsOn||'')||
         !/^\d{4}-\d{2}-\d{2}$/.test(endsOn||'')||!['unverified','confirmed','cancelled','voided'].includes(status)||
+        (sourceTitle!==null&&(typeof sourceTitle!=='string'||sourceTitle.length>180))||
+        (sourceSupplier!==null&&(typeof sourceSupplier!=='string'||sourceSupplier.length>180))||
         (stopName!==null&&(typeof stopName!=='string'||stopName.length>180)))
         throw Error('Invalid booking snapshot');
       const savedAt=now();
       await write({kind:'booking',recordId:bookingId,adventureId,
-        data:{id:bookingId,adventureId,documentId,summary:summary.trim(),kind,startsOn,endsOn,status,stopName,
+        data:{id:bookingId,adventureId,documentId,summary:summary.trim(),kind,startsOn,endsOn,status,
+          sourceTitle:sourceTitle?.trim()||null,sourceSupplier:sourceSupplier?.trim()||null,stopName,
           revision,savedAt,stale:true}});
       return {savedAt,revision,stale:true};
     },

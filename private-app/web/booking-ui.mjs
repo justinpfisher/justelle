@@ -39,6 +39,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
   const savedLabel=saved=>'Saved on this device '+new Date(saved.savedAt).toLocaleString('en-CA',{
     dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'})+' from plan revision '+saved.revision+
     '. It may be out of date and is not encrypted by the app. Protect this browser profile; signing out clears it. Opening it after a cold start still requires normal sign-in and membership checks.';
+  const checksumLabel=saved=>'SHA-256 verified: '+saved.sha256;
   async function renderOfflineFallback(booking,isCurrent){
     if(!offlineCache||!isCurrent())return false;
     const saved=await offlineCache.getBooking(booking.id);
@@ -46,6 +47,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
     const out=$('planner-booking-source');out.replaceChildren();
     out.append(node('h4','','Saved booking details (may be out of date)'));
     out.append(node('p','',saved.summary));
+    if(saved.sourceTitle)out.append(node('p','meta','Source: '+saved.sourceTitle));
+    if(saved.sourceSupplier)out.append(node('p','meta','Supplier: '+saved.sourceSupplier));
     out.append(node('p','meta',saved.kind+' · '+saved.startsOn+' to '+saved.endsOn+
       ' · '+bookingStatusText(saved.status)));
     if(saved.stopName)out.append(node('p','meta','Planned place: '+saved.stopName));
@@ -60,6 +63,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
           catch(error){reportError(error,isCurrent);}
         };
         out.append(open);
+        out.append(node('p','meta',checksumLabel(cached)));
         const remove=node('button','text-button','Remove saved original from this device');remove.type='button';
         remove.onclick=async()=>{try{await offlineCache.removeDocument(saved.documentId);if(isCurrent())remove.remove();}
           catch(error){reportError(error,isCurrent);}};
@@ -94,7 +98,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
         const stopName=currentPlan.stops.find(s=>s.id===booking.stop_id)?.title||null;
         const saved=await offlineCache.saveBooking({id:booking.id,adventureId:currentPlan.id,
           documentId:source?.document_id||null,summary:booking.summary,kind:booking.kind,
-          startsOn:booking.starts_on,endsOn:booking.ends_on,status:booking.status,stopName,
+          startsOn:booking.starts_on,endsOn:booking.ends_on,status:booking.status,
+          sourceTitle:source?.title||null,sourceSupplier:source?.supplier||null,stopName,
           revision:currentPlan.revision});
         if(isCurrent())status.textContent=savedLabel(saved);
       }catch(error){reportError(error,isCurrent);}
@@ -111,6 +116,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
     const updateOriginalStatus=async()=>{
       try{const saved=await offlineCache.getDocument(source.document_id);if(!isCurrent())return;
         originalStatus.textContent=saved?savedLabel(saved):'The original confirmation is not saved offline.';
+        if(saved)originalStatus.textContent+=' '+checksumLabel(saved);
         openSaved.hidden=!saved;removeSaved.hidden=!saved;
       }catch{if(isCurrent())originalStatus.textContent='Private offline storage is unavailable in this browser.';}
     };
@@ -124,7 +130,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
         if(bytes.byteLength!==d.size||await sha256(bytes)!==d.sha256)throw Error('Original document failed its integrity check');
         const saved=await offlineCache.saveDocument({id:d.id,name:d.name,mime:d.mime,size:d.size,
           sha256:d.sha256,bytes,revision:currentPlan.revision});
-        if(isCurrent()){originalStatus.textContent=savedLabel(saved);openSaved.hidden=false;removeSaved.hidden=false;}
+        if(isCurrent()){originalStatus.textContent=savedLabel(saved)+' '+checksumLabel(saved);openSaved.hidden=false;removeSaved.hidden=false;}
       }catch(error){reportError(error,isCurrent);}
       finally{if(isCurrent())saveOriginal.disabled=false;}
     };

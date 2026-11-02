@@ -43,10 +43,12 @@ test('only an explicitly selected booking snapshot is saved and marked stale',as
   const store=fakeStore(),cache=memoryCache(store);
   await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',documentId,
     summary:'Synthetic train',kind:'transport',startsOn:'2026-11-12',endsOn:'2026-11-12',
+    sourceTitle:'Rail confirmation',sourceSupplier:'Fictional Rail',
     status:'unverified',stopName:'Synthetic station',revision:4});
   const saved=await cache.getBooking('booking-1');
   assert.deepEqual(saved,{id:'booking-1',adventureId:'adventure-1',documentId,
     summary:'Synthetic train',kind:'transport',startsOn:'2026-11-12',endsOn:'2026-11-12',
+    sourceTitle:'Rail confirmation',sourceSupplier:'Fictional Rail',
     status:'unverified',stopName:'Synthetic station',revision:4,
     savedAt:Date.parse('2026-11-02T12:00:00.000Z'),stale:true});
   assert.equal(store.rows.size,1);
