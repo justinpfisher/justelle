@@ -142,15 +142,24 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
         (stopName!==null&&(typeof stopName!=='string'||stopName.length>180)))
         throw Error('Invalid booking snapshot');
       const savedAt=now();
+      const data={id:bookingId,adventureId,documentId,summary:summary.trim(),kind,startsOn,endsOn,status,
+        sourceTitle:sourceTitle?.trim()||null,sourceSupplier:sourceSupplier?.trim()||null,stopName,
+        revision,savedAt,stale:true};
+      const checksum=await sha256(new TextEncoder().encode(JSON.stringify(data)));
+      assertCurrent();
       await write({kind:'booking',recordId:bookingId,adventureId,
-        data:{id:bookingId,adventureId,documentId,summary:summary.trim(),kind,startsOn,endsOn,status,
-          sourceTitle:sourceTitle?.trim()||null,sourceSupplier:sourceSupplier?.trim()||null,stopName,
-          revision,savedAt,stale:true}});
-      return {savedAt,revision,stale:true};
+        data:{...data,sha256:checksum}});
+      return {savedAt,revision,stale:true,sha256:checksum};
     },
     async getBooking(bookingId){
       if(!ID.test(bookingId||''))return null;
-      const row=await read('booking',bookingId);return row?clone(row.data):null;
+      const row=await read('booking',bookingId);if(!row)return null;
+      const data=clone(row.data),{sha256:expectedHash,...content}=data;
+      if(!/^[a-f0-9]{64}$/.test(expectedHash||'')||await sha256(new TextEncoder().encode(JSON.stringify(content)))!==expectedHash){
+        assertCurrent();await backend.remove(key('booking',bookingId));
+        throw Error('Saved booking snapshot failed its integrity check');
+      }
+      assertCurrent();return data;
     },
     async saveDocument({id:documentId,name,mime,size,sha256:expectedHash,bytes,revision}){
       if(!UUID.test(documentId||'')||typeof name!=='string'||!name.trim()||name.length>180||

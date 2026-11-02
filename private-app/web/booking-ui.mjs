@@ -51,6 +51,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
     if(saved.sourceSupplier)out.append(node('p','meta','Supplier: '+saved.sourceSupplier));
     out.append(node('p','meta',saved.kind+' · '+saved.startsOn+' to '+saved.endsOn+
       ' · '+bookingStatusText(saved.status)));
+    out.append(node('p','meta',checksumLabel(saved)));
     if(saved.stopName)out.append(node('p','meta','Planned place: '+saved.stopName));
     out.append(node('p','planner-warning',savedLabel(saved)));
     if(saved.documentId){
@@ -87,7 +88,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
     saveBooking.type='button';bookingButtons.append(saveBooking);out.append(bookingButtons);
     const updateBookingStatus=async()=>{
       try{const saved=await offlineCache.getBooking(booking.id);if(isCurrent()){
-        status.textContent=saved?savedLabel(saved):'Booking details are not saved offline.';
+        status.textContent=saved?savedLabel(saved)+' '+checksumLabel(saved):'Booking details are not saved offline.';
         saveBooking.textContent=saved?'Update offline booking details':'Save booking details for offline on this device';
       }}catch{if(isCurrent())status.textContent='Private offline storage is unavailable in this browser.';}
     };
@@ -101,7 +102,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
           startsOn:booking.starts_on,endsOn:booking.ends_on,status:booking.status,
           sourceTitle:source?.title||null,sourceSupplier:source?.supplier||null,stopName,
           revision:currentPlan.revision});
-        if(isCurrent())status.textContent=savedLabel(saved);
+        if(isCurrent())status.textContent=savedLabel(saved)+' '+checksumLabel(saved);
       }catch(error){reportError(error,isCurrent);}
       finally{if(isCurrent())saveBooking.disabled=false;}
     };

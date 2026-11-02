@@ -41,6 +41,12 @@ test('offline copies are scoped to environment, project, room, and member',()=>{
 
 test('only an explicitly selected booking snapshot is saved and marked stale',async()=>{
   const store=fakeStore(),cache=memoryCache(store);
+  const snapshot={id:'booking-1',adventureId:'adventure-1',documentId,
+    summary:'Synthetic train',kind:'transport',startsOn:'2026-11-12',endsOn:'2026-11-12',
+    status:'unverified',sourceTitle:'Rail confirmation',sourceSupplier:'Fictional Rail',
+    stopName:'Synthetic station',revision:4,
+    savedAt:Date.parse('2026-11-02T12:00:00.000Z'),stale:true};
+  const expectedChecksum=await sha256(new TextEncoder().encode(JSON.stringify(snapshot)));
   await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',documentId,
     summary:'Synthetic train',kind:'transport',startsOn:'2026-11-12',endsOn:'2026-11-12',
     sourceTitle:'Rail confirmation',sourceSupplier:'Fictional Rail',
@@ -50,10 +56,20 @@ test('only an explicitly selected booking snapshot is saved and marked stale',as
     summary:'Synthetic train',kind:'transport',startsOn:'2026-11-12',endsOn:'2026-11-12',
     sourceTitle:'Rail confirmation',sourceSupplier:'Fictional Rail',
     status:'unverified',stopName:'Synthetic station',revision:4,
-    savedAt:Date.parse('2026-11-02T12:00:00.000Z'),stale:true});
+    savedAt:Date.parse('2026-11-02T12:00:00.000Z'),stale:true,sha256:expectedChecksum});
   assert.equal(store.rows.size,1);
   await cache.close();
   assert.equal(store.rows.size,0);
+});
+
+test('a changed offline booking snapshot fails its checksum and is removed',async()=>{
+  const store=fakeStore(),cache=memoryCache(store);
+  await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Synthetic',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  const row=[...store.rows.values()][0];row.data.summary='Changed locally';
+  await assert.rejects(cache.getBooking('booking-1'),/integrity check/);
+  assert.equal(store.rows.size,0);
+  await cache.close();
 });
 
 test('original confirmation is separately saved, bounded, and checksum verified',async()=>{
