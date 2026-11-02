@@ -767,7 +767,9 @@ function renderOfflineEssentials(saved){
     list.append(item);
   }
   $('login-form').hidden=true;$('offline-essentials').hidden=false;$('login').hidden=false;
-  $('private-app').hidden=true;$('notice').textContent='Saved essentials are available on this device only. They may be out of date; reconnect and reload to verify access. Sign out to clear them.';
+  $('private-app').hidden=true;$('notice').textContent=saved.length?
+    'Saved essentials are available on this device only. They may be out of date; reconnect and reload to verify access. Sign out to clear them.':
+    'This device is offline and has no saved essentials. Reconnect and reload to verify access.';
   $('error').textContent='';
 }
 $('sign-out').onclick=async()=>{
@@ -792,6 +794,15 @@ onAuthStateChanged(auth,async user=>{
     try{await purgeOfflineDocumentCache();}
     catch{offlineClearWarning=true;setNotice('You are signed out, but Justelle could not confirm removal of saved offline copies. Clear this site’s data in browser settings before sharing this device.');return;}
     setNotice('Sign in once on a trusted browser. Sessions normally persist after reopening.');return;
+  }
+  if(navigator.onLine===false){
+    const offlineCache=createOfflineDocumentCache({scope:{environment:runtime.mode,
+      projectId:runtime.projectId,roomId,memberUid:user.uid},isCurrent:isCurrentSession});
+    let saved=[];
+    try{saved=await offlineCache.listEssentials();}catch{}
+    finally{offlineCache.closeReadOnly();}
+    if(isCurrentSession())renderOfflineEssentials(saved);
+    return;
   }
   const offlineCacheAllowed=!offlineClearWarning;
   let denied=false;

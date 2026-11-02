@@ -1264,6 +1264,12 @@ try{
   await B.reload();
   await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
   await B.waitForFunction(()=>Boolean(navigator.serviceWorker.controller),null,{timeout:15000});
+  const offlineCloudRequests=[];
+  const recordOfflineCloudRequest=request=>{
+    if(/127\.0\.0\.1:(?:8081|9199)|firestore\.googleapis\.com|firebasestorage\.googleapis\.com/.test(request.url()))
+      offlineCloudRequests.push(request.method());
+  };
+  B.on('request',recordOfflineCloudRequest);
   await ctxB.setOffline(true);
   await B.reload({waitUntil:'domcontentloaded'});
   await B.locator('#offline-essentials').waitFor({state:'visible',timeout:25000});
@@ -1273,6 +1279,8 @@ try{
     'offline reopening does not restore the cloud-backed application or edits');
   assert.equal(await B.locator('#login-form').isVisible(),false,
     'a persisted signed-in browser shows only the selected read-only offline copies');
+  assert.deepEqual(offlineCloudRequests,[],
+    'cold offline startup reads the local scoped cache without attempting Firestore or Storage requests');
   const [offlineDownload]=await Promise.all([
     B.waitForEvent('download',{timeout:15000}),
     B.getByRole('button',{name:'Open saved original on this device'}).click()
@@ -1282,6 +1290,7 @@ try{
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
   await ctxB.setOffline(false);
+  B.off('request',recordOfflineCloudRequest);
   await signInOnCurrentPage(B,fixture.b);
   await B.locator('[data-tab="adventures"]').click();
   await B.getByText('Booking anchors',{exact:true}).click();
