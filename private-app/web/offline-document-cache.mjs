@@ -90,7 +90,8 @@ const clone=value=>typeof structuredClone==='function'?structuredClone(value):JS
 // never authenticates a user or grants cold-start access; disposal clears this
 // member/room scope and invalidates in-flight writes.
 export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB,
-  store=null,isCurrent=()=>true,now=()=>Date.now(),broadcastFactory=globalThis.BroadcastChannel}){
+  store=null,isCurrent=()=>true,now=()=>Date.now(),broadcastFactory=globalThis.BroadcastChannel,
+  onChange=()=>{}}){
   const {ownerKey,scopeKey}=offlineScopeKeys(scope);
   const backend=store||indexedDbStore(indexedDB);
   let active=true,readyPromise=null,closePromise=null;
@@ -124,11 +125,12 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       channel.onmessage=event=>{
         if(event.data?.type==='record-cleared'&&event.data.scopeKey===scopeKey&&
           typeof event.data.key==='string'&&event.data.key.startsWith(scopeKey+'|')){
-          nextVersion(event.data.key,'remove');void backend.remove(event.data.key).catch(()=>{});
+          nextVersion(event.data.key,'remove');
+          void backend.remove(event.data.key).then(()=>onChange({type:'record-cleared'})).catch(()=>{});
         }
         if(event.data?.type==='scope-cleared'&&event.data.scopeKey===scopeKey){
           active=false;
-          void backend.removeScope(scopeKey).catch(()=>{});
+          void backend.removeScope(scopeKey).then(()=>onChange({type:'scope-cleared'})).catch(()=>{});
         }
       };
     }
@@ -217,19 +219,26 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       }
       return essentials;
     },
-    async saveDocument({id:documentId,name,mime,size,sha256:expectedHash,bytes,revision}){
+    async saveDocument({id:documentId,name,mime,size,sha256:expectedHash,bytes,revision,writeToken=null}){
       if(!UUID.test(documentId||'')||typeof name!=='string'||!name.trim()||name.length>180||
         !DOCUMENT_MIMES.has(mime)||!Number.isSafeInteger(size)||size<1||size>MAX_DOCUMENT_BYTES||
         !(bytes instanceof Uint8Array)||bytes.byteLength!==size||!/^[a-f0-9]{64}$/.test(expectedHash||'')||
         !Number.isSafeInteger(revision)||revision<0)
         throw Error('Invalid protected original for offline saving');
-      const token=startWrite('document',documentId);
+      const token=writeToken||startWrite('document',documentId);
+      if(token.recordKey!==key('document',documentId)||versionOf(token.recordKey)!==token.version)
+        throw Error('Offline copy save was superseded');
       const digest=await sha256(bytes);assertCurrent();
       if(digest!==expectedHash)throw Error('Original document failed its integrity check');
       const savedAt=now();
       await write({kind:'document',recordId:documentId,data:{id:documentId,name:name.trim(),mime,size,
         sha256:digest,bytes:bytes.slice(),revision,savedAt,stale:true}},token);
       return {savedAt,revision,stale:true,sha256:digest};
+    },
+    beginDocumentSave(documentId){
+      assertCurrent();
+      if(!UUID.test(documentId||''))throw Error('Invalid protected original for offline saving');
+      return startWrite('document',documentId);
     },
     async getDocument(documentId){
       if(!UUID.test(documentId||''))return null;

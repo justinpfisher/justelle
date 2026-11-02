@@ -1314,6 +1314,9 @@ try{
     'the cold-start case is running with browser networking disabled');
   await B.getByRole('heading',{name:'Saved essentials on this device'}).waitFor();
   await B.getByText('Fictional inn confirmation',{exact:true}).waitFor();
+  await B.getByText('Member-recorded confirmation',{exact:true}).waitFor();
+  await B.getByText(/Booking details saved .*This is a stale snapshot/).waitFor();
+  await B.getByText(/Original confirmation saved .*This is a stale snapshot/).waitFor();
   assert.equal(await B.locator('#private-app').isVisible(),false,
     'offline reopening does not restore the cloud-backed application or edits');
   assert.equal(await B.locator('#login-form').isVisible(),false,
@@ -1325,6 +1328,39 @@ try{
     B.getByRole('button',{name:'Open saved original on this device'}).click()
   ]);
   assert.equal(offlineDownload.suggestedFilename(),'synthetic-source.pdf');
+  await ctxB.setOffline(false);
+  await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
+  await B.locator('#offline-essentials').waitFor({state:'hidden'});
+  assert.equal((await offlineCacheRows(B)).length,2,
+    'reconnecting reruns normal online membership checks without deleting selected local copies');
+  B.off('request',recordOfflineCloudRequest);
+  await B.close();
+  await ctxB.setOffline(true);
+  B=await ctxB.newPage();
+  B.on('pageerror',e=>pageErrors.push('B: '+e.message));
+  B.on('request',recordOfflineCloudRequest);
+  await B.goto(base,{waitUntil:'domcontentloaded'});
+  await B.locator('#offline-essentials').waitFor({state:'visible',timeout:25000});
+  assert.equal(await B.evaluate(()=>navigator.onLine),false);
+  await B.getByText('Fictional inn confirmation',{exact:true}).waitFor();
+  assert.deepEqual(offlineCloudRequests,[],
+    'reopened offline viewer again avoids cloud requests after a completed online recheck');
+  const offlineRowsBeforeRemoteRemoval=await offlineCacheRows(B);
+  const savedOriginalRow=offlineRowsBeforeRemoteRemoval.find(row=>row.kind==='document');
+  assert.ok(savedOriginalRow,'the separately selected fictional original is present before cross-tab removal');
+  await B.evaluate(({scopeKey,id})=>{
+    const channel=new BroadcastChannel('justelle-private-offline-v1');
+    channel.postMessage({type:'record-cleared',scopeKey,
+      key:scopeKey+'|document|'+encodeURIComponent(id)});
+    setTimeout(()=>channel.close(),0);
+  },{scopeKey:savedOriginalRow.scopeKey,id:savedOriginalRow.data.id});
+  await poll(async()=>(await offlineCacheRows(B)).every(row=>row.kind!=='document'),5000);
+  await B.getByText('The original confirmation is not saved separately on this device.',{exact:true}).waitFor();
+  const savedBookingRow=(await offlineCacheRows(B)).find(row=>row.kind==='booking');
+  assert.ok(savedBookingRow,'the explicitly saved booking remains independently removable');
+  await B.getByRole('button',{name:'Remove saved booking details from this device'}).click();
+  await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
+  await B.locator('#offline-essentials-list li').waitFor({state:'detached'});
   await B.locator('#sign-out').click();
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await poll(async()=>(await offlineCacheRows(B)).length===0,5000);

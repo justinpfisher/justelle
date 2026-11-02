@@ -38,7 +38,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
   }
   const savedLabel=saved=>'Saved on this device '+new Date(saved.savedAt).toLocaleString('en-CA',{
     dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'})+' from plan revision '+saved.revision+
-    '. It may be out of date and is not encrypted by the app. Protect this browser profile; signing out attempts to clear it. Opening it after a cold start still requires normal sign-in and membership checks.';
+    '. This is a stale snapshot and is not encrypted by the app. Protect this browser profile; signing out attempts to clear it. A previously signed-in browser can show this explicit copy offline; remote access changes cannot be checked until it reconnects.';
   const checksumLabel=saved=>/^[a-f0-9]{64}$/.test(saved.sha256||'')?'SHA-256 verified: '+saved.sha256:'SHA-256 could not be verified.';
   async function renderOfflineFallback(booking,isCurrent){
     if(!offlineCache||!isCurrent())return false;
@@ -134,12 +134,13 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
       saveOriginal.disabled=true;
       try{
         const currentPlan=getPlan();if(!isCurrent()||!currentPlan||currentPlan.id!==booking.adventure_id)return;
+        const writeToken=offlineCache.beginDocumentSave(source.document_id);
         const documents=await planner.readDocuments(currentPlan.id);if(!isCurrent())return;
         const d=documents.find(x=>x.id===source.document_id);if(!d)throw Error('The original document cannot be found');
         const bytes=await planner.documentBytes(d.id);if(!isCurrent())return;
         if(bytes.byteLength!==d.size||await sha256(bytes)!==d.sha256)throw Error('Original document failed its integrity check');
         const saved=await offlineCache.saveDocument({id:d.id,name:d.name,mime:d.mime,size:d.size,
-          sha256:d.sha256,bytes,revision:currentPlan.revision});
+          sha256:d.sha256,bytes,revision:currentPlan.revision,writeToken});
         if(isCurrent()){originalStatus.textContent=savedLabel(saved)+' '+checksumLabel(saved);openSaved.hidden=false;removeSaved.hidden=false;}
       }catch(error){reportError(error,isCurrent);}
       finally{if(isCurrent())saveOriginal.disabled=false;}

@@ -207,6 +207,42 @@ test('removing a booking cancels an in-flight save in the same and another tab',
   await first.close();await second.close();
 });
 
+test('removing a document during source retrieval invalidates its earlier save token',async()=>{
+  const store=fakeStore(),remover=memoryCache(store),writer=memoryCache(store);
+  const bytes=new Uint8Array([2,4,6]),hash=await sha256(bytes);
+  const token=writer.beginDocumentSave(documentId);
+  await remover.removeDocument(documentId);
+  await assert.rejects(writer.saveDocument({id:documentId,name:'synthetic.pdf',mime:'application/pdf',
+    size:bytes.length,sha256:hash,bytes,revision:1,writeToken:token}),/superseded/);
+  assert.equal(store.rows.size,0,'a removal during the earlier retrieval cannot be undone by a late save');
+  await remover.close();await writer.close();
+});
+
+test('another tab removal notifies the active offline viewer',async()=>{
+  const store=fakeStore();let noticeResolve;
+  const noticed=new Promise(resolve=>{noticeResolve=resolve;});
+  const viewer=memoryCache(store,{onChange:change=>noticeResolve(change.type)}),remover=memoryCache(store);
+  await viewer.saveDocument({id:documentId,name:'synthetic.pdf',mime:'application/pdf',size:3,
+    sha256:await sha256(new Uint8Array([1,2,3])),bytes:new Uint8Array([1,2,3]),revision:1});
+  await remover.removeDocument(documentId);
+  assert.equal(await noticed,'record-cleared');
+  assert.equal(await viewer.getDocument(documentId),null);
+  await viewer.close();await remover.close();
+});
+
+test('a scope clear in another tab notifies the offline viewer before it can reopen stale copies',async()=>{
+  const store=fakeStore();let notify;
+  const cleared=new Promise(resolve=>{notify=resolve;});
+  const viewer=memoryCache(store,{onChange:change=>notify(change.type)}),owner=memoryCache(store);
+  await owner.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Synthetic',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  await viewer.listEssentials();
+  await owner.close();
+  assert.equal(await cleared,'scope-cleared');
+  await assert.rejects(viewer.listEssentials(),/session/);
+  await viewer.close();
+});
+
 test('an older failed save cannot erase a newer successful save',async()=>{
   const store=fakeStore(),cache=memoryCache(store);
   let releaseOld,oldStartedResolve;

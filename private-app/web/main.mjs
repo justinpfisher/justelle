@@ -8,6 +8,7 @@ import {firebaseBackend} from './firebase-backend.mjs';
 import {mountPlannerUI} from './planner-ui.mjs';
 import {prepareImage,revokePrepared} from './media.mjs';
 import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
+import {bookingStatusText} from './journey-view.mjs';
 import {createOfflineDocumentCache,isConfirmedAccessDenied,isConfirmedOffline,purgeOfflineDocumentCache} from './offline-document-cache.mjs';
 
 const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
@@ -98,6 +99,7 @@ let records={adventures:[],decisions:[],messages:[]};
 let selectedAdventure=null,currentConversation=GENERAL_CONVERSATION,latest=[],older=[],before=null,hasOlder=false;
 let authSessionVersion=0,topicVersion=0,loadingOlder=false,startedTopic=false,selectedSourceMessage=null,replacesId=null;
 let offlineClearWarning=false;
+let offlineStartupCache=null,offlineRenderEpoch=0;
 let attachments=new Map(),loadingAttachments=new Set(),mediaUrls=new Map();
 const setNotice=text=>$('notice').textContent=text||'';
 const clearError=()=>{$('error').textContent='';};
@@ -673,6 +675,8 @@ $('login-form').addEventListener('submit',async e=>{
   }catch(e){error(e);}
 });
 function clearPrivateSessionUi(){
+  offlineRenderEpoch++;
+  offlineStartupCache?.closeReadOnly();offlineStartupCache=null;
   $('offline-essentials').hidden=true;$('offline-essentials-list').replaceChildren();$('login-form').hidden=false;
   for(const unsub of unsubscribers)unsub();unsubscribers=[];
   stopTopic();stopTopic=()=>{};const plannerCleanup=stopPlanner();stopPlanner=()=>{};topicVersion++;
@@ -736,7 +740,7 @@ function invalidatePrivateSession(){
   $('login').hidden=false;
   return cleanup;
 }
-function renderOfflineEssentials(saved){
+function renderOfflineEssentials(saved,cache,isCurrent){
   const list=$('offline-essentials-list');list.replaceChildren();
   for(const {booking,savedOriginal} of saved){
     const item=window.document.createElement('li');item.className='offline-essential';
@@ -744,25 +748,45 @@ function renderOfflineEssentials(saved){
     heading.textContent=booking?booking.summary:'Saved original confirmation';item.append(heading);
     if(booking){
       const details=window.document.createElement('p');details.textContent=[booking.sourceTitle,booking.sourceSupplier,
-        booking.kind+' · '+booking.startsOn+' to '+booking.endsOn,booking.stopName].filter(Boolean).join(' · ');
+        booking.kind+' · '+booking.startsOn+' to '+booking.endsOn,bookingStatusText(booking.status),booking.stopName]
+        .filter(Boolean).join(' · ');
       item.append(details);
     }
-    const savedAt=booking?.savedAt||savedOriginal?.savedAt;
-    const revision=booking?.revision??savedOriginal?.revision;
-    const time=new Date(savedAt).toLocaleString('en-CA',{
-      dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'});
-    const stale=window.document.createElement('p');stale.className='meta';
-    stale.textContent='Saved '+time+(Number.isSafeInteger(revision)?' from plan revision '+revision:'')+
-      '. This copy may be out of date. Cloud access and changes are unavailable offline.';
+    const appendSavedStatus=(savedAt,revision,label)=>{
+      const time=Number.isFinite(savedAt)?new Date(savedAt).toLocaleString('en-CA',{
+        dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'}):'an unknown time';
+      const status=window.document.createElement('p');status.className='meta';
+      status.textContent=label+' saved '+time+(Number.isSafeInteger(revision)?' from plan revision '+revision:'')+
+        '. This is a stale snapshot; cloud access and changes are unavailable offline.';
+      item.append(status);
+    };
+    if(booking)appendSavedStatus(booking.savedAt,booking.revision,'Booking details');
+    if(savedOriginal)appendSavedStatus(savedOriginal.savedAt,savedOriginal.revision,'Original confirmation');
+    if(booking){
+      const removeBooking=window.document.createElement('button');removeBooking.type='button';
+      removeBooking.className='text-button';removeBooking.textContent='Remove saved booking details from this device';
+      removeBooking.addEventListener('click',async()=>{
+        try{await cache.removeBooking(booking.id);if(isCurrent())await refreshOfflineEssentials(cache,isCurrent);}
+        catch{if(isCurrent())setNotice('Could not confirm removal of saved booking details. Clear this site’s data before sharing the device.');}
+      });
+      item.append(removeBooking);
+    }
     if(savedOriginal){
+      const originalId=savedOriginal.id;
       const original=window.document.createElement('button');original.type='button';original.className='secondary';
       original.textContent='Open saved original on this device';
-      original.addEventListener('click',()=>{
-        const url=URL.createObjectURL(new Blob([savedOriginal.bytes],{type:savedOriginal.mime}));
-        const link=window.document.createElement('a');link.href=url;link.download=savedOriginal.name;
-        window.document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
-      });
+      original.addEventListener('click',()=>void openOfflineSavedOriginal(cache,originalId,isCurrent));
       item.append(original);
+      const removeOriginal=window.document.createElement('button');removeOriginal.type='button';
+      removeOriginal.className='text-button';removeOriginal.textContent='Remove saved original from this device';
+      removeOriginal.addEventListener('click',async()=>{
+        try{await cache.removeDocument(originalId);if(isCurrent())await refreshOfflineEssentials(cache,isCurrent);}
+        catch{if(isCurrent())setNotice('Could not confirm removal of the saved original. Clear this site’s data before sharing the device.');}
+      });
+      item.append(removeOriginal);
+    }else if(booking?.documentId){
+      const note=window.document.createElement('p');note.className='meta';
+      note.textContent='The original confirmation is not saved separately on this device.';item.append(note);
     }
     list.append(item);
   }
@@ -772,6 +796,28 @@ function renderOfflineEssentials(saved){
     'This device is offline and has no saved essentials. Reconnect and reload to verify access.';
   $('error').textContent='';
 }
+async function refreshOfflineEssentials(cache,isCurrent){
+  const epoch=++offlineRenderEpoch;
+  let saved;
+  try{saved=await cache.listEssentials();}catch{return;}
+  if(epoch!==offlineRenderEpoch||cache!==offlineStartupCache||!isCurrent())return;
+  renderOfflineEssentials(saved,cache,isCurrent);
+}
+async function openOfflineSavedOriginal(cache,documentId,isCurrent){
+  try{
+    const saved=await cache.getDocument(documentId);
+    if(!isCurrent())return;
+    if(!saved){await refreshOfflineEssentials(cache,isCurrent);return;}
+    const url=URL.createObjectURL(new Blob([saved.bytes],{type:saved.mime}));
+    const link=window.document.createElement('a');link.href=url;link.download=saved.name;
+    window.document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
+  }catch{if(isCurrent())setNotice('This saved original is no longer available on this device.');}
+}
+window.addEventListener('online',()=>{
+  if(!offlineStartupCache||!auth.currentUser)return;
+  offlineStartupCache.closeReadOnly();offlineStartupCache=null;offlineRenderEpoch++;
+  window.location.reload();
+});
 $('sign-out').onclick=async()=>{
   clearError();
   try{await invalidatePrivateSession();await purgeOfflineDocumentCache();}
@@ -797,11 +843,17 @@ onAuthStateChanged(auth,async user=>{
   }
   if(navigator.onLine===false){
     const offlineCache=createOfflineDocumentCache({scope:{environment:runtime.mode,
-      projectId:runtime.projectId,roomId,memberUid:user.uid},isCurrent:isCurrentSession});
-    let saved=[];
-    try{saved=await offlineCache.listEssentials();}catch{}
-    finally{offlineCache.closeReadOnly();}
-    if(isCurrentSession())renderOfflineEssentials(saved);
+      projectId:runtime.projectId,roomId,memberUid:user.uid},isCurrent:isCurrentSession,
+      onChange:change=>{
+        if(offlineStartupCache!==offlineCache||!isCurrentSession())return;
+        if(change.type==='scope-cleared'){
+          offlineRenderEpoch++;offlineStartupCache=null;offlineCache.closeReadOnly();
+          $('offline-essentials-list').replaceChildren();$('offline-essentials').hidden=true;
+          setNotice('Saved copies were cleared from another tab. Reconnect and reload to verify access.');
+        }else void refreshOfflineEssentials(offlineCache,isCurrentSession);
+      }});
+    offlineStartupCache=offlineCache;
+    await refreshOfflineEssentials(offlineCache,isCurrentSession);
     return;
   }
   const offlineCacheAllowed=!offlineClearWarning;
