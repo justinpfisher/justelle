@@ -1294,13 +1294,9 @@ try{
   assert.equal(offlineBooking.notes,undefined,'booking cache excludes pasted source notes');
   // A network failure with an online browser signal must not be misread as a
   // confirmed offline session or render an untracked, non-removable snapshot.
-  await B.addInitScript(()=>{
-    if(window.name==='justelle-test-online-signal')return;
-    window.name='justelle-test-online-signal';
-    Object.defineProperty(navigator,'onLine',{configurable:true,value:true});
-  });
+  assert.equal(await B.evaluate(()=>navigator.onLine),true,
+    'the network-failure regression starts with the browser reporting online');
   await B.route('http://127.0.0.1:8081/**',route=>route.abort());
-  await ctxB.setOffline(true);
   await B.reload({waitUntil:'domcontentloaded'});
   assert.equal(await B.evaluate(()=>navigator.onLine),true,
     'the network-failure regression keeps the browser signal online');
@@ -1309,7 +1305,6 @@ try{
     'a network failure while navigator reports online does not enter the offline viewer');
   assert.equal(await B.locator('#private-app').isVisible(),false,
     'a cached membership result cannot restore the editable private app after a failed server check');
-  await ctxB.setOffline(false);
   await B.unroute('http://127.0.0.1:8081/**');
   await B.reload({waitUntil:'domcontentloaded'});
   await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
