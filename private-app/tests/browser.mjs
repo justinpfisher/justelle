@@ -1273,7 +1273,7 @@ try{
   await B.getByText('Booking anchors',{exact:true}).click();
   const refreshedOriginalEntry=B.locator('#planner-bookings .planner-booking-entry')
     .filter({hasText:'Fictional inn confirmation'});
-  await refreshedOriginalEntry.getByRole('button',{name:'Show original details'}).waitFor({state:'visible'});
+  await refreshedOriginalEntry.getByRole('button',{name:'Show original details'}).click();
   await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
   await B.getByRole('button',{name:'Save booking details for offline on this device'}).click();
   await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).first().waitFor();
