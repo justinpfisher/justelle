@@ -1298,6 +1298,9 @@ try{
   B.off('request',recordOfflineCloudRequest);
   await signInOnCurrentPage(B,fixture.b);
   await B.locator('[data-tab="adventures"]').click();
+  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await openTripBasics(B);
   await B.getByText('Booking anchors',{exact:true}).click();
   await B.locator('#planner-bookings .planner-booking-entry').filter({hasText:'Fictional inn confirmation'})
     .getByRole('button',{name:'Show original details'}).waitFor({state:'visible'});
