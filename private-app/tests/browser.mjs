@@ -120,6 +120,19 @@ async function assertPrivateUiCleared(page){
   const tripDataset=await page.locator('#planner-trip-form').evaluate(form=>({...form.dataset}));
   for(const key of ['planId','baseRevision','dirty'])assert.equal(tripDataset[key],undefined,key+' must clear on sign-out');
 }
+async function offlineCacheRows(page){
+  return page.evaluate(()=>new Promise((resolve,reject)=>{
+    const opened=indexedDB.open('justelle-private-offline-v1',1);
+    opened.onerror=()=>reject(opened.error||Error('Offline cache database could not be opened'));
+    opened.onsuccess=()=>{
+      const db=opened.result,tx=db.transaction('items','readonly'),request=tx.objectStore('items').getAll();
+      request.onsuccess=()=>resolve(request.result.map(row=>({kind:row.kind,data:row.data,scopeKey:row.scopeKey})));
+      request.onerror=()=>reject(request.error||Error('Offline cache rows could not be read'));
+      tx.oncomplete=()=>db.close();
+      tx.onerror=()=>{db.close();reject(tx.error||Error('Offline cache rows could not be read'));};
+    };
+  }));
+}
 async function openTripBasics(page){
   const section=page.locator('#planner-detail > details').first();
   if(!(await section.evaluate(node=>node.open)))await section.locator('summary').click();
@@ -143,12 +156,26 @@ try{
   const dirB=await mkdtemp(join(tmpdir(),'justelle-ux-b-'));
   ctxA=await chromium.launchPersistentContext(dirA,{headless:true,viewport:{width:390,height:844},acceptDownloads:true});
   ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},acceptDownloads:true});
-  const A=await ctxA.newPage(),B=await ctxB.newPage();
+  const A=await ctxA.newPage();let B=await ctxB.newPage();
   A.on('pageerror',e=>pageErrors.push('A: '+e.message));
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   await A.goto(base);
   assert.equal(await A.locator('#login').isVisible(),true,'an unauthenticated visitor sees the sign-in screen');
   assert.equal(await A.locator('#private-app').isVisible(),false,'an unauthenticated visitor cannot see private panels');
+  await A.evaluate(()=>new Promise((resolve,reject)=>{
+    const request=indexedDB.open('justelle-private-offline-v1',1);
+    request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains('items')){
+      const store=db.createObjectStore('items',{keyPath:'key'});store.createIndex('scopeKey','scopeKey');store.createIndex('ownerKey','ownerKey');}};
+    request.onerror=()=>reject(request.error||Error('Synthetic offline row could not be seeded'));
+    request.onsuccess=()=>{const db=request.result,tx=db.transaction('items','readwrite');
+      tx.objectStore('items').put({key:'synthetic-stale-row',scopeKey:'local|demo|fictional-room|member-a',
+        ownerKey:'local|demo',kind:'booking',recordId:'synthetic',data:{summary:'Fictional stale row'}});
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=tx.onerror=()=>{db.close();reject(tx.error||Error('Synthetic offline row could not be seeded'));};};
+  }));
+  await A.reload();
+  await A.locator('#login').waitFor({state:'visible'});
+  await poll(async()=>(await offlineCacheRows(A)).length===0,
+    5000);
   await login(A,fixture.a);await login(B,fixture.b);
   assert.equal(await A.locator('.pilot').isVisible(),true);
   assert.match(await A.locator('.pilot').textContent(),/Local fictional-data pilot/);
@@ -1097,6 +1124,7 @@ try{
   await again.locator('#image-viewer').waitFor({state:'hidden'});
   await again.locator('#sign-out').click();
   await again.locator('#login').waitFor({state:'visible'});
+  await again.locator('#notice').getByText('Sign in once on a trusted browser. Sessions normally persist after reopening.').waitFor();
   await assertPrivateUiCleared(again);
 
   // Hold a member bootstrap read, then switch to an unprivileged fictional
@@ -1109,6 +1137,7 @@ try{
   await again.locator('#sign-out').waitFor({state:'visible'});
   await again.locator('#sign-out').click();
   await again.locator('#login').waitFor({state:'visible'});
+  await again.locator('#notice').getByText('Sign in once on a trusted browser. Sessions normally persist after reopening.').waitFor();
   await again.locator('#email').fill(fixture.outsider.email);
   await again.locator('#password').fill(fixture.outsider.password);
   const outsiderAuthResponse=again.waitForResponse(response=>
@@ -1212,6 +1241,8 @@ try{
     .filter({hasText:'Fictional inn confirmation'});
   await originalEntry.getByRole('button',{name:'Show original details'}).click();
   await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
+  // Closing a session during a protected-original read suppresses the
+  // completion, clears member-recorded source fields/options and creates no download.
   const delayedOriginal=await holdFirstRequest(B,'http://127.0.0.1:9199/**','GET');
   let staleDownloadCount=0;
   const recordStaleDownload=()=>{staleDownloadCount++;};
@@ -1222,6 +1253,7 @@ try{
   await B.locator('#login').waitFor({state:'visible'});
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await assertPrivateUiCleared(B);
+  await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
   delayedOriginal.release();
   await delayedOriginal.continued;
   assert.ok([200,206].includes(delayedOriginal.responseStatus),
@@ -1233,6 +1265,141 @@ try{
   assert.equal(staleDownloadCount,0,
     'a protected original response from the signed-out session cannot trigger a download');
   await B.unroute('http://127.0.0.1:9199/**');
+  await signInOnCurrentPage(B,fixture.b);
+  await B.locator('[data-tab="adventures"]').click();
+  await B.locator('#planner-list .planner-card').filter({hasText:'Fictional Coast Updated'})
+    .getByRole('button',{name:'Open plan'}).click();
+  await openTripBasics(B);
+  await B.getByText('Booking anchors',{exact:true}).click();
+  const refreshedOriginalEntry=B.locator('#planner-bookings .planner-booking-entry')
+    .filter({hasText:'Fictional inn confirmation'});
+  await refreshedOriginalEntry.getByRole('button',{name:'Show original details'}).click();
+  await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
+  await B.getByRole('button',{name:'Save booking details for offline on this device'}).click();
+  await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).first().waitFor();
+  await B.getByRole('button',{name:'Remove saved booking details from this device'}).waitFor({state:'visible'});
+  await B.getByRole('button',{name:'Remove saved booking details from this device'}).click();
+  await B.locator('#planner-booking-source').getByText('Booking details are not saved offline.').waitFor();
+  await B.getByRole('button',{name:'Save booking details for offline on this device'}).click();
+  await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).first().waitFor();
+  await B.getByRole('button',{name:'Save original confirmation for offline on this device'}).click();
+  await poll(async()=>await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).count()===2);
+  const savedOffline=await offlineCacheRows(B);
+  assert.deepEqual(savedOffline.map(row=>row.kind).sort(),['booking','document'],
+    'the selected booking and its separately selected original are stored as two scoped offline copies');
+  const offlineBooking=savedOffline.find(row=>row.kind==='booking').data;
+  assert.equal(offlineBooking.summary,'Fictional inn confirmation');
+  assert.equal(offlineBooking.stale,true);
+  assert.equal(offlineBooking.reference,undefined,'booking cache excludes confirmation reference text');
+  assert.equal(offlineBooking.notes,undefined,'booking cache excludes pasted source notes');
+  // A network failure with an online browser signal must not be misread as a
+  // confirmed offline session or render an untracked, non-removable snapshot.
+  assert.equal(await B.evaluate(()=>navigator.onLine),true,
+    'the network-failure regression starts with the browser reporting online');
+  await B.route('http://127.0.0.1:8081/**',route=>route.abort());
+  await B.reload({waitUntil:'domcontentloaded'});
+  assert.equal(await B.evaluate(()=>navigator.onLine),true,
+    'the network-failure regression keeps the browser signal online');
+  await poll(async()=>(await B.locator('#error').textContent()).trim().length>0,30000);
+  assert.equal(await B.locator('#offline-essentials').isVisible(),false,
+    'a network failure while navigator reports online does not enter the offline viewer');
+  assert.equal(await B.locator('#private-app').isVisible(),false,
+    'a cached membership result cannot restore the editable private app after a failed server check');
+  await B.unroute('http://127.0.0.1:8081/**');
+  await B.reload({waitUntil:'domcontentloaded'});
+  await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
+  // Reopen the private app offline on the same persistent, previously
+  // authorized browser profile. Only explicitly saved essentials are shown.
+  await B.evaluate(()=>navigator.serviceWorker.ready);
+  await B.reload();
+  await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
+  await B.waitForFunction(()=>Boolean(navigator.serviceWorker.controller),null,{timeout:15000});
+  await B.close();
+  await ctxB.close();
+  ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},
+    acceptDownloads:true,offline:true});
+  await ctxB.setOffline(true);
+  B=await ctxB.newPage();
+  assert.equal(await B.evaluate(()=>navigator.onLine),false,
+    'the reopened browser profile is offline before application startup');
+  B.on('pageerror',e=>pageErrors.push('B: '+e.message));
+  const offlineCloudRequests=[];
+  const recordOfflineCloudRequest=request=>{
+    const url=new URL(request.url());
+    if(/127\.0\.0\.1:(?:8081|9199)|firestore\.googleapis\.com|firebasestorage\.googleapis\.com/.test(url.origin)){
+      const storage=url.port==='9199'||url.hostname==='firebasestorage.googleapis.com';
+      const pathClass=storage?(url.pathname.startsWith('/v0/b/')?'storage-object':'storage-other'):
+        (url.pathname.includes('/Listen/')?'firestore-listen':url.pathname.includes('/Write/')?'firestore-write':
+          url.pathname.includes('/documents')?'firestore-document':'firestore-other');
+      offlineCloudRequests.push({method:request.method(),service:storage?'storage':'firestore',pathClass});
+    }
+  };
+  B.on('request',recordOfflineCloudRequest);
+  await B.goto(base,{waitUntil:'domcontentloaded'});
+  await B.locator('#offline-essentials').waitFor({state:'visible',timeout:25000});
+  assert.equal(await B.evaluate(()=>navigator.onLine),false,
+    'the cold-start case is running with browser networking disabled');
+  await B.getByRole('heading',{name:'Saved essentials on this device'}).waitFor();
+  await B.getByText('Fictional inn confirmation',{exact:true}).waitFor();
+  await B.locator('.offline-essential').filter({hasText:'Member-recorded confirmation'}).waitFor();
+  await B.getByText(/Booking details saved .*This is a stale snapshot/).waitFor();
+  await B.getByText(/Original confirmation saved .*This is a stale snapshot/).waitFor();
+  assert.equal(await B.locator('#private-app').isVisible(),false,
+    'offline reopening does not restore the cloud-backed application or edits');
+  assert.equal(await B.locator('#login-form').isVisible(),false,
+    'a persisted signed-in browser shows only the selected read-only offline copies');
+  assert.deepEqual(offlineCloudRequests,[],
+    'cold offline startup reads the local scoped cache without attempting Firestore or Storage requests');
+  const [offlineDownload]=await Promise.all([
+    B.waitForEvent('download',{timeout:15000}),
+    B.getByRole('button',{name:'Open saved original on this device'}).click()
+  ]);
+  assert.equal(offlineDownload.suggestedFilename(),'synthetic-source.pdf');
+  const reconnectRequestStart=offlineCloudRequests.length;
+  await ctxB.setOffline(false);
+  await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
+  await B.locator('#offline-essentials').waitFor({state:'hidden'});
+  assert.equal((await offlineCacheRows(B)).length,2,
+    'reconnecting reruns normal online membership checks without deleting selected local copies');
+  assert.ok(offlineCloudRequests.slice(reconnectRequestStart).some(request=>request.service==='firestore'),
+    'reconnecting performs the normal Firestore membership check before restoring the private app');
+  B.off('request',recordOfflineCloudRequest);
+  offlineCloudRequests.length=0;
+  await B.close();
+  await ctxB.close();
+  ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},
+    acceptDownloads:true,offline:true});
+  await ctxB.setOffline(true);
+  B=await ctxB.newPage();
+  assert.equal(await B.evaluate(()=>navigator.onLine),false,
+    'the second reopened browser profile is offline before application startup');
+  B.on('pageerror',e=>pageErrors.push('B: '+e.message));
+  B.on('request',recordOfflineCloudRequest);
+  await B.goto(base,{waitUntil:'domcontentloaded'});
+  await B.locator('#offline-essentials').waitFor({state:'visible',timeout:25000});
+  assert.equal(await B.evaluate(()=>navigator.onLine),false);
+  await B.getByText('Fictional inn confirmation',{exact:true}).waitFor();
+  assert.deepEqual(offlineCloudRequests,[],
+    'reopened offline viewer again avoids cloud requests after a completed online recheck');
+  const offlineRowsBeforeRemoteRemoval=await offlineCacheRows(B);
+  const savedOriginalRow=offlineRowsBeforeRemoteRemoval.find(row=>row.kind==='document');
+  assert.ok(savedOriginalRow,'the separately selected fictional original is present before cross-tab removal');
+  await B.evaluate(({scopeKey,id})=>{
+    const channel=new BroadcastChannel('justelle-private-offline-v1');
+    channel.postMessage({type:'record-cleared',scopeKey,
+      key:scopeKey+'|document|'+encodeURIComponent(id)});
+    setTimeout(()=>channel.close(),0);
+  },{scopeKey:savedOriginalRow.scopeKey,id:savedOriginalRow.data.id});
+  await poll(async()=>(await offlineCacheRows(B)).every(row=>row.kind!=='document'),5000);
+  await B.getByText('The original confirmation is not saved separately on this device.',{exact:true}).waitFor();
+  const savedBookingRow=(await offlineCacheRows(B)).find(row=>row.kind==='booking');
+  assert.ok(savedBookingRow,'the explicitly saved booking remains independently removable');
+  await B.getByRole('button',{name:'Remove saved booking details from this device'}).click();
+  await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
+  await B.locator('#offline-essentials-list li').waitFor({state:'detached'});
+  await B.locator('#sign-out').click();
+  await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
+  await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
   assert.deepEqual(pageErrors,[]);
   console.log('BROWSER PASS: scoped chats, two-member plans, stale AI protection, archive restore, outsider denial, session revocation, sign-out clearing, stale auth/image response suppression and persistence');
 }finally{

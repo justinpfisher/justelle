@@ -11,7 +11,8 @@ const el=(tag,className='',content='')=>{
   const node=document.createElement(tag);if(className)node.className=className;
   if(content)node.textContent=content;return node;
 };
-export function mountPlannerUI({planner,user,membership,onError,announce,planAiUrl=null,getToken=null}){
+export function mountPlannerUI({planner,user,membership,onError,announce,planAiUrl=null,getToken=null,
+  offlineCacheScope=null,isSessionCurrent=()=>true}){
   let plans=[],selected=null,selectedDay=null,selectedStopId=null,instructionPreview=null,
     stopped=false,instructionVersion=0;
   const aiAvailable=Boolean(planAiUrl&&getToken);
@@ -782,7 +783,8 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
   $('planner-feedback').addEventListener('click',feedback);
   $('planner-today').addEventListener('click',showToday);
   $('planner-close').addEventListener('click',close);
-  const bookingUI=mountBookingUI({planner,user,getPlan:()=>plans.find(x=>x.id===selected),onError,announce});
+  const bookingUI=mountBookingUI({planner,user,getPlan:()=>plans.find(x=>x.id===selected),onError,announce,
+    offlineCacheScope,isSessionCurrent});
   const unsubscribe=planner.subscribePlans(rows=>{
     const previousRevision=plans.find(p=>p.id===selected)?.revision;
     plans=rows;
@@ -794,7 +796,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }
   },onError);
   return ()=>{
-    stopped=true;invalidateAiSuggestion();unsubscribe();bookingUI.dispose();
+    stopped=true;invalidateAiSuggestion();unsubscribe();const offlineCleanup=bookingUI.dispose();
     $('planner-date').removeEventListener('input',createExactDate);
     $('planner-month').removeEventListener('input',createApproxMonth);
     $('planner-trip-date').removeEventListener('input',editExactDate);
@@ -824,5 +826,6 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-today').removeEventListener('click',showToday);
     $('planner-close').removeEventListener('click',close);
     plans=[];selected=null;
+    return offlineCleanup;
   };
 }

@@ -1,6 +1,6 @@
 import {initializeApp} from 'firebase/app';
 import {getAuth,connectAuthEmulator,setPersistence,browserLocalPersistence,signInWithEmailAndPassword,signOut,onAuthStateChanged,getIdTokenResult} from 'firebase/auth';
-import {getFirestore,connectFirestoreEmulator,doc,getDoc} from 'firebase/firestore';
+import {getFirestore,connectFirestoreEmulator,doc,getDocFromServer} from 'firebase/firestore';
 import {getStorage,connectStorageEmulator} from 'firebase/storage';
 import {resolveRuntime} from './runtime-config.mjs';
 import {protectedMediaTransport} from './protected-media.mjs';
@@ -8,9 +8,13 @@ import {firebaseBackend} from './firebase-backend.mjs';
 import {mountPlannerUI} from './planner-ui.mjs';
 import {prepareImage,revokePrepared} from './media.mjs';
 import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
+import {bookingStatusText} from './journey-view.mjs';
+import {createOfflineDocumentCache,isConfirmedAccessDenied,isConfirmedOffline,purgeOfflineDocumentCache} from './offline-document-cache.mjs';
 
 const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
 const {projectId,roomId}=runtime;
+if('serviceWorker' in navigator)
+  void navigator.serviceWorker.register('/offline-shell-worker.js',{scope:'/',updateViaCache:'none'}).catch(()=>{});
 const historicalReadOnly=runtime.mode==='production';
 // A query-gated hook exists only for fictional localhost browser regressions.
 // It delays UI completion after a real emulator write has already completed.
@@ -94,13 +98,15 @@ let backend=null,unsubscribers=[],stopTopic=()=>{},stopPlanner=()=>{},pending=[]
 let records={adventures:[],decisions:[],messages:[]};
 let selectedAdventure=null,currentConversation=GENERAL_CONVERSATION,latest=[],older=[],before=null,hasOlder=false;
 let authSessionVersion=0,topicVersion=0,loadingOlder=false,startedTopic=false,selectedSourceMessage=null,replacesId=null;
+let offlineClearWarning=false;
+let offlineStartupCache=null,offlineRenderEpoch=0;
 let attachments=new Map(),loadingAttachments=new Set(),mediaUrls=new Map();
 const setNotice=text=>$('notice').textContent=text||'';
 const clearError=()=>{$('error').textContent='';};
 function error(e){
   $('error').textContent=e?.message||String(e)||'Something went wrong';setNotice('');
   if(e?.code==='permission-denied'||e?.code==='storage/unauthorized'){
-    invalidatePrivateSession();
+    void invalidatePrivateSession().catch(()=>{offlineClearWarning=true;});
     void signOut(auth).catch(()=>{});
   }
 }
@@ -669,8 +675,11 @@ $('login-form').addEventListener('submit',async e=>{
   }catch(e){error(e);}
 });
 function clearPrivateSessionUi(){
+  offlineRenderEpoch++;
+  offlineStartupCache?.closeReadOnly();offlineStartupCache=null;
+  $('offline-essentials').hidden=true;$('offline-essentials-list').replaceChildren();$('login-form').hidden=false;
   for(const unsub of unsubscribers)unsub();unsubscribers=[];
-  stopTopic();stopTopic=()=>{};stopPlanner();stopPlanner=()=>{};topicVersion++;
+  stopTopic();stopTopic=()=>{};const plannerCleanup=stopPlanner();stopPlanner=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();loadingOlder=false;
   $('earlier-button').disabled=false;
@@ -723,23 +732,134 @@ function clearPrivateSessionUi(){
   tab('conversation');
   renderTopicHeading();
   setNotice('');
+  return Promise.resolve(plannerCleanup);
 }
 function invalidatePrivateSession(){
   authSessionVersion++;
-  clearPrivateSessionUi();
+  const cleanup=clearPrivateSessionUi();
   $('login').hidden=false;
+  return cleanup;
 }
+function renderOfflineEssentials(saved,cache,isCurrent){
+  const list=$('offline-essentials-list');list.replaceChildren();
+  for(const {booking,savedOriginal} of saved){
+    const item=window.document.createElement('li');item.className='offline-essential';
+    const heading=window.document.createElement('h3');
+    heading.textContent=booking?booking.summary:'Saved original confirmation';item.append(heading);
+    if(booking){
+      const details=window.document.createElement('p');details.textContent=[booking.sourceTitle,booking.sourceSupplier,
+        booking.kind+' · '+booking.startsOn+' to '+booking.endsOn,bookingStatusText(booking.status),booking.stopName]
+        .filter(Boolean).join(' · ');
+      item.append(details);
+    }
+    const appendSavedStatus=(savedAt,revision,label)=>{
+      const time=Number.isFinite(savedAt)?new Date(savedAt).toLocaleString('en-CA',{
+        dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'}):'an unknown time';
+      const status=window.document.createElement('p');status.className='meta';
+      status.textContent=label+' saved '+time+(Number.isSafeInteger(revision)?' from plan revision '+revision:'')+
+        '. This is a stale snapshot; cloud access and changes are unavailable offline.';
+      item.append(status);
+    };
+    if(booking)appendSavedStatus(booking.savedAt,booking.revision,'Booking details');
+    if(savedOriginal)appendSavedStatus(savedOriginal.savedAt,savedOriginal.revision,'Original confirmation');
+    if(booking){
+      const removeBooking=window.document.createElement('button');removeBooking.type='button';
+      removeBooking.className='text-button';removeBooking.textContent='Remove saved booking details from this device';
+      removeBooking.addEventListener('click',async()=>{
+        try{await cache.removeBooking(booking.id);if(isCurrent())await refreshOfflineEssentials(cache,isCurrent);}
+        catch{if(isCurrent())setNotice('Could not confirm removal of saved booking details. Clear this site’s data before sharing the device.');}
+      });
+      item.append(removeBooking);
+    }
+    if(savedOriginal){
+      const originalId=savedOriginal.id;
+      const original=window.document.createElement('button');original.type='button';original.className='secondary';
+      original.textContent='Open saved original on this device';
+      original.addEventListener('click',()=>void openOfflineSavedOriginal(cache,originalId,isCurrent));
+      item.append(original);
+      const removeOriginal=window.document.createElement('button');removeOriginal.type='button';
+      removeOriginal.className='text-button';removeOriginal.textContent='Remove saved original from this device';
+      removeOriginal.addEventListener('click',async()=>{
+        try{await cache.removeDocument(originalId);if(isCurrent())await refreshOfflineEssentials(cache,isCurrent);}
+        catch{if(isCurrent())setNotice('Could not confirm removal of the saved original. Clear this site’s data before sharing the device.');}
+      });
+      item.append(removeOriginal);
+    }else if(booking?.documentId){
+      const note=window.document.createElement('p');note.className='meta';
+      note.textContent='The original confirmation is not saved separately on this device.';item.append(note);
+    }
+    list.append(item);
+  }
+  $('login-form').hidden=true;$('offline-essentials').hidden=false;$('login').hidden=false;
+  $('private-app').hidden=true;$('notice').textContent=saved.length?
+    'Saved essentials are available on this device only. They may be out of date; reconnect and reload to verify access. Sign out to clear them.':
+    'This device is offline and has no saved essentials. Reconnect and reload to verify access.';
+  $('error').textContent='';
+}
+async function refreshOfflineEssentials(cache,isCurrent){
+  const epoch=++offlineRenderEpoch;
+  let saved;
+  try{saved=await cache.listEssentials();}catch{return;}
+  if(epoch!==offlineRenderEpoch||cache!==offlineStartupCache||!isCurrent())return;
+  renderOfflineEssentials(saved,cache,isCurrent);
+}
+async function showOfflineEssentials(user,isCurrent){
+  const cache=createOfflineDocumentCache({scope:{environment:runtime.mode,projectId:runtime.projectId,
+    roomId,memberUid:user.uid},isCurrent,
+    onChange:change=>{
+      if(offlineStartupCache!==cache||!isCurrent())return;
+      if(change.type==='scope-cleared'){
+        offlineRenderEpoch++;offlineStartupCache=null;cache.closeReadOnly();
+        $('offline-essentials-list').replaceChildren();$('offline-essentials').hidden=true;
+        setNotice('Saved copies were cleared from another tab. Reconnect and reload to verify access.');
+      }else void refreshOfflineEssentials(cache,isCurrent);
+    }});
+  offlineStartupCache=cache;
+  await refreshOfflineEssentials(cache,isCurrent);
+}
+async function openOfflineSavedOriginal(cache,documentId,isCurrent){
+  try{
+    const saved=await cache.getDocument(documentId);
+    if(!isCurrent())return;
+    if(!saved){await refreshOfflineEssentials(cache,isCurrent);return;}
+    const url=URL.createObjectURL(new Blob([saved.bytes],{type:saved.mime}));
+    const link=window.document.createElement('a');link.href=url;link.download=saved.name;
+    window.document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);
+  }catch{if(isCurrent())setNotice('This saved original is no longer available on this device.');}
+}
+window.addEventListener('online',()=>{
+  if(!offlineStartupCache||!auth.currentUser)return;
+  offlineStartupCache.closeReadOnly();offlineStartupCache=null;offlineRenderEpoch++;
+  window.location.reload();
+});
 $('sign-out').onclick=async()=>{
-  clearError();invalidatePrivateSession();
+  clearError();
+  try{await invalidatePrivateSession();await purgeOfflineDocumentCache();}
+  catch{offlineClearWarning=true;}
   try{await signOut(auth);}catch(e){error(e);}
 };
 
 onAuthStateChanged(auth,async user=>{
   const session=++authSessionVersion;
   const isCurrentSession=()=>session===authSessionVersion&&(!user||auth.currentUser?.uid===user.uid);
-  clearPrivateSessionUi();
+  const priorCleanup=clearPrivateSessionUi();
   $('login').hidden=Boolean(user);$('private-app').hidden=true;$('sign-out').hidden=!user;
-  if(!user){setNotice('Sign in once on a trusted browser. Sessions normally persist after reopening.');return;}
+  try{
+    await priorCleanup;
+    if(offlineClearWarning){await purgeOfflineDocumentCache();offlineClearWarning=false;}
+  }catch{offlineClearWarning=true;}
+  if(!isCurrentSession())return;
+  if(!user){
+    if(offlineClearWarning){setNotice('You are signed out, but Justelle could not confirm removal of saved offline copies. Clear this site’s data in browser settings before sharing this device.');return;}
+    try{await purgeOfflineDocumentCache();}
+    catch{offlineClearWarning=true;setNotice('You are signed out, but Justelle could not confirm removal of saved offline copies. Clear this site’s data in browser settings before sharing this device.');return;}
+    setNotice('Sign in once on a trusted browser. Sessions normally persist after reopening.');return;
+  }
+  if(navigator.onLine===false){
+    await showOfflineEssentials(user,isCurrentSession);
+    return;
+  }
+  const offlineCacheAllowed=!offlineClearWarning;
   let denied=false;
   const sessionError=e=>{if(isCurrentSession())error(e);};
   try{
@@ -749,7 +869,9 @@ onAuthStateChanged(auth,async user=>{
       denied=true;
       throw Error('This account does not have access to this shared space.');
     }
-    const membership=await getDoc(doc(db,'rooms',roomId));
+    // A local Firestore cache must not count as a successful reconnect or
+    // authorize mounting the editable planner without a server check.
+    const membership=await getDocFromServer(doc(db,'rooms',roomId));
     if(!isCurrentSession())return;
     if(!membership.exists()||!membership.data().uids.includes(user.uid)){
       denied=true;
@@ -759,12 +881,15 @@ onAuthStateChanged(auth,async user=>{
     if(testSessionRaces)testSessionRaces.currentPlanner=backend.planner;
     stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),
       onError:sessionError,announce:message=>{if(isCurrentSession())setNotice(message);},
-      planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken()});
+      planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken(),
+      offlineCacheScope:offlineCacheAllowed?{environment:runtime.mode,projectId:runtime.projectId,roomId,memberUid:user.uid}:null,
+      isSessionCurrent:isCurrentSession});
     if(!isCurrentSession()){
       stopPlanner();stopPlanner=()=>{};backend=null;return;
     }
     $('private-app').hidden=false;tab(runtime.mode==='production'?'adventures':'conversation');
-    setNotice('Signed in; your local session stays available when reopening.');
+    setNotice(offlineCacheAllowed?'Signed in; your local session stays available when reopening.':
+      'Signed in. Justelle could not confirm removal of older offline copies, so offline saving is disabled for this session.');
     let wanted=null;
     try{wanted=localStorage.getItem('justelle-last-topic:'+user.uid)||null;}catch{}
     unsubscribers.push(backend.subscription('decisions',rows=>{
@@ -785,9 +910,19 @@ onAuthStateChanged(auth,async user=>{
     },sessionError));
   }catch(e){
     if(!isCurrentSession())return;
-    error(e);
+    if(isConfirmedAccessDenied(e)){
+      denied=true;$('error').textContent=e?.message||String(e)||'Access denied';setNotice('');
+    }else error(e);
+    if(!denied&&user&&isConfirmedOffline(e,navigator.onLine)){
+      await showOfflineEssentials(user,isCurrentSession);
+      return;
+    }
     $('private-app').hidden=true;
-    if(denied){invalidatePrivateSession();void signOut(auth).catch(()=>{});}
+    if(denied){
+      try{await invalidatePrivateSession();await purgeOfflineDocumentCache();offlineClearWarning=false;}
+      catch{offlineClearWarning=true;}
+      void signOut(auth).catch(()=>{});
+    }
   }
 });
 // HTML stays inert until session persistence and every form handler are ready.
