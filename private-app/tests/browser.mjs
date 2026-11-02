@@ -1290,7 +1290,7 @@ try{
     B.waitForEvent('download',{timeout:15000}),
     B.getByRole('button',{name:'Open saved original on this device'}).click()
   ]);
-  assert.equal(offlineDownload.suggestedFilename(),'fictional-confirmation.pdf');
+  assert.equal(offlineDownload.suggestedFilename(),'synthetic-source.pdf');
   await B.locator('#sign-out').click();
   await poll(async()=>/Sign in once on a trusted browser/.test(await B.locator('#notice').textContent()));
   await poll(async()=>(await offlineCacheRows(B)).length===0,5000);
