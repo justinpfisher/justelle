@@ -162,6 +162,20 @@ try{
   await A.goto(base);
   assert.equal(await A.locator('#login').isVisible(),true,'an unauthenticated visitor sees the sign-in screen');
   assert.equal(await A.locator('#private-app').isVisible(),false,'an unauthenticated visitor cannot see private panels');
+  await A.evaluate(()=>new Promise((resolve,reject)=>{
+    const request=indexedDB.open('justelle-private-offline-v1',1);
+    request.onupgradeneeded=()=>{const db=request.result;if(!db.objectStoreNames.contains('items')){
+      const store=db.createObjectStore('items',{keyPath:'key'});store.createIndex('scopeKey','scopeKey');store.createIndex('ownerKey','ownerKey');}};
+    request.onerror=()=>reject(request.error||Error('Synthetic offline row could not be seeded'));
+    request.onsuccess=()=>{const db=request.result,tx=db.transaction('items','readwrite');
+      tx.objectStore('items').put({key:'synthetic-stale-row',scopeKey:'local|demo|fictional-room|member-a',
+        ownerKey:'local|demo',kind:'booking',recordId:'synthetic',data:{summary:'Fictional stale row'}});
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=tx.onerror=()=>{db.close();reject(tx.error||Error('Synthetic offline row could not be seeded'));};};
+  }));
+  await A.reload();
+  await A.locator('#login').waitFor({state:'visible'});
+  await poll(async()=>(await offlineCacheRows(A)).length===0,
+    5000);
   await login(A,fixture.a);await login(B,fixture.b);
   assert.equal(await A.locator('.pilot').isVisible(),true);
   assert.match(await A.locator('.pilot').textContent(),/Local fictional-data pilot/);
@@ -1226,9 +1240,14 @@ try{
   await originalEntry.getByRole('button',{name:'Show original details'}).click();
   await B.getByRole('button',{name:'Open protected original'}).waitFor({state:'visible'});
   await B.getByRole('button',{name:'Save booking details for offline on this device'}).click();
-  await B.locator('#planner-booking-source').getByText(/Saved on this device from plan revision/).first().waitFor();
+  await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).first().waitFor();
+  await B.getByRole('button',{name:'Remove saved booking details from this device'}).waitFor({state:'visible'});
+  await B.getByRole('button',{name:'Remove saved booking details from this device'}).click();
+  await B.locator('#planner-booking-source').getByText('Booking details are not saved offline.').waitFor();
+  await B.getByRole('button',{name:'Save booking details for offline on this device'}).click();
+  await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).first().waitFor();
   await B.getByRole('button',{name:'Save original confirmation for offline on this device'}).click();
-  await poll(async()=>await B.locator('#planner-booking-source').getByText(/Saved on this device from plan revision/).count()===2);
+  await poll(async()=>await B.locator('#planner-booking-source').getByText(/Saved on this device.*from plan revision/).count()===2);
   const savedOffline=await offlineCacheRows(B);
   assert.deepEqual(savedOffline.map(row=>row.kind).sort(),['booking','document'],
     'the selected booking and its separately selected original are stored as two scoped offline copies');

@@ -8,6 +8,7 @@ import {firebaseBackend} from './firebase-backend.mjs';
 import {mountPlannerUI} from './planner-ui.mjs';
 import {prepareImage,revokePrepared} from './media.mjs';
 import {GENERAL_CONVERSATION,contextFor,decisionView} from './topics.mjs';
+import {purgeOfflineDocumentCache} from './offline-document-cache.mjs';
 
 const runtime=resolveRuntime({hostname:location.hostname,origin:location.origin,env:import.meta.env});
 const {projectId,roomId}=runtime;
@@ -94,13 +95,14 @@ let backend=null,unsubscribers=[],stopTopic=()=>{},stopPlanner=()=>{},pending=[]
 let records={adventures:[],decisions:[],messages:[]};
 let selectedAdventure=null,currentConversation=GENERAL_CONVERSATION,latest=[],older=[],before=null,hasOlder=false;
 let authSessionVersion=0,topicVersion=0,loadingOlder=false,startedTopic=false,selectedSourceMessage=null,replacesId=null;
+let offlineClearWarning=false;
 let attachments=new Map(),loadingAttachments=new Set(),mediaUrls=new Map();
 const setNotice=text=>$('notice').textContent=text||'';
 const clearError=()=>{$('error').textContent='';};
 function error(e){
   $('error').textContent=e?.message||String(e)||'Something went wrong';setNotice('');
   if(e?.code==='permission-denied'||e?.code==='storage/unauthorized'){
-    invalidatePrivateSession();
+    void invalidatePrivateSession().catch(()=>{offlineClearWarning=true;});
     void signOut(auth).catch(()=>{});
   }
 }
@@ -670,7 +672,7 @@ $('login-form').addEventListener('submit',async e=>{
 });
 function clearPrivateSessionUi(){
   for(const unsub of unsubscribers)unsub();unsubscribers=[];
-  stopTopic();stopTopic=()=>{};stopPlanner();stopPlanner=()=>{};topicVersion++;
+  stopTopic();stopTopic=()=>{};const plannerCleanup=stopPlanner();stopPlanner=()=>{};topicVersion++;
   for(const url of mediaUrls.values())URL.revokeObjectURL(url);
   mediaUrls.clear();attachments.clear();loadingAttachments.clear();loadingOlder=false;
   $('earlier-button').disabled=false;
@@ -723,23 +725,38 @@ function clearPrivateSessionUi(){
   tab('conversation');
   renderTopicHeading();
   setNotice('');
+  return Promise.resolve(plannerCleanup);
 }
 function invalidatePrivateSession(){
   authSessionVersion++;
-  clearPrivateSessionUi();
+  const cleanup=clearPrivateSessionUi();
   $('login').hidden=false;
+  return cleanup;
 }
 $('sign-out').onclick=async()=>{
-  clearError();invalidatePrivateSession();
+  clearError();
+  try{await invalidatePrivateSession();await purgeOfflineDocumentCache();}
+  catch{offlineClearWarning=true;}
   try{await signOut(auth);}catch(e){error(e);}
 };
 
 onAuthStateChanged(auth,async user=>{
   const session=++authSessionVersion;
   const isCurrentSession=()=>session===authSessionVersion&&(!user||auth.currentUser?.uid===user.uid);
-  clearPrivateSessionUi();
+  const priorCleanup=clearPrivateSessionUi();
   $('login').hidden=Boolean(user);$('private-app').hidden=true;$('sign-out').hidden=!user;
-  if(!user){setNotice('Sign in once on a trusted browser. Sessions normally persist after reopening.');return;}
+  try{
+    await priorCleanup;
+    if(offlineClearWarning){await purgeOfflineDocumentCache();offlineClearWarning=false;}
+  }catch{offlineClearWarning=true;}
+  if(!isCurrentSession())return;
+  if(!user){
+    if(offlineClearWarning){setNotice('You are signed out, but Justelle could not confirm removal of saved offline copies. Clear this site’s data in browser settings before sharing this device.');return;}
+    try{await purgeOfflineDocumentCache();}
+    catch{offlineClearWarning=true;setNotice('You are signed out, but Justelle could not confirm removal of saved offline copies. Clear this site’s data in browser settings before sharing this device.');return;}
+    setNotice('Sign in once on a trusted browser. Sessions normally persist after reopening.');return;
+  }
+  const offlineCacheAllowed=!offlineClearWarning;
   let denied=false;
   const sessionError=e=>{if(isCurrentSession())error(e);};
   try{
@@ -760,13 +777,14 @@ onAuthStateChanged(auth,async user=>{
     stopPlanner=mountPlannerUI({planner:backend.planner,user,membership:membership.data(),
       onError:sessionError,announce:message=>{if(isCurrentSession())setNotice(message);},
       planAiUrl:runtime.planAiUrl||null,getToken:()=>auth.currentUser.getIdToken(),
-      offlineCacheScope:{environment:runtime.mode,projectId:runtime.projectId,roomId,memberUid:user.uid},
+      offlineCacheScope:offlineCacheAllowed?{environment:runtime.mode,projectId:runtime.projectId,roomId,memberUid:user.uid}:null,
       isSessionCurrent:isCurrentSession});
     if(!isCurrentSession()){
       stopPlanner();stopPlanner=()=>{};backend=null;return;
     }
     $('private-app').hidden=false;tab(runtime.mode==='production'?'adventures':'conversation');
-    setNotice('Signed in; your local session stays available when reopening.');
+    setNotice(offlineCacheAllowed?'Signed in; your local session stays available when reopening.':
+      'Signed in. Justelle could not confirm removal of older offline copies, so offline saving is disabled for this session.');
     let wanted=null;
     try{wanted=localStorage.getItem('justelle-last-topic:'+user.uid)||null;}catch{}
     unsubscribers.push(backend.subscription('decisions',rows=>{
@@ -789,7 +807,11 @@ onAuthStateChanged(auth,async user=>{
     if(!isCurrentSession())return;
     error(e);
     $('private-app').hidden=true;
-    if(denied){invalidatePrivateSession();void signOut(auth).catch(()=>{});}
+    if(denied){
+      try{await invalidatePrivateSession();await purgeOfflineDocumentCache();offlineClearWarning=false;}
+      catch{offlineClearWarning=true;}
+      void signOut(auth).catch(()=>{});
+    }
   }
 });
 // HTML stays inert until session persistence and every form handler are ready.

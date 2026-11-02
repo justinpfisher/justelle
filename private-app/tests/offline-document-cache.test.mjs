@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createOfflineDocumentCache,isConfirmedAccessDenied,isConfirmedOffline,offlineScopeKeys} from '../web/offline-document-cache.mjs';
+import {createOfflineDocumentCache,isConfirmedAccessDenied,isConfirmedOffline,offlineScopeKeys,
+  purgeOfflineDocumentCache} from '../web/offline-document-cache.mjs';
 import {sha256} from '../web/media.mjs';
 
 const scope={environment:'hosted-fictional',projectId:'justelle-qualification',roomId:'fictional-room',memberUid:'member-one'};
@@ -21,6 +22,7 @@ function fakeStore(){
     async put(row){rows.set(row.key,structuredClone(row));},
     async remove(key){rows.delete(key);},
     async removeScope(scopeKey){for(const [key,row] of rows)if(row.scopeKey===scopeKey)rows.delete(key);},
+    async removeAll(){rows.clear();},
     close(){}
   };
 }
@@ -79,7 +81,7 @@ test('original confirmation is separately saved, bounded, and checksum verified'
     size:bytes.length,sha256:hash,bytes,revision:7});
   const saved=await cache.getDocument(documentId);
   assert.deepEqual([...saved.bytes],[1,2,3,4]);
-  assert.equal(saved.stale,true);assert.equal(saved.revision,7);
+  assert.equal(saved.stale,true);assert.equal(saved.revision,7);assert.equal(saved.sha256,hash);
   await assert.rejects(cache.saveDocument({id:documentId,name:'synthetic.pdf',mime:'application/pdf',
     size:bytes.length,sha256:'0'.repeat(64),bytes,revision:7}),/integrity check/);
   await assert.rejects(cache.saveDocument({id:documentId,name:'synthetic.pdf',mime:'text/plain',
@@ -166,4 +168,57 @@ test('a save finishing after sign-out is removed instead of repopulating the cac
   const closing=cache.close();releasePut();
   await assert.rejects(pending,/session/);await closing;
   assert.equal(store.rows.size,0);
+});
+
+test('removing a booking cancels an in-flight save in the same and another tab',async()=>{
+  const store=fakeStore(),first=memoryCache(store),second=memoryCache(store);
+  let releasePut,startedResolve;
+  const started=new Promise(resolve=>{startedResolve=resolve;});
+  const gate=new Promise(resolve=>{releasePut=resolve;});
+  const put=store.put.bind(store);
+  store.put=async row=>{startedResolve();await gate;await put(row);};
+  const pending=second.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Synthetic',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  await started;
+  await first.removeBooking('booking-1');
+  releasePut();
+  await assert.rejects(pending,/superseded/);
+  assert.equal(store.rows.size,0);
+  await first.close();await second.close();
+});
+
+test('an older failed save cannot erase a newer successful save',async()=>{
+  const store=fakeStore(),cache=memoryCache(store);
+  let releaseOld,oldStartedResolve;
+  const oldStarted=new Promise(resolve=>{oldStartedResolve=resolve;});
+  const oldGate=new Promise(resolve=>{releaseOld=resolve;});
+  const put=store.put.bind(store);
+  store.put=async row=>{
+    if(row.data.summary==='Older draft'){oldStartedResolve();await oldGate;throw Error('synthetic old write failure');}
+    await put(row);
+  };
+  const oldSave=cache.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Older draft',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  await oldStarted;
+  await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Newer draft',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:2});
+  releaseOld();
+  await assert.rejects(oldSave,/synthetic old write failure/);
+  assert.equal((await cache.getBooking('booking-1')).summary,'Newer draft');
+  await cache.close();
+});
+
+test('startup purge clears copies left by a crashed or signed-out tab',async()=>{
+  const store=fakeStore(),cache=memoryCache(store);
+  await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Synthetic',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  await purgeOfflineDocumentCache({store});
+  assert.equal(store.rows.size,0);
+  await cache.close();
+});
+
+test('a failed sign-out clear remains reportable instead of becoming a false success',async()=>{
+  const store=fakeStore(),cache=memoryCache(store);
+  store.removeScope=async()=>{throw Error('synthetic clear failure');};
+  await assert.rejects(cache.close(),/synthetic clear failure/);
 });

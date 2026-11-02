@@ -70,8 +70,18 @@ function indexedDbStore(indexedDB){
       request.onsuccess=()=>{const cursor=request.result;if(cursor){tx.objectStore(STORE_NAME).delete(cursor.primaryKey);cursor.continue();}};
       await finished;
     },
+    async removeAll(){
+      const db=await open(),tx=db.transaction(STORE_NAME,'readwrite'),finished=done(tx);
+      tx.objectStore(STORE_NAME).clear();await finished;
+    },
     close(){dbPromise?.then(db=>db.close()).catch(()=>{});dbPromise=null;}
   };
+}
+
+export async function purgeOfflineDocumentCache({indexedDB=globalThis.indexedDB,store=null}={}){
+  if(!store&&!indexedDB)return;
+  const backend=store||indexedDbStore(indexedDB);
+  try{await backend.removeAll();}finally{backend.close?.();}
 }
 
 const clone=value=>typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value));
@@ -84,7 +94,19 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
   const {ownerKey,scopeKey}=offlineScopeKeys(scope);
   const backend=store||indexedDbStore(indexedDB);
   let active=true,readyPromise=null,closePromise=null;
+  const recordVersions=new Map();
   const key=(kind,id)=>scopeKey+'|'+kind+'|'+encodeURIComponent(id);
+  const versionOf=recordKey=>recordVersions.get(recordKey)?.version||0;
+  const nextVersion=(recordKey,operation)=>{
+    const version=versionOf(recordKey)+1;recordVersions.set(recordKey,{version,operation});return version;
+  };
+  const startWrite=(kind,id)=>{const recordKey=key(kind,id);return {recordKey,version:nextVersion(recordKey,'write')};};
+  const clearRecord=async(kind,id)=>{
+    const recordKey=key(kind,id),version=nextVersion(recordKey,'remove');
+    try{channel?.postMessage({type:'record-cleared',scopeKey,key:recordKey});}catch{}
+    await ready();assertCurrent();
+    if(versionOf(recordKey)===version)await backend.remove(recordKey);
+  };
   const assertCurrent=()=>{if(!active||!isCurrent())throw Error('Offline copies are unavailable outside the signed-in session');};
   const ready=()=>readyPromise||=(async()=>{
     assertCurrent();
@@ -100,6 +122,10 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
     if(broadcastFactory){
       channel=new broadcastFactory('justelle-private-offline-v1');
       channel.onmessage=event=>{
+        if(event.data?.type==='record-cleared'&&event.data.scopeKey===scopeKey&&
+          typeof event.data.key==='string'&&event.data.key.startsWith(scopeKey+'|')){
+          nextVersion(event.data.key,'remove');void backend.remove(event.data.key).catch(()=>{});
+        }
         if(event.data?.type==='scope-cleared'&&event.data.scopeKey===scopeKey){
           active=false;
           void backend.removeScope(scopeKey).catch(()=>{});
@@ -113,19 +139,29 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
     const row=await backend.get(key(kind,id));assertCurrent();
     return row&&row.scopeKey===scopeKey?row:null;
   }
-  async function write(row){
+  async function write(row,token){
     assertCurrent();await ready();assertCurrent();
     const stored={...row,key:key(row.kind,row.recordId),scopeKey,ownerKey};
+    if(stored.key!==token.recordKey||versionOf(token.recordKey)!==token.version)
+      throw Error('Offline copy save was superseded');
     try{await backend.put(stored);}
     catch(error){
       // IndexedDB transactions are atomic, but remove the exact key as a
       // defense for alternate/test stores that report failure after a write.
-      try{await backend.remove(stored.key);}catch{}
+      // Do not let an older failed save erase a newer successful save.
+      const latest=recordVersions.get(token.recordKey);
+      if(!active||!isCurrent())try{await backend.removeScope(scopeKey);}catch{}
+      else if(latest?.version===token.version||latest?.operation==='remove')
+        try{await backend.remove(stored.key);}catch{}
       throw error;
     }
     if(!active||!isCurrent()){
-      await backend.remove(stored.key);
+      await backend.removeScope(scopeKey);
       assertCurrent();
+    }
+    if(versionOf(token.recordKey)!==token.version){
+      if(recordVersions.get(token.recordKey)?.operation==='remove')await backend.remove(token.recordKey);
+      throw Error('Offline copy save was superseded');
     }
   }
   return {
@@ -141,6 +177,7 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
         (sourceSupplier!==null&&(typeof sourceSupplier!=='string'||sourceSupplier.length>180))||
         (stopName!==null&&(typeof stopName!=='string'||stopName.length>180)))
         throw Error('Invalid booking snapshot');
+      const token=startWrite('booking',bookingId);
       const savedAt=now();
       const data={id:bookingId,adventureId,documentId,summary:summary.trim(),kind,startsOn,endsOn,status,
         sourceTitle:sourceTitle?.trim()||null,sourceSupplier:sourceSupplier?.trim()||null,stopName,
@@ -148,7 +185,7 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       const checksum=await sha256(new TextEncoder().encode(JSON.stringify(data)));
       assertCurrent();
       await write({kind:'booking',recordId:bookingId,adventureId,
-        data:{...data,sha256:checksum}});
+        data:{...data,sha256:checksum}},token);
       return {savedAt,revision,stale:true,sha256:checksum};
     },
     async getBooking(bookingId){
@@ -167,12 +204,13 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
         !(bytes instanceof Uint8Array)||bytes.byteLength!==size||!/^[a-f0-9]{64}$/.test(expectedHash||'')||
         !Number.isSafeInteger(revision)||revision<0)
         throw Error('Invalid protected original for offline saving');
+      const token=startWrite('document',documentId);
       const digest=await sha256(bytes);assertCurrent();
       if(digest!==expectedHash)throw Error('Original document failed its integrity check');
       const savedAt=now();
       await write({kind:'document',recordId:documentId,data:{id:documentId,name:name.trim(),mime,size,
-        sha256:digest,bytes:bytes.slice(),revision,savedAt,stale:true}});
-      return {savedAt,revision,stale:true};
+        sha256:digest,bytes:bytes.slice(),revision,savedAt,stale:true}},token);
+      return {savedAt,revision,stale:true,sha256:digest};
     },
     async getDocument(documentId){
       if(!UUID.test(documentId||''))return null;
@@ -186,11 +224,11 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
     },
     async removeBooking(bookingId){
       if(!ID.test(bookingId||''))return;
-      assertCurrent();await ready();assertCurrent();await backend.remove(key('booking',bookingId));
+      assertCurrent();await clearRecord('booking',bookingId);
     },
     async removeDocument(documentId){
       if(!UUID.test(documentId||''))return;
-      assertCurrent();await ready();assertCurrent();await backend.remove(key('document',documentId));
+      assertCurrent();await clearRecord('document',documentId);
     },
     close(){
       if(closePromise)return closePromise;

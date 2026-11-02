@@ -796,7 +796,7 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     }
   },onError);
   return ()=>{
-    stopped=true;invalidateAiSuggestion();unsubscribe();bookingUI.dispose();
+    stopped=true;invalidateAiSuggestion();unsubscribe();const offlineCleanup=bookingUI.dispose();
     $('planner-date').removeEventListener('input',createExactDate);
     $('planner-month').removeEventListener('input',createApproxMonth);
     $('planner-trip-date').removeEventListener('input',editExactDate);
@@ -826,5 +826,6 @@ export function mountPlannerUI({planner,user,membership,onError,announce,planAiU
     $('planner-today').removeEventListener('click',showToday);
     $('planner-close').removeEventListener('click',close);
     plans=[];selected=null;
+    return offlineCleanup;
   };
 }

@@ -38,8 +38,8 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
   }
   const savedLabel=saved=>'Saved on this device '+new Date(saved.savedAt).toLocaleString('en-CA',{
     dateStyle:'medium',timeStyle:'short',timeZone:'America/Toronto'})+' from plan revision '+saved.revision+
-    '. It may be out of date and is not encrypted by the app. Protect this browser profile; signing out clears it. Opening it after a cold start still requires normal sign-in and membership checks.';
-  const checksumLabel=saved=>'SHA-256 verified: '+saved.sha256;
+    '. It may be out of date and is not encrypted by the app. Protect this browser profile; signing out attempts to clear it. Opening it after a cold start still requires normal sign-in and membership checks.';
+  const checksumLabel=saved=>/^[a-f0-9]{64}$/.test(saved.sha256||'')?'SHA-256 verified: '+saved.sha256:'SHA-256 could not be verified.';
   async function renderOfflineFallback(booking,isCurrent){
     if(!offlineCache||!isCurrent())return false;
     const saved=await offlineCache.getBooking(booking.id);
@@ -85,11 +85,14 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
     const status=node('p','meta');out.append(status);
     const bookingButtons=node('div','planner-offline-actions');
     const saveBooking=node('button','secondary','Save booking details for offline on this device');
-    saveBooking.type='button';bookingButtons.append(saveBooking);out.append(bookingButtons);
+    const removeBooking=node('button','text-button','Remove saved booking details from this device');
+    saveBooking.type='button';removeBooking.type='button';removeBooking.hidden=true;
+    bookingButtons.append(saveBooking,removeBooking);out.append(bookingButtons);
     const updateBookingStatus=async()=>{
       try{const saved=await offlineCache.getBooking(booking.id);if(isCurrent()){
         status.textContent=saved?savedLabel(saved)+' '+checksumLabel(saved):'Booking details are not saved offline.';
         saveBooking.textContent=saved?'Update offline booking details':'Save booking details for offline on this device';
+        removeBooking.hidden=!saved;
       }}catch{if(isCurrent())status.textContent='Private offline storage is unavailable in this browser.';}
     };
     saveBooking.onclick=async()=>{
@@ -102,9 +105,15 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
           startsOn:booking.starts_on,endsOn:booking.ends_on,status:booking.status,
           sourceTitle:source?.title||null,sourceSupplier:source?.supplier||null,stopName,
           revision:currentPlan.revision});
-        if(isCurrent())status.textContent=savedLabel(saved)+' '+checksumLabel(saved);
+        if(isCurrent())await updateBookingStatus();
       }catch(error){reportError(error,isCurrent);}
       finally{if(isCurrent())saveBooking.disabled=false;}
+    };
+    removeBooking.onclick=async()=>{
+      removeBooking.disabled=true;
+      try{await offlineCache.removeBooking(booking.id);if(isCurrent())await updateBookingStatus();}
+      catch(error){reportError(error,isCurrent);}
+      finally{if(isCurrent())removeBooking.disabled=false;}
     };
     await updateBookingStatus();if(!isCurrent())return;
     if(!source?.document_id)return;
@@ -341,7 +350,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
   $('planner-add-booking').addEventListener('submit',submit);
   return {render,openBooking,dispose(){
     stopped=true;request++;sourceRequest++;originalRequest++;
-    void offlineCache?.close().catch(()=>{});
+    const offlineCleanup=offlineCache?.close()||Promise.resolve();
     invalidatePdf();
     form.removeEventListener('reset',onPdfFormReset);
     fileInput.removeEventListener('change',onPdfFileChange);
@@ -350,5 +359,6 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
     $('planner-booking-extract').removeEventListener('click',extract);
     $('planner-booking-pdf-extract').removeEventListener('click',extractPdf);
     $('planner-add-booking').removeEventListener('submit',submit);
+    return offlineCleanup;
   }};
 }
