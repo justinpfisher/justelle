@@ -156,7 +156,7 @@ try{
   const dirB=await mkdtemp(join(tmpdir(),'justelle-ux-b-'));
   ctxA=await chromium.launchPersistentContext(dirA,{headless:true,viewport:{width:390,height:844},acceptDownloads:true});
   ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},acceptDownloads:true});
-  const A=await ctxA.newPage(),B=await ctxB.newPage();
+  const A=await ctxA.newPage();let B=await ctxB.newPage();
   A.on('pageerror',e=>pageErrors.push('A: '+e.message));
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   await A.goto(base);
@@ -1264,15 +1264,20 @@ try{
   await B.reload();
   await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
   await B.waitForFunction(()=>Boolean(navigator.serviceWorker.controller),null,{timeout:15000});
+  await B.close();
+  await ctxB.setOffline(true);
+  B=await ctxB.newPage();
+  B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   const offlineCloudRequests=[];
   const recordOfflineCloudRequest=request=>{
     if(/127\.0\.0\.1:(?:8081|9199)|firestore\.googleapis\.com|firebasestorage\.googleapis\.com/.test(request.url()))
       offlineCloudRequests.push(request.method());
   };
   B.on('request',recordOfflineCloudRequest);
-  await ctxB.setOffline(true);
-  await B.reload({waitUntil:'domcontentloaded'});
+  await B.goto(base,{waitUntil:'domcontentloaded'});
   await B.locator('#offline-essentials').waitFor({state:'visible',timeout:25000});
+  assert.equal(await B.evaluate(()=>navigator.onLine),false,
+    'the cold-start case is running with browser networking disabled');
   await B.getByRole('heading',{name:'Saved essentials on this device'}).waitFor();
   await B.getByText('Fictional inn confirmation',{exact:true}).waitFor();
   assert.equal(await B.locator('#private-app').isVisible(),false,
