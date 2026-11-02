@@ -803,6 +803,20 @@ async function refreshOfflineEssentials(cache,isCurrent){
   if(epoch!==offlineRenderEpoch||cache!==offlineStartupCache||!isCurrent())return;
   renderOfflineEssentials(saved,cache,isCurrent);
 }
+async function showOfflineEssentials(user,isCurrent){
+  const cache=createOfflineDocumentCache({scope:{environment:runtime.mode,projectId:runtime.projectId,
+    roomId,memberUid:user.uid},isCurrent,
+    onChange:change=>{
+      if(offlineStartupCache!==cache||!isCurrent())return;
+      if(change.type==='scope-cleared'){
+        offlineRenderEpoch++;offlineStartupCache=null;cache.closeReadOnly();
+        $('offline-essentials-list').replaceChildren();$('offline-essentials').hidden=true;
+        setNotice('Saved copies were cleared from another tab. Reconnect and reload to verify access.');
+      }else void refreshOfflineEssentials(cache,isCurrent);
+    }});
+  offlineStartupCache=cache;
+  await refreshOfflineEssentials(cache,isCurrent);
+}
 async function openOfflineSavedOriginal(cache,documentId,isCurrent){
   try{
     const saved=await cache.getDocument(documentId);
@@ -842,18 +856,7 @@ onAuthStateChanged(auth,async user=>{
     setNotice('Sign in once on a trusted browser. Sessions normally persist after reopening.');return;
   }
   if(navigator.onLine===false){
-    const offlineCache=createOfflineDocumentCache({scope:{environment:runtime.mode,
-      projectId:runtime.projectId,roomId,memberUid:user.uid},isCurrent:isCurrentSession,
-      onChange:change=>{
-        if(offlineStartupCache!==offlineCache||!isCurrentSession())return;
-        if(change.type==='scope-cleared'){
-          offlineRenderEpoch++;offlineStartupCache=null;offlineCache.closeReadOnly();
-          $('offline-essentials-list').replaceChildren();$('offline-essentials').hidden=true;
-          setNotice('Saved copies were cleared from another tab. Reconnect and reload to verify access.');
-        }else void refreshOfflineEssentials(offlineCache,isCurrentSession);
-      }});
-    offlineStartupCache=offlineCache;
-    await refreshOfflineEssentials(offlineCache,isCurrentSession);
+    await showOfflineEssentials(user,isCurrentSession);
     return;
   }
   const offlineCacheAllowed=!offlineClearWarning;
@@ -908,14 +911,9 @@ onAuthStateChanged(auth,async user=>{
     if(isConfirmedAccessDenied(e)){
       denied=true;$('error').textContent=e?.message||String(e)||'Access denied';setNotice('');
     }else error(e);
-    if(!denied&&user&&isConfirmedOffline(e,navigator.onLine===false)){
-      const offlineCache=createOfflineDocumentCache({scope:{environment:runtime.mode,
-        projectId:runtime.projectId,roomId,memberUid:user.uid},isCurrent:isCurrentSession});
-      try{
-        const saved=await offlineCache.listEssentials();
-        if(isCurrentSession()&&saved.length){renderOfflineEssentials(saved);return;}
-      }catch{}
-      finally{offlineCache.closeReadOnly();}
+    if(!denied&&user&&isConfirmedOffline(e,navigator.onLine)){
+      await showOfflineEssentials(user,isCurrentSession);
+      return;
     }
     $('private-app').hidden=true;
     if(denied){

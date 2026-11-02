@@ -122,6 +122,16 @@ test('a permission denial never falls back to an offline copy',()=>{
   assert.equal(isConfirmedOffline(Object.assign(Error('network'),{code:'unavailable'}),true),false);
 });
 
+test('network-failure fallback requires the raw browser state to be explicitly offline',()=>{
+  const failure=Object.assign(Error('network unavailable'),{code:'unavailable'});
+  assert.equal(isConfirmedOffline(failure,false),true,
+    'a network failure during a browser-reported offline transition may show read-only saved copies');
+  assert.equal(isConfirmedOffline(failure,true),false,
+    'a service/network error while the browser reports online does not claim offline authorization');
+  assert.equal(isConfirmedOffline(failure,undefined),false,
+    'an unknown browser state fails closed');
+});
+
 test('a partially failed save removes its exact cache entry',async()=>{
   const store=fakeStore(),put=store.put.bind(store);
   store.put=async row=>{await put(row);throw Error('synthetic transaction failure');};

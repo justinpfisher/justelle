@@ -238,7 +238,7 @@ export function mountBookingUI({planner,user,getPlan,onError,announce,offlineCac
     }catch(error){
       if(!isCurrent())return;
       if(isConfirmedAccessDenied(error)){reportError(error,isCurrent);return;}
-      if(isConfirmedOffline(error,globalThis.navigator?.onLine!==false)&&
+      if(isConfirmedOffline(error,globalThis.navigator?.onLine)&&
         await renderOfflineFallback(booking,isCurrent))return;
       reportError(error,isCurrent);
     }

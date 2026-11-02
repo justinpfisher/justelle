@@ -272,10 +272,10 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
   };
 }
 
-export function isConfirmedOffline(error,online=globalThis.navigator?.onLine!==false){
+export function isConfirmedOffline(error,onLine=globalThis.navigator?.onLine){
   const code=String(error?.code||'').toLowerCase();
   if(['permission-denied','unauthenticated','storage/unauthorized','storage/object-not-found'].includes(code))return false;
-  return online===false&&(error?.name==='TypeError'||['unavailable','firestore/unavailable',
+  return onLine===false&&(error?.name==='TypeError'||['unavailable','firestore/unavailable',
     'network-error','auth/network-request-failed'].includes(code));
 }
 
