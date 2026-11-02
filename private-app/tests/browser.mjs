@@ -1299,7 +1299,9 @@ try{
   await B.locator('#private-app').waitFor({state:'visible',timeout:25000});
   await B.waitForFunction(()=>Boolean(navigator.serviceWorker.controller),null,{timeout:15000});
   await B.close();
-  await ctxB.setOffline(true);
+  await ctxB.close();
+  ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},
+    acceptDownloads:true,offline:true});
   B=await ctxB.newPage();
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   const offlineCloudRequests=[];
@@ -1341,7 +1343,9 @@ try{
     'reconnecting reruns normal online membership checks without deleting selected local copies');
   B.off('request',recordOfflineCloudRequest);
   await B.close();
-  await ctxB.setOffline(true);
+  await ctxB.close();
+  ctxB=await chromium.launchPersistentContext(dirB,{headless:true,viewport:{width:390,height:844},
+    acceptDownloads:true,offline:true});
   B=await ctxB.newPage();
   B.on('pageerror',e=>pageErrors.push('B: '+e.message));
   B.on('request',recordOfflineCloudRequest);
