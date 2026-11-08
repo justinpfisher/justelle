@@ -1,4 +1,5 @@
 import {appendFile} from 'node:fs/promises';
+import {getB2ObjectRetentionDiagnostic} from './functions/b2-store.mjs';
 
 const checkIds=Object.freeze([
   'FICTIONAL_IDENTITIES_AND_MEMBERSHIP',
@@ -109,8 +110,11 @@ export function createHostedAcceptanceProgress(){
       if(!['AI_PLAN_SUGGESTION_RESPONSE_VALIDATION','ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE'].includes(active)||
         activeSubcheck!==check||!allowedSubcheckIds.has(check))
         throw Error('Invalid acceptance diagnostic subcheck failure');
+      const retentionFailure=check==='BACKUP_OBJECT_RETENTION'
+        ?getB2ObjectRetentionDiagnostic(error):null;
       entries.push({check:active,subcheck:check,result:'FAIL',
-        ...(check==='BACKUP_UPLOAD'?{failure:classifyB2UploadError(error)}:{})});activeSubcheck=null;
+        ...(check==='BACKUP_UPLOAD'?{failure:classifyB2UploadError(error)}:{}),
+        ...(retentionFailure?{retentionFailure}:{})});activeSubcheck=null;
     },
     markUnknown(check){
       if(active!==check||!allowedCheckIds.has(check))throw Error('Invalid acceptance diagnostic ambiguity');
@@ -133,6 +137,10 @@ export function createHostedAcceptanceProgress(){
       const failedSubcheckDetails=entries.filter(entry=>entry.result==='FAIL'&&entry.subcheck==='BACKUP_UPLOAD').map(entry=>Object.freeze({
         subcheck:'BACKUP_UPLOAD',status:entry.failure?.status??'UNKNOWN',code:entry.failure?.code??'UNKNOWN'
       }));
+      const failedObjectRetentionDetails=entries.filter(entry=>entry.result==='FAIL'&&
+        entry.subcheck==='BACKUP_OBJECT_RETENTION'&&entry.retentionFailure).map(entry=>Object.freeze({
+          subcheck:'BACKUP_OBJECT_RETENTION',...entry.retentionFailure
+        }));
       const completedChecks=entries.filter(entry=>entry.result==='PASS'&&!entry.subcheck&&entry.check!=='FINAL_TEARDOWN').map(entry=>entry.check);
       const teardown=entries.find(entry=>entry.check==='FINAL_TEARDOWN');
       return Object.freeze({
@@ -140,6 +148,7 @@ export function createHostedAcceptanceProgress(){
         failedChecks:Object.freeze(failedChecks.length?failedChecks:['UNKNOWN']),
         failedSubchecks:Object.freeze(failedSubchecks),
         failedSubcheckDetails:Object.freeze(failedSubcheckDetails),
+        failedObjectRetentionDetails:Object.freeze(failedObjectRetentionDetails),
         lastCompletedCheck:completedChecks.at(-1)??'NONE',
         completedChecks:Object.freeze(completedChecks),
         teardownStatus:teardown?.result??'UNKNOWN'
@@ -155,6 +164,15 @@ export function renderHostedAcceptanceFailureSummary(progress){
   const uploadDetails=(snapshot.failedSubcheckDetails??[]).filter(detail=>detail?.subcheck==='BACKUP_UPLOAD'&&
     (detail.status==='UNKNOWN'||allowedB2UploadStatuses.has(Number(detail.status.slice?.(5))))&&
     ['UNKNOWN',...Object.values(b2UploadErrorCategories)].includes(detail.code));
+  const retentionDetails=(snapshot.failedObjectRetentionDetails??[]).filter(detail=>{
+    if(detail?.subcheck!=='BACKUP_OBJECT_RETENTION')return false;
+    if(detail.kind==='REQUEST')return (detail.status==='UNKNOWN'||
+      allowedB2UploadStatuses.has(Number(detail.status.slice?.(5))))&&
+      ['UNKNOWN',...Object.values(b2UploadErrorCategories)].includes(detail.code);
+    return detail.kind==='RESPONSE_VALIDATION'&&
+      ['MODE_NOT_GOVERNANCE','RETAIN_UNTIL_DATE_MISSING','RETAIN_UNTIL_DATE_NOT_DATE',
+        'RETAIN_UNTIL_DATE_INVALID','RETENTION_NOT_FUTURE'].includes(detail.reason);
+  });
   const completed=snapshot.completedChecks.filter(check=>allowedCheckIds.has(check));
   const last=snapshot.lastCompletedCheck==='NONE'||allowedCheckIds.has(snapshot.lastCompletedCheck)?snapshot.lastCompletedCheck:'UNKNOWN';
   const teardown=['PASS','FAIL','UNKNOWN'].includes(snapshot.teardownStatus)?snapshot.teardownStatus:'UNKNOWN';
@@ -165,6 +183,9 @@ export function renderHostedAcceptanceFailureSummary(progress){
     `- Failed stage (exact assertion not identified): ${failed.map(check=>'`'+check+'`').join(', ')||'`UNKNOWN`'}`,
     ...(failedSubchecks.length?[`- Failed subcheck: ${failedSubchecks.map(check=>'`'+check+'`').join(', ')}`]:[]),
     ...uploadDetails.map(detail=>`- B2 upload error category: status \`${detail.status}\`; code \`${detail.code}\``),
+    ...retentionDetails.map(detail=>detail.kind==='REQUEST'
+      ?`- B2 object-retention request category: status \`${detail.status}\`; code \`${detail.code}\``
+      :`- B2 object-retention response validation category: \`${detail.reason}\``),
     `- Last completed check: ${'`'+last+'`'}`,
     `- Completed checks: ${completed.map(check=>'`'+check+'`').join(', ')||'`NONE`'}`,
     `- Final teardown: ${teardown}`,
