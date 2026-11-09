@@ -28,7 +28,7 @@ function inside(parent,path){
 export async function readOfflineRecoveryKey(file,repositoryRoot){
   if(typeof file!=='string'||!isAbsolute(file))throw Error('An absolute owner-controlled recovery-key path is required');
   const current=await realpath(file),root=await realpath(repositoryRoot);
-  if(inside(root,current)||/(^|[\\/])onedrive(?:[ \t]*[-–][^\\/]+|[ \t]*\([^\\/]+\))?([\\/]|$)/i.test(current))
+  if(inside(root,current)||/(^|[\\/])onedrive(?:[ \t]*[--][^\\/]+|[ \t]*\([^\\/]+\))?([\\/]|$)/i.test(current))
     throw Error('Recovery key must be held outside the repository and OneDrive');
   const stat=await lstat(file);
   if(stat.isSymbolicLink()||!stat.isFile()||stat.size!==32)
@@ -117,90 +117,161 @@ function parseJson(output){
   catch{throw Error('Unexpected private provider metadata response');}
 }
 const googleArgs=(project,...args)=>[...args,'--project='+project,'--quiet'];
+const secretVersionPattern=/^projects\/(\d+)\/secrets\/JUSTELLE_BACKUP_CONFIG\/versions\/(\d+)$/;
+async function existingSecretVersions(run,project){
+  const output=await run('gcloud',googleArgs(project,'secrets','versions','list',secretName,'--format=json'));
+  try{
+    const versions=parseJson(output);
+    if(!Array.isArray(versions)||versions.length===0||versions.some(v=>typeof v?.name!=='string'))
+      throw Error('Secret-version metadata was invalid');
+    const matches=versions.map(v=>secretVersionPattern.exec(v.name));
+    if(matches.some(match=>!match))throw Error('Secret-version metadata was invalid');
+    const projectNumber=matches[0][1];
+    if(matches.some(match=>match[1]!==projectNumber))throw Error('Secret-version metadata was invalid');
+    const names=versions.map(v=>v.name);
+    if(new Set(names).size!==names.length)throw Error('Secret-version metadata was invalid');
+    return {projectNumber,names,versions};
+  }finally{if(Buffer.isBuffer(output))output.fill(0);}
+}
 
 // Run exclusively after the owner has independently checked offline custody.
 // run is injectable so every failure path can be qualified using synthetic secrets.
 export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,run,
-  environment='qualification',bucketName}){
+  environment='qualification',bucketName,appendExistingSecretVersion=false}){
   if(offlineCustodyConfirmed!==true)throw Error('Owner-confirmed independent offline key custody is required');
   const safeEndpoint=validateEndpoint(endpoint);
   if(!Buffer.isBuffer(recoveryKey)||recoveryKey.length!==32)throw Error('Invalid offline recovery key');
   if(typeof run!=='function')throw Error('An authenticated private command runner is required');
+  if(typeof appendExistingSecretVersion!=='boolean')throw Error('Invalid secret version mode');
   const target=selectBootstrapTarget(environment,bucketName);
   const {project,bucket,prefix,keyName}=target;
-  let newId=null,installed=false,fullSecret=null;
+  if(appendExistingSecretVersion&&(environment!=='qualification'||bucket!=='justelle-qualification-backups'||bucketName!==undefined))
+    throw Error('Append mode is limited to the fixed qualification backup target');
+  let newId=null,fullSecret=null,writeAttempted=false,keyCreateAttempted=false;
   try{
     // Fail before issuing a non-recoverable one-time key if this account or
     // Secret Manager is not accessible, or a backup credential already exists.
     // CLI v5 defaults to ID/name only; the scope audit needs --long.
-    const knownKeys=String(await run('b2',['key','list','--long']));
-    if(knownKeys.split(/\r?\n/).some(l=>l.trim().split(/\s+/)[1]===keyName))
-      throw Error('A named restricted B2 key already exists; inspect it before retrying');
-    const listed=parseJson(await run('gcloud',googleArgs(project,'secrets','list','--format=json')));
-    if(!Array.isArray(listed))throw Error('Secret Manager metadata is invalid');
-    const exists=listed.some(s=>typeof s.name==='string'&&s.name.split('/').at(-1)===secretName);
-    if(!exists)await run('gcloud',googleArgs(project,'secrets','create',secretName,
-      '--replication-policy=user-managed','--locations=northamerica-northeast1'));
-    const versions=parseJson(await run('gcloud',googleArgs(project,'secrets','versions','list',secretName,'--format=json')));
-    if(!Array.isArray(versions)||versions.length!==0)
-      throw Error('Backup configuration already has versions; never silently overwrite credentials');
+    const knownKeyOutput=await run('b2',['key','list','--long']);
+    try{
+      const knownKeys=String(knownKeyOutput);
+      if(knownKeys.split(/\r?\n/).some(l=>l.trim().split(/\s+/)[1]===keyName))
+        throw Error('A named restricted B2 key already exists; inspect it before retrying');
+    }finally{if(Buffer.isBuffer(knownKeyOutput))knownKeyOutput.fill(0);}
+    const secretListOutput=await run('gcloud',googleArgs(project,'secrets','list','--format=json'));
+    let exists;
+    try{
+      const listed=parseJson(secretListOutput);
+      if(!Array.isArray(listed))throw Error('Secret Manager metadata is invalid');
+      const matches=listed.filter(s=>typeof s.name==='string'&&s.name.split('/').at(-1)===secretName);
+      if(matches.length>1)throw Error('Secret Manager metadata is ambiguous');
+      exists=matches.length===1;
+    }finally{if(Buffer.isBuffer(secretListOutput))secretListOutput.fill(0);}
+    if(appendExistingSecretVersion&&!exists)
+      throw Error('Append mode requires the existing qualification secret');
+    if(!exists&&!appendExistingSecretVersion)
+      await run('gcloud',googleArgs(project,'secrets','create',secretName,
+        '--replication-policy=user-managed','--locations=northamerica-northeast1'));
+    let beforeVersions=null;
+    if(appendExistingSecretVersion){
+      beforeVersions=await existingSecretVersions(run,project);
+      if(!beforeVersions.versions.some(v=>v.state==='ENABLED'))
+        throw Error('Append mode requires an enabled existing secret version');
+    }else{
+      const versionsOutput=await run('gcloud',googleArgs(project,'secrets','versions','list',secretName,'--format=json'));
+      try{
+        const versions=parseJson(versionsOutput);
+        if(!Array.isArray(versions)||versions.length!==0)
+          throw Error('Backup configuration already has versions; never silently overwrite credentials');
+      }finally{if(Buffer.isBuffer(versionsOutput))versionsOutput.fill(0);}
+    }
     // The CLI prints the one-time secret on stdout; capture it in memory only.
+    keyCreateAttempted=true;
     const createdOutput=await run('b2',['key','create','--bucket',bucket,'--name-prefix',prefix,
       keyName,capabilities.join(',')]);
-    const pair=parseCreatedKey(createdOutput);
-    newId=pair.keyId;
-    if(Buffer.isBuffer(createdOutput))createdOutput.fill(0);
+    let pair;
+    try{pair=parseCreatedKey(createdOutput);newId=pair.keyId;}
+    finally{if(Buffer.isBuffer(createdOutput))createdOutput.fill(0);}
     const listAfter=await run('b2',['key','list','--long']);
-    verifyKeyList(listAfter,newId,target);
-    if(Buffer.isBuffer(listAfter))listAfter.fill(0);
-    const raw=JSON.stringify({endpoint:safeEndpoint,bucket,keyId:pair.keyId,
+    try{verifyKeyList(listAfter,newId,target);}finally{if(Buffer.isBuffer(listAfter))listAfter.fill(0);}
+    fullSecret=Buffer.from(JSON.stringify({endpoint:safeEndpoint,bucket,keyId:pair.keyId,
       applicationKey:pair.applicationKey,prefix:prefix.slice(0,-1),
-      recoveryKeyBase64:recoveryKey.toString('base64')});
-    fullSecret=Buffer.from(raw,'utf8');
-    await run('gcloud',googleArgs(project,'secrets','versions','add',secretName,'--data-file=-'),fullSecret);
-    installed=true;
+      recoveryKeyBase64:recoveryKey.toString('base64')}),'utf8');
+    pair.applicationKey='';
+    const addArgs=googleArgs(project,'secrets','versions','add',secretName,'--data-file=-',
+      ...(appendExistingSecretVersion?['--format=json']:[]));
+    writeAttempted=true;
+    const addOutput=await run('gcloud',addArgs,fullSecret);
+    if(appendExistingSecretVersion){
+      let createdName;
+      try{
+        const created=parseJson(addOutput);
+        const match=typeof created?.name==='string'&&secretVersionPattern.exec(created.name);
+        if(!match||match[1]!==beforeVersions.projectNumber||created.state!=='ENABLED'||
+          beforeVersions.names.includes(created.name))
+          throw Error('Secret-version response was not the expected new resource');
+        createdName=created.name;
+      }finally{if(Buffer.isBuffer(addOutput))addOutput.fill(0);}
+      const after=await existingSecretVersions(run,project);
+      const createdVersion=after.versions.find(v=>v.name===createdName);
+      if(after.projectNumber!==beforeVersions.projectNumber||after.names.length!==beforeVersions.names.length+1||
+        !beforeVersions.names.every(name=>after.names.includes(name))||createdVersion?.state!=='ENABLED')
+        throw Error('Secret-version append outcome is uncertain; inspect metadata before retrying');
+      return {restricted_key_installed:true,secret_version_added:true,prior_versions_preserved:true,
+        offline_custody_owner_confirmed:true};
+    }
+    if(Buffer.isBuffer(addOutput))addOutput.fill(0);
     return {restricted_key_installed:true,secret_version_added:true,offline_custody_owner_confirmed:true};
   }catch{
-    // If Secret Manager refused the new version, do not leave a usable orphan.
-    if(newId&&!installed){
+    // Before an append attempt, revoke a key that cannot be safely installed.
+    // Once append starts, keep the key: a timed-out response may still have
+    // created a version that references it. Reconcile metadata before cleanup.
+    if(newId&&(!writeAttempted||!appendExistingSecretVersion)){
       try{await run('b2',['key','delete',newId]);}
       catch{throw Error('Private setup failed and key revocation failed; manually inspect named B2 key before retrying');}
     }
+    if(keyCreateAttempted&&!newId)
+      throw Error('Restricted key creation outcome is uncertain; inspect B2 key metadata privately before retrying');
+    if(newId&&writeAttempted&&appendExistingSecretVersion)
+      throw Error('Backup configuration append outcome is uncertain; keep the restricted key and inspect secret-version metadata privately before retrying');
     throw Error('Private B2 bootstrap failed closed; inspect the account and secret metadata before retrying');
   }finally{
     fullSecret?.fill(0);
   }
 }
 
-function parseArguments(argv){
+export function parseArguments(argv){
   const args={};
   for(let i=0;i<argv.length;i++){
     if(argv[i]==='--offline-custody-confirmed')args.offlineCustodyConfirmed=true;
     else if(argv[i]==='--paper-key')args.paperKey=true;
+    else if(argv[i]==='--append-existing-version')args.appendExistingSecretVersion=true;
     else if(['--offline-key','--endpoint','--target','--bucket'].includes(argv[i])&&argv[i+1]){
       const option=argv[i++];
       const name={'--offline-key':'file','--endpoint':'endpoint','--target':'environment','--bucket':'bucketName'}[option];
       args[name]=argv[i];
     }
-    else throw Error('Use --paper-key or --offline-key <absolute-file>, --target qualification|production, --bucket <production-bucket>, --endpoint <B2-HTTPS-endpoint> and --offline-custody-confirmed');
+    else throw Error('Use --paper-key or --offline-key <absolute-file>, --target qualification|production, --bucket <production-bucket>, --endpoint <B2-HTTPS-endpoint>, --offline-custody-confirmed, and optionally --append-existing-version for an existing qualification secret');
   }
   if(Boolean(args.file)===Boolean(args.paperKey)||!args.endpoint||!args.offlineCustodyConfirmed)
     throw Error('Choose exactly one recovery key input method, B2 endpoint and genuine owner custody confirmation');
   args.environment??='qualification';
+  if(args.appendExistingSecretVersion&&(args.environment!=='qualification'||args.bucketName!==undefined))
+    throw Error('Append-existing-version mode is limited to the fixed qualification target');
   selectBootstrapTarget(args.environment,args.bucketName);
   return args;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
   let key;
   try{
-    const {file,paperKey,endpoint,offlineCustodyConfirmed,environment,bucketName}=parseArguments(process.argv.slice(2));
+    const {file,paperKey,endpoint,offlineCustodyConfirmed,environment,bucketName,appendExistingSecretVersion}=parseArguments(process.argv.slice(2));
     if(paperKey)key=await readPaperRecoveryKey();
     else{
       const root=fileURLToPath(new URL('../',import.meta.url));
       key=await readOfflineRecoveryKey(file,root);
     }
     const result=await bootstrap({endpoint,recoveryKey:key,offlineCustodyConfirmed,
-      environment,bucketName,run:localCliRunner()});
+      environment,bucketName,appendExistingSecretVersion,run:localCliRunner()});
     console.log(JSON.stringify(result));
   }catch(e){
     // File system/cloud errors may contain account paths and credentials.
@@ -210,3 +281,4 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
     process.exitCode=1;
   }finally{key?.fill(0);}
 }
+
