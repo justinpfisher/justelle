@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {EventEmitter} from 'node:events';
 import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
-  readOfflineRecoveryKey,selectBootstrapTarget,windowsCliInvocation} from '../tools/bootstrap-b2-secret.mjs';
+  parseArguments,readOfflineRecoveryKey,selectBootstrapTarget,windowsCliInvocation} from '../tools/bootstrap-b2-secret.mjs';
 import {decodePrintedRecoveryKey,readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 
 const endpoint='https://s3.us-west-004.backblazeb2.com';
@@ -13,12 +13,16 @@ const keyId='testappkeyid12345';
 const appKey='SYNTHETIC_not-real-secret/12345';
 const capString=capabilities.join(',');
 const listLine=()=>keyId+" justelle-qualification-backup justelle-qualification-backups - - 'qualification/' "+capString;
-function makeRunner({preexistingKey=false,preexistingVersion=false,scopeMismatch=false,failAt='',failDelete=false}={}){
-  const calls=[];let created=false,installed=null;
+function makeRunner({preexistingKey=false,preexistingVersion=false,preexistingSecret=preexistingVersion,
+  scopeMismatch=false,failAt='',failDelete=false,failAppendAfterCommit=false,versionProject='123',
+  versionState='ENABLED',preexistingVersionCount=preexistingVersion?1:0,mixedVersionProject}={}){
+  const calls=[];let created=false,installed=null,versionCount=preexistingVersionCount;
   async function run(provider,args,stdin){
     const command=provider+' '+args.join(' ');
     calls.push({provider,args,stdin:stdin?Buffer.from(stdin):null});
-    if(failAt&&command.includes(failAt)&&!(provider==='b2'&&args[1]==='delete'))throw Error('Simulated sensitive failure');
+    if(failAt&&command.includes(failAt)&&!(provider==='b2'&&args[1]==='delete')&&
+      !(failAppendAfterCommit&&provider==='gcloud'&&args.includes('add')))
+      throw Error('Simulated sensitive failure');
     if(provider==='b2'&&args[0]==='key'&&args[1]==='list')
       return (preexistingKey||created?listLine().replace(scopeMismatch?"'qualification/'":"no-match","'wrong/'"): '')+'\n';
     if(provider==='b2'&&args[0]==='key'&&args[1]==='create'){
@@ -28,12 +32,22 @@ function makeRunner({preexistingKey=false,preexistingVersion=false,scopeMismatch
       if(failDelete)throw Error('Cannot revoke');
       created=false;return '';
     }
-    if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='list')return '[]';
+    if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='list')
+      return preexistingSecret?'[{"name":"projects/123/secrets/JUSTELLE_BACKUP_CONFIG"}]':'[]';
     if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='create')return '';
     if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='versions'&&args[2]==='list')
-      return preexistingVersion?'[{"name":"projects/123/secrets/JUSTELLE_BACKUP_CONFIG/versions/1"}]':'[]';
+      return JSON.stringify(Array.from({length:versionCount},(_,i)=>({
+        name:`projects/${i===1&&mixedVersionProject?mixedVersionProject:versionProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${i+1}`,
+        state:versionState,
+      })));
     if(provider==='gcloud'&&args[0]==='secrets'&&args[1]==='versions'&&args[2]==='add'){
-      installed=JSON.parse(stdin.toString('utf8'));return '';
+      installed=JSON.parse(stdin.toString('utf8'));versionCount++;
+      if(args.includes('--format=json')){
+        const output=JSON.stringify({name:`projects/${versionProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${versionCount}`,state:'ENABLED'});
+        if(failAppendAfterCommit)throw Error('Synthetic lost response after commit');
+        return output;
+      }
+      return '';
     }
     throw Error('Unexpected synthetic command '+command);
   }
@@ -111,6 +125,72 @@ test('successful one-time bootstrap never writes key material to output/command 
   }
 });
 
+test('append mode creates the exact qualification key and appends without replacing the existing secret version',async()=>{
+  const runner=makeRunner({preexistingVersion:true});
+  const result=await runBootstrap(runner,{appendExistingSecretVersion:true});
+  assert.deepEqual(result,{restricted_key_installed:true,secret_version_added:true,
+    prior_versions_preserved:true,offline_custody_owner_confirmed:true});
+  assert.equal(runner.calls.filter(c=>c.provider==='b2'&&c.args[1]==='create').length,1);
+  assert.equal(runner.calls.some(c=>c.provider==='gcloud'&&c.args[1]==='create'),false);
+  assert.equal(runner.calls.filter(c=>c.provider==='gcloud'&&c.args[2]==='add').length,1);
+  const add=runner.calls.find(c=>c.provider==='gcloud'&&c.args[2]==='add');
+  assert.ok(add.args.includes('--format=json'));
+  assert.equal(runner.installed.bucket,'justelle-qualification-backups');
+  assert.equal(runner.installed.prefix,'qualification');
+  assert.equal(runner.installed.keyId,keyId);
+  assert.equal(runner.installed.applicationKey,appKey);
+  assert.equal(Buffer.from(runner.installed.recoveryKeyBase64,'base64').length,32);
+  assert.equal(runner.calls.filter(c=>c.provider==='b2'&&c.args[1]==='delete').length,0);
+  for(const c of runner.calls){
+    assert.ok(!c.args.join(' ').includes(appKey));
+    assert.ok(!c.args.join(' ').includes(runner.installed.recoveryKeyBase64));
+    if(c.stdin)assert.equal(c.provider,'gcloud');
+  }
+});
+
+test('append mode fails before key creation for missing, disabled, malformed or mixed-project secret versions',async()=>{
+  const cases=[
+    makeRunner({preexistingSecret:false}),
+    makeRunner({preexistingVersion:true,versionProject:'justelle-qualification'}),
+    makeRunner({preexistingVersion:true,versionProject:'123/../other'}),
+    makeRunner({preexistingVersion:true,versionState:'DISABLED'}),
+    makeRunner({preexistingVersion:true,preexistingVersionCount:2,mixedVersionProject:'456'}),
+  ];
+  for(const runner of cases){
+    await assert.rejects(runBootstrap(runner,{appendExistingSecretVersion:true}),/failed closed/);
+    assert.equal(runner.calls.some(c=>c.provider==='b2'&&c.args[1]==='create'),false);
+  }
+});
+
+test('append mode is pinned to qualification and refuses duplicate same-name keys before issuing credentials',async()=>{
+  for(const options of [{environment:'production',bucketName:'justelle-production-backups-v1x',appendExistingSecretVersion:true},
+    {bucketName:'justelle-qualification-backups-alt3',appendExistingSecretVersion:true}]){
+    const runner=makeRunner({preexistingVersion:true});
+    await assert.rejects(runBootstrap(runner,options),/fixed qualification backup target/);
+    assert.equal(runner.calls.length,0);
+  }
+  const duplicate=makeRunner({preexistingKey:true,preexistingVersion:true});
+  await assert.rejects(runBootstrap(duplicate,{appendExistingSecretVersion:true}),/failed closed/);
+  assert.equal(duplicate.calls.some(c=>c.provider==='b2'&&c.args[1]==='create'),false);
+});
+
+test('uncertain append outcome preserves the restricted key and never retries or exposes values',async()=>{
+  const runner=makeRunner({preexistingVersion:true,failAppendAfterCommit:true});
+  let message='';try{await runBootstrap(runner,{appendExistingSecretVersion:true});}catch(e){message=e.message;}
+  assert.match(message,/outcome is uncertain/);
+  assert.ok(!message.includes(appKey));
+  assert.equal(runner.calls.filter(c=>c.provider==='gcloud'&&c.args[2]==='add').length,1);
+  assert.equal(runner.calls.filter(c=>c.provider==='b2'&&c.args[1]==='delete').length,0);
+});
+
+test('CLI append option selects only the fixed qualification existing-version path',()=>{
+  const parsed=parseArguments(['--paper-key','--endpoint',endpoint,'--offline-custody-confirmed','--append-existing-version']);
+  assert.equal(parsed.appendExistingSecretVersion,true);
+  assert.equal(parsed.environment,'qualification');
+  assert.throws(()=>parseArguments(['--paper-key','--endpoint',endpoint,'--offline-custody-confirmed',
+    '--append-existing-version','--target','production']),/fixed qualification target/);
+});
+
 test('refuses issuance when key already exists or backup secret already has a version',async()=>{
   for(const settings of [{preexistingKey:true},{preexistingVersion:true}]){
     const runner=makeRunner(settings);
@@ -161,7 +241,7 @@ test('offline recovery file must have 32 bytes and remain outside repository/One
     const inSync=join(outside,'OneDrive','key.bin');await writeFile(inSync,Buffer.alloc(32,3));
     await assert.rejects(readOfflineRecoveryKey(inSync,root),/OneDrive/);
     // Also refuse Windows' labelled OneDrive sync roots.
-    for(const folderName of ['OneDrive - Example','OneDrive – Family']){
+    for(const folderName of ['OneDrive - Example','OneDrive - Family']){
       const labelled=join(outside,folderName);
       await mkdir(labelled);
       const file=join(labelled,'key.bin');
@@ -290,3 +370,4 @@ test('production bootstrap keeps its key, prefix, Secret Manager project and cre
     assert.ok(!call.args.join(' ').includes(installed.recoveryKeyBase64));
   }
 });
+
