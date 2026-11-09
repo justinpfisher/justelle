@@ -241,7 +241,7 @@ test('offline recovery file must have 32 bytes and remain outside repository/One
     const inSync=join(outside,'OneDrive','key.bin');await writeFile(inSync,Buffer.alloc(32,3));
     await assert.rejects(readOfflineRecoveryKey(inSync,root),/OneDrive/);
     // Also refuse Windows' labelled OneDrive sync roots.
-    for(const folderName of ['OneDrive - Example','OneDrive - Family']){
+    for(const folderName of ['OneDrive - Example','OneDrive – Family']){
       const labelled=join(outside,folderName);
       await mkdir(labelled);
       const file=join(labelled,'key.bin');
@@ -370,4 +370,3 @@ test('production bootstrap keeps its key, prefix, Secret Manager project and cre
     assert.ok(!call.args.join(' ').includes(installed.recoveryKeyBase64));
   }
 });
-
