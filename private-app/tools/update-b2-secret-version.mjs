@@ -22,14 +22,6 @@ async function readMetadata(run,args){
 }
 
 const versionResourcePattern=/^projects\/(\d+)\/secrets\/JUSTELLE_BACKUP_CONFIG\/versions\/(\d+)$/;
-async function readCanonicalProjectNumber(run){
-  const metadata=await readMetadata(run,gcloudArgs('projects','describe',project,'--format=json'));
-  const value=metadata?.projectNumber;
-  const projectNumber=typeof value==='number'&&Number.isSafeInteger(value)?String(value):value;
-  if(typeof projectNumber!=='string'||!/^\d+$/.test(projectNumber))
-    throw Error('Canonical project metadata was invalid');
-  return projectNumber;
-}
 function versionMetadata(list,expectedProjectNumber){
   if(!Array.isArray(list)||list.length<1||list.some(v=>typeof v?.name!=='string'))
     throw Error('Secret-version metadata was invalid');
@@ -53,9 +45,8 @@ export async function verifyExistingBackupUpdateTarget({keyId,run}){
     throw Error('Qualification backup target did not match the fixed scope');
   const listing=await run('b2',['key','list','--long']);
   try{verifyKeyList(listing,keyId,target);}finally{if(Buffer.isBuffer(listing))listing.fill(0);}
-  const projectNumber=await readCanonicalProjectNumber(run);
   const versions=await readMetadata(run,gcloudArgs('secrets','versions','list',secretName,'--format=json'));
-  versionMetadata(versions,projectNumber);
+  versionMetadata(versions);
   return {existing_key_scope_verified:true,existing_secret_version_present:true};
 }
 
@@ -73,9 +64,8 @@ export async function updateExistingBackupSecretVersion({
   let fullSecret,writeAttempted=false;
   try{
     const target=selectBootstrapTarget('qualification');
-    const projectNumber=await readCanonicalProjectNumber(run);
     const before=await readMetadata(run,gcloudArgs('secrets','versions','list',secretName,'--format=json'));
-    const beforeMetadata=versionMetadata(before,projectNumber);
+    const beforeMetadata=versionMetadata(before);
     const beforeNames=beforeMetadata.names;
     // Revalidate key scope immediately before the append; the listing is
     // metadata only, and the key value never enters command arguments.
