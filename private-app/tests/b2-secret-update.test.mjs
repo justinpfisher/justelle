@@ -9,25 +9,23 @@ const applicationKey='SYNTHETIC_ONLY_application_key_123';
 const projectNumber='123456789012';
 const keyLine=keyId+' justelle-qualification-backup justelle-qualification-backups - - \'qualification/\' '+capabilities.join(',');
 
-function fakeRun({scope=keyLine,canonicalProjectNumber=projectNumber,resourceProject=canonicalProjectNumber,initialVersions=2,afterCount,failWrite=false,failAfterAdd=false,
+function fakeRun({scope=keyLine,resourceProject=projectNumber,appendProject=resourceProject,afterProject=resourceProject,initialVersions=2,afterCount,failWrite=false,failAfterAdd=false,
   failWriteConcurrent=false}={}){
   const calls=[];let versions=initialVersions,stdinCopy;
   const run=async(provider,args,stdin)=>{
     calls.push({provider,args:[...args]});
     if(provider==='b2'&&args.join(' ')==='key list --long')return scope;
-    if(provider==='gcloud'&&args[0]==='projects'&&args[1]==='describe')
-      return JSON.stringify({projectNumber:canonicalProjectNumber});
     if(provider==='gcloud'&&args.includes('versions')&&args.includes('list')){
       if(failAfterAdd&&versions>initialVersions)throw Error('synthetic metadata readback failure');
       return JSON.stringify(Array.from({length:afterCount??versions},(_,i)=>({
-        name:`projects/${resourceProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${i+1}`,state:'ENABLED',
+        name:`projects/${versions>initialVersions?afterProject:resourceProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${i+1}`,state:'ENABLED',
       })));
     }
     if(provider==='gcloud'&&args.includes('versions')&&args.includes('add')){
       if(failWriteConcurrent){versions++;throw Error('synthetic provider failure');}
       if(failWrite)throw Error('synthetic provider failure');
       stdinCopy=Buffer.from(stdin);versions++;
-      return JSON.stringify({name:`projects/${resourceProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${versions}`,state:'ENABLED'});
+      return JSON.stringify({name:`projects/${appendProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${versions}`,state:'ENABLED'});
     }
     throw Error('Unexpected synthetic command');
   };
@@ -60,8 +58,7 @@ test('metadata-only preflight verifies existing scope/version before any credent
   assert.deepEqual(await verifyExistingBackupUpdateTarget({keyId,run:fake.run}),
     {existing_key_scope_verified:true,existing_secret_version_present:true});
   assert.deepEqual(fake.calls.map(c=>[c.provider,c.args.slice(0,3)]),[
-    ['b2',['key','list','--long']],['gcloud',['projects','describe','justelle-qualification']],
-    ['gcloud',['secrets','versions','list']],
+    ['b2',['key','list','--long']],['gcloud',['secrets','versions','list']],
   ]);
   assert.equal(fake.calls.some(c=>c.args.includes('add')||c.args.includes('create')),false);
 });
@@ -75,9 +72,8 @@ test('accepts canonical numeric Secret Manager project resource names',async()=>
   assert.equal(result.prior_versions_preserved,true);
 });
 
-test('rejects project-ID, wrong numeric project, and mixed-project version resource names',async()=>{
-  for(const fake of [fakeRun({resourceProject:'justelle-qualification'}),
-    fakeRun({resourceProject:'987654321098'})])
+test('rejects project-ID and mixed-project version resource names',async()=>{
+  for(const fake of [fakeRun({resourceProject:'justelle-qualification'})])
     await assert.rejects(verifyExistingBackupUpdateTarget({keyId,run:fake.run}),/metadata/i);
   const mixed=fakeRun();
   const original=mixed.run;
@@ -91,6 +87,13 @@ test('rejects project-ID, wrong numeric project, and mixed-project version resou
     return result;
   };
   await assert.rejects(verifyExistingBackupUpdateTarget({keyId,run:mixed.run}),/metadata/i);
+});
+
+test('rejects append and readback names that differ from the canonical numeric project returned by listing',async()=>{
+  for(const fake of [fakeRun({appendProject:'987654321098'}),fakeRun({afterProject:'987654321098'})]){
+    await assert.rejects(call(fake),/outcome is uncertain/);
+    assert.equal(fake.calls.filter(c=>c.args.includes('add')).length,1);
+  }
 });
 
 test('refuses wrong key scope, missing existing version, bad custody, and invalid inputs before write',async()=>{
