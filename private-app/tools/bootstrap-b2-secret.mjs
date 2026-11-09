@@ -12,6 +12,38 @@ export {selectBootstrapTarget};
 const secretName='JUSTELLE_BACKUP_CONFIG';
 export const capabilities=['listFiles','readFiles','writeFiles','readBucketRetentions','readFileRetentions'];
 
+const SAFE_FAILURE_STAGES=Object.freeze([
+  'arguments','owner_key_input','owner_recovery_file','b2_key_list_preflight',
+  'secret_list_preflight','secret_resource_create','secret_version_preflight','b2_key_create_outcome_uncertain',
+  'b2_key_scope_verification','secret_config_build','secret_version_append',
+  'secret_version_add_response_validation','secret_version_postwrite_readback',
+  'secret_version_postwrite_validation','bootstrap_unknown',
+]);
+const SAFE_CLEANUP_STATES=Object.freeze([
+  'not_needed','key_revoked','key_revoke_failed','key_preserved_after_append',
+  'key_creation_outcome_uncertain','unknown',
+]);
+const safeStageSet=new Set(SAFE_FAILURE_STAGES);
+const safeCleanupSet=new Set(SAFE_CLEANUP_STATES);
+
+function errorWithSafeDiagnostic(message,stage,cleanup='not_needed'){
+  const error=Error(message);
+  Object.defineProperty(error,'safeDiagnostic',{value:Object.freeze({
+    stage:safeStageSet.has(stage)?stage:'bootstrap_unknown',
+    cleanup:safeCleanupSet.has(cleanup)?cleanup:'unknown',
+  })});
+  return error;
+}
+
+// The CLI can report only these fixed labels, never provider text or error fields.
+export function formatBootstrapFailure(error,fallbackStage='bootstrap_unknown'){
+  const diagnostic=error?.safeDiagnostic;
+  const stage=safeStageSet.has(diagnostic?.stage)?diagnostic.stage:
+    safeStageSet.has(fallbackStage)?fallbackStage:'bootstrap_unknown';
+  const cleanup=safeCleanupSet.has(diagnostic?.cleanup)?diagnostic.cleanup:'unknown';
+  return `Secure B2 bootstrap did not complete (stage: ${stage}; cleanup: ${cleanup}); check the private operator session and prerequisites.`;
+}
+
 export function validateEndpoint(value){
   let url;
   try{url=new URL(value);}catch{throw Error('Invalid Backblaze S3 endpoint');}
@@ -148,6 +180,7 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
   if(appendExistingSecretVersion&&(environment!=='qualification'||bucket!=='justelle-qualification-backups'||bucketName!==undefined))
     throw Error('Append mode is limited to the fixed qualification backup target');
   let newId=null,fullSecret=null,writeAttempted=false,keyCreateAttempted=false;
+  let stage='b2_key_list_preflight';
   try{
     // Fail before issuing a non-recoverable one-time key if this account or
     // Secret Manager is not accessible, or a backup credential already exists.
@@ -158,6 +191,7 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
       if(knownKeys.split(/\r?\n/).some(l=>l.trim().split(/\s+/)[1]===keyName))
         throw Error('A named restricted B2 key already exists; inspect it before retrying');
     }finally{if(Buffer.isBuffer(knownKeyOutput))knownKeyOutput.fill(0);}
+    stage='secret_list_preflight';
     const secretListOutput=await run('gcloud',googleArgs(project,'secrets','list','--format=json'));
     let exists;
     try{
@@ -169,10 +203,13 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
     }finally{if(Buffer.isBuffer(secretListOutput))secretListOutput.fill(0);}
     if(appendExistingSecretVersion&&!exists)
       throw Error('Append mode requires the existing qualification secret');
-    if(!exists&&!appendExistingSecretVersion)
+    if(!exists&&!appendExistingSecretVersion){
+      stage='secret_resource_create';
       await run('gcloud',googleArgs(project,'secrets','create',secretName,
         '--replication-policy=user-managed','--locations=northamerica-northeast1'));
+    }
     let beforeVersions=null;
+    stage='secret_version_preflight';
     if(appendExistingSecretVersion){
       beforeVersions=await existingSecretVersions(run,project);
       if(!beforeVersions.versions.some(v=>v.state==='ENABLED'))
@@ -186,23 +223,28 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
       }finally{if(Buffer.isBuffer(versionsOutput))versionsOutput.fill(0);}
     }
     // The CLI prints the one-time secret on stdout; capture it in memory only.
+    stage='b2_key_create_outcome_uncertain';
     keyCreateAttempted=true;
     const createdOutput=await run('b2',['key','create','--bucket',bucket,'--name-prefix',prefix,
       keyName,capabilities.join(',')]);
     let pair;
     try{pair=parseCreatedKey(createdOutput);newId=pair.keyId;}
     finally{if(Buffer.isBuffer(createdOutput))createdOutput.fill(0);}
+    stage='b2_key_scope_verification';
     const listAfter=await run('b2',['key','list','--long']);
     try{verifyKeyList(listAfter,newId,target);}finally{if(Buffer.isBuffer(listAfter))listAfter.fill(0);}
+    stage='secret_config_build';
     fullSecret=Buffer.from(JSON.stringify({endpoint:safeEndpoint,bucket,keyId:pair.keyId,
       applicationKey:pair.applicationKey,prefix:prefix.slice(0,-1),
       recoveryKeyBase64:recoveryKey.toString('base64')}),'utf8');
     pair.applicationKey='';
     const addArgs=googleArgs(project,'secrets','versions','add',secretName,'--data-file=-',
       ...(appendExistingSecretVersion?['--format=json']:[]));
+    stage='secret_version_append';
     writeAttempted=true;
     const addOutput=await run('gcloud',addArgs,fullSecret);
     if(appendExistingSecretVersion){
+      stage='secret_version_add_response_validation';
       let createdName;
       try{
         const created=parseJson(addOutput);
@@ -212,7 +254,9 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
           throw Error('Secret-version response was not the expected new resource');
         createdName=created.name;
       }finally{if(Buffer.isBuffer(addOutput))addOutput.fill(0);}
+      stage='secret_version_postwrite_readback';
       const after=await existingSecretVersions(run,project);
+      stage='secret_version_postwrite_validation';
       const createdVersion=after.versions.find(v=>v.name===createdName);
       if(after.projectNumber!==beforeVersions.projectNumber||after.names.length!==beforeVersions.names.length+1||
         !beforeVersions.names.every(name=>after.names.includes(name))||createdVersion?.state!=='ENABLED')
@@ -223,18 +267,29 @@ export async function bootstrap({endpoint,recoveryKey,offlineCustodyConfirmed,ru
     if(Buffer.isBuffer(addOutput))addOutput.fill(0);
     return {restricted_key_installed:true,secret_version_added:true,offline_custody_owner_confirmed:true};
   }catch{
+    const failedStage=stage;
+    let cleanup='not_needed';
     // Before an append attempt, revoke a key that cannot be safely installed.
     // Once append starts, keep the key: a timed-out response may still have
     // created a version that references it. Reconcile metadata before cleanup.
     if(newId&&(!writeAttempted||!appendExistingSecretVersion)){
       try{await run('b2',['key','delete',newId]);}
-      catch{throw Error('Private setup failed and key revocation failed; manually inspect named B2 key before retrying');}
+      catch{throw errorWithSafeDiagnostic(
+        'Private setup failed and B2 key revocation failed; manually inspect named B2 key before retrying',
+        failedStage,'key_revoke_failed');}
+      cleanup='key_revoked';
     }
     if(keyCreateAttempted&&!newId)
-      throw Error('Restricted key creation outcome is uncertain; inspect B2 key metadata privately before retrying');
+      throw errorWithSafeDiagnostic(
+        'Restricted key creation outcome is uncertain; inspect B2 key metadata privately before retrying',
+        'b2_key_create_outcome_uncertain','key_creation_outcome_uncertain');
     if(newId&&writeAttempted&&appendExistingSecretVersion)
-      throw Error('Backup configuration append outcome is uncertain; keep the restricted key and inspect secret-version metadata privately before retrying');
-    throw Error('Private B2 bootstrap failed closed; inspect the account and secret metadata before retrying');
+      throw errorWithSafeDiagnostic(
+        'Backup configuration append outcome is uncertain; keep the restricted key and inspect secret-version metadata privately before retrying',
+        failedStage,'key_preserved_after_append');
+    throw errorWithSafeDiagnostic(
+      'Private B2 bootstrap failed closed; inspect the account and secret metadata before retrying',
+      failedStage,cleanup);
   }finally{
     fullSecret?.fill(0);
   }
@@ -262,22 +317,22 @@ export function parseArguments(argv){
   return args;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
-  let key;
+  let key,cliStage='arguments';
   try{
     const {file,paperKey,endpoint,offlineCustodyConfirmed,environment,bucketName,appendExistingSecretVersion}=parseArguments(process.argv.slice(2));
-    if(paperKey)key=await readPaperRecoveryKey();
+    if(paperKey){cliStage='owner_key_input';key=await readPaperRecoveryKey();}
     else{
+      cliStage='owner_recovery_file';
       const root=fileURLToPath(new URL('../',import.meta.url));
       key=await readOfflineRecoveryKey(file,root);
     }
+    cliStage='bootstrap_unknown';
     const result=await bootstrap({endpoint,recoveryKey:key,offlineCustodyConfirmed,
       environment,bucketName,appendExistingSecretVersion,run:localCliRunner()});
     console.log(JSON.stringify(result));
   }catch(e){
     // File system/cloud errors may contain account paths and credentials.
-    console.error(e.message?.includes('revocation failed')?
-      'Setup failed and B2 key revocation failed; manually inspect the named restricted key.':
-      'Secure B2 bootstrap did not complete; check the private operator session and prerequisites.');
+    console.error(formatBootstrapFailure(e,cliStage));
     process.exitCode=1;
   }finally{key?.fill(0);}
 }

@@ -4,8 +4,10 @@ import {mkdtemp,mkdir,symlink,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {EventEmitter} from 'node:events';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {bootstrap,capabilities,parseCreatedKey,verifyKeyList,validateEndpoint,
-  parseArguments,readOfflineRecoveryKey,selectBootstrapTarget,windowsCliInvocation} from '../tools/bootstrap-b2-secret.mjs';
+  formatBootstrapFailure,parseArguments,readOfflineRecoveryKey,selectBootstrapTarget,windowsCliInvocation} from '../tools/bootstrap-b2-secret.mjs';
 import {decodePrintedRecoveryKey,readPaperRecoveryKey} from '../memory/paper-recovery-key.mjs';
 
 const endpoint='https://s3.us-west-004.backblazeb2.com';
@@ -14,7 +16,7 @@ const appKey='SYNTHETIC_not-real-secret/12345';
 const capString=capabilities.join(',');
 const listLine=()=>keyId+" justelle-qualification-backup justelle-qualification-backups - - 'qualification/' "+capString;
 function makeRunner({preexistingKey=false,preexistingVersion=false,preexistingSecret=preexistingVersion,
-  scopeMismatch=false,failAt='',failDelete=false,failAppendAfterCommit=false,versionProject='123',
+  scopeMismatch=false,failAt='',failureMessage='Simulated sensitive failure',failDelete=false,failAppendAfterCommit=false,versionProject='123',
   versionState='ENABLED',preexistingVersionCount=preexistingVersion?1:0,mixedVersionProject}={}){
   const calls=[];let created=false,installed=null,versionCount=preexistingVersionCount;
   async function run(provider,args,stdin){
@@ -22,7 +24,7 @@ function makeRunner({preexistingKey=false,preexistingVersion=false,preexistingSe
     calls.push({provider,args,stdin:stdin?Buffer.from(stdin):null});
     if(failAt&&command.includes(failAt)&&!(provider==='b2'&&args[1]==='delete')&&
       !(failAppendAfterCommit&&provider==='gcloud'&&args.includes('add')))
-      throw Error('Simulated sensitive failure');
+      throw Error(failureMessage);
     if(provider==='b2'&&args[0]==='key'&&args[1]==='list')
       return (preexistingKey||created?listLine().replace(scopeMismatch?"'qualification/'":"no-match","'wrong/'"): '')+'\n';
     if(provider==='b2'&&args[0]==='key'&&args[1]==='create'){
@@ -181,6 +183,67 @@ test('uncertain append outcome preserves the restricted key and never retries or
   assert.ok(!message.includes(appKey));
   assert.equal(runner.calls.filter(c=>c.provider==='gcloud'&&c.args[2]==='add').length,1);
   assert.equal(runner.calls.filter(c=>c.provider==='b2'&&c.args[1]==='delete').length,0);
+});
+
+test('safe stage diagnostics identify provider boundary failures without provider text',async()=>{
+  const hostile='SYNTHETIC_KEY_123456789 https://example.invalid/?token=SYNTHETIC_TOKEN';
+  for(const [failure,expectedStage] of [
+    [makeRunner({failAt:'b2 key list --long',failureMessage:hostile}),'b2_key_list_preflight'],
+    [makeRunner({failAt:'secrets list',failureMessage:hostile}),'secret_list_preflight'],
+    [makeRunner({preexistingVersion:true,failAt:'secrets versions list',failureMessage:hostile}),'secret_version_preflight'],
+  ]){
+    let failureError;
+    try{await runBootstrap(failure,{appendExistingSecretVersion:true});}
+    catch(error){failureError=error;}
+    assert.equal(failureError?.safeDiagnostic?.stage,expectedStage);
+    const safeOutput=formatBootstrapFailure(failureError);
+    assert.ok(safeOutput.includes(`stage: ${expectedStage}`));
+    assert.ok(!safeOutput.includes(hostile));
+    assert.ok(!safeOutput.includes('SYNTHETIC_KEY_123456789'));
+    assert.ok(!safeOutput.includes('SYNTHETIC_TOKEN'));
+    assert.ok(!safeOutput.includes('example.invalid'));
+  }
+});
+
+test('safe diagnostics distinguish uncertain key creation and append while preserving cleanup facts',async()=>{
+  const creation=makeRunner({preexistingVersion:true,failAt:'b2 key create',failureMessage:'SYNTHETIC_APP_KEY'});
+  let creationError;
+  try{await runBootstrap(creation,{appendExistingSecretVersion:true});}
+  catch(error){creationError=error;}
+  assert.deepEqual(creationError?.safeDiagnostic,{stage:'b2_key_create_outcome_uncertain',cleanup:'key_creation_outcome_uncertain'});
+  assert.equal(formatBootstrapFailure(creationError).includes('SYNTHETIC_APP_KEY'),false);
+
+  const append=makeRunner({preexistingVersion:true,failAt:'secrets versions add',failureMessage:'SYNTHETIC_RECOVERY_DATA'});
+  let appendError;
+  try{await runBootstrap(append,{appendExistingSecretVersion:true});}
+  catch(error){appendError=error;}
+  assert.deepEqual(appendError?.safeDiagnostic,{stage:'secret_version_append',cleanup:'key_preserved_after_append'});
+  assert.equal(append.calls.filter(c=>c.provider==='b2'&&c.args[1]==='delete').length,0);
+  const safeOutput=formatBootstrapFailure(appendError);
+  assert.ok(safeOutput.includes('stage: secret_version_append'));
+  assert.ok(safeOutput.includes('cleanup: key_preserved_after_append'));
+  assert.ok(!safeOutput.includes('SYNTHETIC_RECOVERY_DATA'));
+});
+
+test('safe diagnostic formatter rejects unrecognized metadata and never echoes raw errors',()=>{
+  const output=formatBootstrapFailure({
+    message:'SYNTHETIC_SECRET must never appear',
+    safeDiagnostic:{stage:'../../private.txt',cleanup:'SYNTHETIC_SECRET'},
+  });
+  assert.ok(output.includes('stage: bootstrap_unknown'));
+  assert.ok(output.includes('cleanup: unknown'));
+  assert.ok(!output.includes('SYNTHETIC_SECRET'));
+  assert.ok(!output.includes('private.txt'));
+});
+
+test('CLI error boundary emits only a fixed argument-stage diagnostic before provider access',()=>{
+  const helperPath=fileURLToPath(new URL('../tools/bootstrap-b2-secret.mjs',import.meta.url));
+  const result=spawnSync(process.execPath,[helperPath,'--invalid','SYNTHETIC_SECRET'],{encoding:'utf8'});
+  assert.equal(result.status,1);
+  assert.equal(result.stdout,'');
+  assert.ok(result.stderr.includes('stage: arguments; cleanup: unknown'));
+  assert.ok(!result.stderr.includes('SYNTHETIC_SECRET'));
+  assert.ok(!result.stderr.includes('--invalid'));
 });
 
 test('CLI append option selects only the fixed qualification existing-version path',()=>{
