@@ -21,12 +21,16 @@ async function readMetadata(run,args){
   finally{if(Buffer.isBuffer(output))output.fill(0);}
 }
 
-const versionResourcePrefix=`projects/${project}/secrets/${secretName}/versions/`;
-function versionNames(list){
-  if(!Array.isArray(list)||list.length<1||list.some(v=>typeof v?.name!=='string'||
-    !v.name.startsWith(versionResourcePrefix)||!/^\d+$/.test(v.name.slice(versionResourcePrefix.length))))
+const versionResourcePattern=/^projects\/(\d+)\/secrets\/JUSTELLE_BACKUP_CONFIG\/versions\/(\d+)$/;
+function versionMetadata(list,expectedProjectNumber){
+  if(!Array.isArray(list)||list.length<1||list.some(v=>typeof v?.name!=='string'))
     throw Error('Secret-version metadata was invalid');
-  return list.map(v=>v.name);
+  const parsed=list.map(v=>versionResourcePattern.exec(v.name));
+  if(parsed.some(match=>!match))throw Error('Secret-version metadata was invalid');
+  const projectNumber=expectedProjectNumber??parsed[0][1];
+  if(!/^\d+$/.test(projectNumber)||parsed.some(match=>match[1]!==projectNumber))
+    throw Error('Secret-version metadata was invalid');
+  return {projectNumber,names:list.map(v=>v.name)};
 }
 
 const gcloudArgs=(...args)=>[...args,'--project='+project,'--quiet'];
@@ -42,7 +46,7 @@ export async function verifyExistingBackupUpdateTarget({keyId,run}){
   const listing=await run('b2',['key','list','--long']);
   try{verifyKeyList(listing,keyId,target);}finally{if(Buffer.isBuffer(listing))listing.fill(0);}
   const versions=await readMetadata(run,gcloudArgs('secrets','versions','list',secretName,'--format=json'));
-  versionNames(versions);
+  versionMetadata(versions);
   return {existing_key_scope_verified:true,existing_secret_version_present:true};
 }
 
@@ -61,7 +65,8 @@ export async function updateExistingBackupSecretVersion({
   try{
     const target=selectBootstrapTarget('qualification');
     const before=await readMetadata(run,gcloudArgs('secrets','versions','list',secretName,'--format=json'));
-    const beforeNames=versionNames(before);
+    const beforeMetadata=versionMetadata(before);
+    const beforeNames=beforeMetadata.names;
     // Revalidate key scope immediately before the append; the listing is
     // metadata only, and the key value never enters command arguments.
     const keyListing=await run('b2',['key','list','--long']);
@@ -77,8 +82,8 @@ export async function updateExistingBackupSecretVersion({
     let createdName;
     try{
       const created=parseJson(addOutput);
-      if(typeof created?.name!=='string'||!created.name.startsWith(versionResourcePrefix)||
-        !/^\d+$/.test(created.name.slice(versionResourcePrefix.length))||created.state!=='ENABLED'||
+      const createdMatch=typeof created?.name==='string'&&versionResourcePattern.exec(created.name);
+      if(!createdMatch||createdMatch[1]!==beforeMetadata.projectNumber||created.state!=='ENABLED'||
         beforeNames.includes(created.name))
         throw Error('Version response was not the expected new resource');
       createdName=created.name;
@@ -87,7 +92,7 @@ export async function updateExistingBackupSecretVersion({
     // If the write succeeded but readback is ambiguous, report uncertainty; do
     // not encourage a duplicate version or retry.
     const after=await readMetadata(run,gcloudArgs('secrets','versions','list',secretName,'--format=json'));
-    const afterNames=versionNames(after);
+    const afterNames=versionMetadata(after,beforeMetadata.projectNumber).names;
     const newVersion=after.find(v=>v.name===createdName);
     if(!newVersion||newVersion.state!=='ENABLED'||!beforeNames.every(name=>afterNames.includes(name)))
       throw Error('Secret-version write outcome is uncertain; inspect metadata before any retry');

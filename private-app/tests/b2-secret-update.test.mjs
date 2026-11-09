@@ -6,9 +6,10 @@ import {capabilities} from '../tools/bootstrap-b2-secret.mjs';
 const endpoint='https://s3.us-west-004.backblazeb2.com';
 const keyId='syntheticKeyId123';
 const applicationKey='SYNTHETIC_ONLY_application_key_123';
+const projectNumber='123456789012';
 const keyLine=keyId+' justelle-qualification-backup justelle-qualification-backups - - \'qualification/\' '+capabilities.join(',');
 
-function fakeRun({scope=keyLine,initialVersions=2,afterCount,failWrite=false,failAfterAdd=false,
+function fakeRun({scope=keyLine,resourceProject=projectNumber,appendProject=resourceProject,afterProject=resourceProject,initialVersions=2,afterCount,failWrite=false,failAfterAdd=false,
   failWriteConcurrent=false}={}){
   const calls=[];let versions=initialVersions,stdinCopy;
   const run=async(provider,args,stdin)=>{
@@ -17,14 +18,14 @@ function fakeRun({scope=keyLine,initialVersions=2,afterCount,failWrite=false,fai
     if(provider==='gcloud'&&args.includes('versions')&&args.includes('list')){
       if(failAfterAdd&&versions>initialVersions)throw Error('synthetic metadata readback failure');
       return JSON.stringify(Array.from({length:afterCount??versions},(_,i)=>({
-        name:`projects/justelle-qualification/secrets/JUSTELLE_BACKUP_CONFIG/versions/${i+1}`,state:'ENABLED',
+        name:`projects/${versions>initialVersions?afterProject:resourceProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${i+1}`,state:'ENABLED',
       })));
     }
     if(provider==='gcloud'&&args.includes('versions')&&args.includes('add')){
       if(failWriteConcurrent){versions++;throw Error('synthetic provider failure');}
       if(failWrite)throw Error('synthetic provider failure');
       stdinCopy=Buffer.from(stdin);versions++;
-      return JSON.stringify({name:`projects/justelle-qualification/secrets/JUSTELLE_BACKUP_CONFIG/versions/${versions}`,state:'ENABLED'});
+      return JSON.stringify({name:`projects/${appendProject}/secrets/JUSTELLE_BACKUP_CONFIG/versions/${versions}`,state:'ENABLED'});
     }
     throw Error('Unexpected synthetic command');
   };
@@ -60,6 +61,39 @@ test('metadata-only preflight verifies existing scope/version before any credent
     ['b2',['key','list','--long']],['gcloud',['secrets','versions','list']],
   ]);
   assert.equal(fake.calls.some(c=>c.args.includes('add')||c.args.includes('create')),false);
+});
+
+test('accepts canonical numeric Secret Manager project resource names',async()=>{
+  const fake=fakeRun();
+  assert.deepEqual(await verifyExistingBackupUpdateTarget({keyId,run:fake.run}),
+    {existing_key_scope_verified:true,existing_secret_version_present:true});
+  const result=await call(fake);
+  assert.equal(result.secret_version_appended,true);
+  assert.equal(result.prior_versions_preserved,true);
+});
+
+test('rejects project-ID and mixed-project version resource names',async()=>{
+  for(const fake of [fakeRun({resourceProject:'justelle-qualification'})])
+    await assert.rejects(verifyExistingBackupUpdateTarget({keyId,run:fake.run}),/metadata/i);
+  const mixed=fakeRun();
+  const original=mixed.run;
+  let listCount=0;
+  mixed.run=async(provider,args,stdin)=>{
+    const result=await original(provider,args,stdin);
+    if(provider==='gcloud'&&args.includes('versions')&&args.includes('list')&&++listCount===1){
+      const rows=JSON.parse(result);rows[1].name='projects/987654321098/secrets/JUSTELLE_BACKUP_CONFIG/versions/2';
+      return JSON.stringify(rows);
+    }
+    return result;
+  };
+  await assert.rejects(verifyExistingBackupUpdateTarget({keyId,run:mixed.run}),/metadata/i);
+});
+
+test('rejects append and readback names that differ from the canonical numeric project returned by listing',async()=>{
+  for(const fake of [fakeRun({appendProject:'987654321098'}),fakeRun({afterProject:'987654321098'})]){
+    await assert.rejects(call(fake),/outcome is uncertain/);
+    assert.equal(fake.calls.filter(c=>c.args.includes('add')).length,1);
+  }
 });
 
 test('refuses wrong key scope, missing existing version, bad custody, and invalid inputs before write',async()=>{
