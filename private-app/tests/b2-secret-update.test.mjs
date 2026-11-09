@@ -6,7 +6,7 @@ import {capabilities} from '../tools/bootstrap-b2-secret.mjs';
 const endpoint='https://s3.us-west-004.backblazeb2.com';
 const keyId='syntheticKeyId123';
 const applicationKey='SYNTHETIC_ONLY_application_key_123';
-const projectNumber='589691557958';
+const projectNumber='123456789012';
 const keyLine=keyId+' justelle-qualification-backup justelle-qualification-backups - - \'qualification/\' '+capabilities.join(',');
 
 function fakeRun({scope=keyLine,canonicalProjectNumber=projectNumber,resourceProject=canonicalProjectNumber,initialVersions=2,afterCount,failWrite=false,failAfterAdd=false,
@@ -77,7 +77,7 @@ test('accepts canonical numeric Secret Manager project resource names',async()=>
 
 test('rejects project-ID, wrong numeric project, and mixed-project version resource names',async()=>{
   for(const fake of [fakeRun({resourceProject:'justelle-qualification'}),
-    fakeRun({resourceProject:'123456789012'})])
+    fakeRun({resourceProject:'987654321098'})])
     await assert.rejects(verifyExistingBackupUpdateTarget({keyId,run:fake.run}),/metadata/i);
   const mixed=fakeRun();
   const original=mixed.run;
@@ -85,7 +85,7 @@ test('rejects project-ID, wrong numeric project, and mixed-project version resou
   mixed.run=async(provider,args,stdin)=>{
     const result=await original(provider,args,stdin);
     if(provider==='gcloud'&&args.includes('versions')&&args.includes('list')&&++listCount===1){
-      const rows=JSON.parse(result);rows[1].name='projects/123456789012/secrets/JUSTELLE_BACKUP_CONFIG/versions/2';
+      const rows=JSON.parse(result);rows[1].name='projects/987654321098/secrets/JUSTELLE_BACKUP_CONFIG/versions/2';
       return JSON.stringify(rows);
     }
     return result;
