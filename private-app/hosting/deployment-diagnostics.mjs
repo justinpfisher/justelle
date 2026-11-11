@@ -8,6 +8,7 @@ const phases=new Set([
   'deployment-config-cleanup','firebase-deploy','rollback-source-checkout',
   'release-precheck','release-state-read','release-state-write',
   'release-or-qualification-drill','hosted-smoke-check','qualification-shutdown-check',
+  'qualification-run-access-read','qualification-run-access-restore',
   'shutdown-run-access','shutdown-hosting'
 ]);
 
