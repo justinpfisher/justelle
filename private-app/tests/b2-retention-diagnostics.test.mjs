@@ -5,6 +5,26 @@ import {createHostedAcceptanceProgress,renderHostedAcceptanceFailureSummary} fro
 
 const request={bucket:'fictional-qualification-bucket',key:'qualification/fictional-backup.jmb',versionId:'fictional-version'};
 
+test('B2 object retention accepts the nested SDK response and exact object version',async()=>{
+  let calls=0;
+  await requestAndValidateB2ObjectRetention({send:async command=>{
+    calls++;
+    assert.equal(command.constructor.name,'GetObjectRetentionCommand');
+    assert.deepEqual(command.input,{Bucket:request.bucket,Key:request.key,VersionId:request.versionId});
+    return {Retention:{Mode:'GOVERNANCE',RetainUntilDate:new Date(Date.now()+86_400_000)},
+      $metadata:{httpStatusCode:200,requestId:'fictional-request'}};
+  }},request);
+  assert.equal(calls,1);
+});
+
+test('B2 object retention omits absent version and rejects missing nested retention',async()=>{
+  const {versionId,...withoutVersion}=request;
+  await assert.rejects(requestAndValidateB2ObjectRetention({send:async command=>{
+    assert.deepEqual(command.input,{Bucket:request.bucket,Key:request.key});
+    return {Mode:'GOVERNANCE',RetainUntilDate:new Date(Date.now()+86_400_000)};
+  }},withoutVersion),{name:'B2ObjectRetentionValidationError'});
+});
+
 async function summaryForFailure(client){
   const progress=createHostedAcceptanceProgress();
   progress.start('ENCRYPTED_BACKUP_DOWNLOAD_AND_RESTORE');
@@ -41,7 +61,7 @@ test('B2 retention request failures emit only allowlisted status and error categ
 test('B2 retention response validation emits a fixed reason without response metadata',async()=>{
   const sensitive='fictional-version-id private-object-name encrypted-payload';
   const summary=await summaryForFailure({send:async()=>({
-    Mode:'GOVERNANCE',RetainUntilDate:'2026-12-08T03:20:00Z',VersionId:sensitive,Key:sensitive
+    Retention:{Mode:'GOVERNANCE',RetainUntilDate:'2026-12-08T03:20:00Z'},VersionId:sensitive,Key:sensitive
   })});
   assert.match(summary,/B2 object-retention response validation category: `RETAIN_UNTIL_DATE_NOT_DATE`/);
   for(const value of [sensitive,'2026-12-08T03:20:00Z','GOVERNANCE'])assert.equal(summary.includes(value),false);
@@ -55,7 +75,7 @@ test('B2 retention response validation reasons remain fixed and allowlisted',asy
     [{Mode:'GOVERNANCE',RetainUntilDate:new Date(0)},'RETENTION_NOT_FUTURE']
   ];
   for(const [response,reason] of cases){
-    const summary=await summaryForFailure({send:async()=>response});
+    const summary=await summaryForFailure({send:async()=>({Retention:response})});
     assert.match(summary,new RegExp('B2 object-retention response validation category: `'+reason+'`'));
   }
 });

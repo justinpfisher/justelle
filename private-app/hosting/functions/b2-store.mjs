@@ -117,7 +117,7 @@ export async function requestAndValidateB2ObjectRetention(client,{bucket,key,ver
     // Discard the original SDK error: it can contain object IDs and raw provider text.
     throw objectRetentionRequestError(error);
   }
-  validateB2ObjectRetention(result);
+  validateB2ObjectRetention(result?.Retention);
 }
 
 export function createB2Store(config){
