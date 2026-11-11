@@ -12,7 +12,7 @@ import {smoke} from './smoke.mjs';
 import {buildEnvironment,functionEnvironment} from './deployment-config.mjs';
 import {stageFirebaseDeploymentConfig} from './firebase-deployment-config.mjs';
 import {validateGeneratedFunctionsScope,validateLegacyRollbackFunctionsScope} from './functions-scope.mjs';
-import {qualificationDrill,checkQualificationClosed} from './qualification-drill.mjs';
+import {qualificationDrill,checkQualificationClosed,checkQualificationRestored,hasPublicInvoker} from './qualification-drill.mjs';
 import {changedPaths,requireHostedEvidence} from '../../scripts/release-scope.mjs';
 import {createDeploymentFailureRecorder,deploymentFailureDiagnostic,finalizeDeploymentFailure} from './deployment-diagnostics.mjs';
 import {buildFirebaseCliInvocation,parseFirebaseCliRequestDiagnostics} from './firebase-cli-request-diagnostics.mjs';
@@ -37,6 +37,10 @@ try{
   const configName=config.mode==='production'?'firebase.production.json':'firebase.json';
   const runtimeFile='hosting/functions/.env.'+config.projectId;
   const shell=process.env.ComSpec||'cmd.exe';
+  // Arguments are fixed below; projectId is validated before shell use.
+  const gcloud=(args,options={})=>run(process.platform==='win32'?shell:'gcloud',
+    process.platform==='win32'?['/d','/s','/c','gcloud.cmd '+args.join(' ')]:args,
+    {maxBuffer:1024*1024,...options});
   const npm=async(args,directory)=>run(process.platform==='win32'?shell:'npm',
     // These arguments are fixed below, never configuration or caller input.
     process.platform==='win32'?['/d','/s','/c','npm.cmd '+args.join(' ')]:args,
@@ -94,10 +98,7 @@ try{
       const args=['run','services','remove-iam-policy-binding',
         'privateapi','--region','northamerica-northeast1','--project',config.projectId,
         '--member','allUsers','--role','roles/run.invoker','--quiet'];
-      // projectId is already restricted to lowercase letters, digits and hyphens.
-      return run(process.platform==='win32'?shell:'gcloud',
-        process.platform==='win32'?['/d','/s','/c','gcloud.cmd '+args.join(' ')]:args,
-        {maxBuffer:1024*1024});
+      return gcloud(args);
     }),
     disableHosting:()=>atPhase('shutdown-hosting',()=>{providerMutationMayHaveStarted=true;return run(process.execPath,[
       join(root,'node_modules/firebase-tools/lib/bin/firebase.js'),'hosting:disable',
@@ -119,8 +120,21 @@ try{
     const resolved=(await atPhase('source-revision',()=>run('git',['rev-parse','--verify',previousSha+'^{commit}'],{cwd:root}))).stdout.trim();
     if(resolved!==previousSha)throw Error('Prior source is not a commit');
     await atPhase('source-revision',()=>run('git',['merge-base','--is-ancestor',previousSha,sha],{cwd:root}));
+    const runTarget=['privateapi','--region','northamerica-northeast1','--project',config.projectId];
+    const readPublicInvoker=async()=>hasPublicInvoker(JSON.parse((await gcloud([
+      'run','services','get-iam-policy',...runTarget,'--format=json'],{timeout:20000})).stdout));
     await qualificationDrill({config,sha,previousSha,deploy:deploySource,
       check:version=>atPhase('hosted-smoke-check',()=>smoke({...config,sha:version})),failClosed,
+      readPublicInvoker:()=>atPhase('qualification-run-access-read',readPublicInvoker),
+      restorePublicInvoker:()=>atPhase('qualification-run-access-restore',async()=>{
+        // Restore only the unconditional binding verified before this drill.
+        // Preserve all other members, roles and conditions in the live policy.
+        providerMutationMayHaveStarted=true;
+        await gcloud(['run','services','add-iam-policy-binding',...runTarget,
+          '--member','allUsers','--role','roles/run.invoker','--condition=None','--quiet']);
+      }),
+      checkRestored:version=>atPhase('hosted-smoke-check',()=>checkQualificationRestored({
+        readPublicInvoker,check:()=>smoke({...config,sha:version})})),
       checkClosed:()=>atPhase('qualification-shutdown-check',()=>checkQualificationClosed(config.origin)),report});
   }else{
     failurePhase='release-precheck';

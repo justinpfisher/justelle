@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {release,disableInitialService} from '../hosting/release-core.mjs';
-import {qualificationDrill,checkQualificationClosed} from '../hosting/qualification-drill.mjs';
+import {qualificationDrill,checkQualificationClosed,checkQualificationRestored,hasPublicInvoker} from '../hosting/qualification-drill.mjs';
 const sha='a'.repeat(40),old='b'.repeat(40);
 function setup({failure=null,previous=true,rollbackFailure=false}={}){
   const calls=[];
@@ -62,18 +62,22 @@ const fictionalConfig={mode:'hosted-fictional',projectId:'justelle-qualification
  gatewayServiceAccount:'gateway@justelle-qualification.iam.gserviceaccount.com',
  backupServiceAccount:'backup@justelle-qualification.iam.gserviceaccount.com'};
 function drillSetup(){
- const calls=[];let deployed=sha;
+ const calls=[];let deployed=sha,publicInvoker=true;
  return {calls,options:{config:fictionalConfig,sha,previousSha:old,
   deploy:async version=>{calls.push(['deploy',version]);deployed=version;},
   check:async version=>{calls.push(['check',version]);assert.equal(deployed,version);},
-  failClosed:async()=>{calls.push(['disable']);deployed=null;},
+  failClosed:async()=>{calls.push(['disable']);deployed=null;publicInvoker=false;},
   checkClosed:async()=>{calls.push(['check-closed']);assert.equal(deployed,null);},
+  readPublicInvoker:async()=>publicInvoker,
+  restorePublicInvoker:async()=>{calls.push(['restore-invoker']);publicInvoker=true;},
+  checkRestored:async version=>{calls.push(['check-restored',version]);
+   assert.equal(deployed,version);assert.equal(publicInvoker,true);},
   report:async result=>calls.push(['report',result])}};
 }
 test('Fictional cloud drill exercises automatic rollback and initial shutdown then restores exact starting source',async()=>{
  const s=drillSetup();assert.equal((await qualificationDrill(s.options)).verified,true);
  assert.deepEqual(s.calls.filter(c=>c[0]==='deploy').map(c=>c[1]),[old,sha,old,sha,sha]);
- assert.deepEqual(s.calls.slice(-3,-1),[['deploy',sha],['check',sha]]);
+ assert.deepEqual(s.calls.slice(-4,-1),[['deploy',sha],['restore-invoker'],['check-restored',sha]]);
  assert.equal(s.calls.at(-1)[1].status,'qualification-drill-verified');
  assert.equal(s.calls.at(-1)[1].previousSha,old);
  assert.equal(s.calls.filter(c=>c[0]==='check-closed').length,1);
@@ -106,7 +110,8 @@ test('Unexpected cloud failure cannot count as injected failure and still restor
   await assert.rejects(qualificationDrill({...s.options,deploy,
    failClosed:fault==='shutdown'?async()=>{throw Error('IAM denied');}:s.options.failClosed,
    checkClosed:fault==='closed-check'?async()=>{throw Error('Still public');}:s.options.checkClosed}));
-  assert.deepEqual(s.calls.slice(-3,-1),[['deploy',sha],['check',sha]]);
+  assert.deepEqual(s.calls.at(-2),['check-restored',sha]);
+  assert.equal(s.calls.some(c=>c[0]==='restore-invoker'),['shutdown','closed-check'].includes(fault));
   assert.equal(s.calls.at(-1)[1].status,'qualification-drill-failed-restored');
  }
 });
@@ -122,11 +127,93 @@ test('Unverified starting service is untouched; failed restoration is reported a
 });
 test('Cloud shutdown needs actual denied HTTP responses, not an outage or a still-serving page',async()=>{
  const origin=fictionalConfig.origin;
- await checkQualificationClosed(origin,async()=>new Response('',{status:404}));
+ await checkQualificationClosed(origin,async()=>new Response('',{status:404}),fastPoll());
  for(const status of [200,301,500])await assert.rejects(checkQualificationClosed(origin,
-  async()=>new Response('',{status})));
- await assert.rejects(checkQualificationClosed(origin,async()=>{throw Error('Network unavailable');}));
+  async()=>new Response('',{status}),fastPoll()),/did not converge/);
+ await assert.rejects(checkQualificationClosed(origin,async()=>{throw Error('Network unavailable');},fastPoll()),/did not converge/);
  await assert.rejects(checkQualificationClosed('https://app.justelle.life',async()=>{
   throw Error('Production must never be contacted');
  }));
+});
+
+function fastPoll(timeoutMs=50){
+ let time=0;
+ return {timeoutMs,intervalMs:5,now:()=>time,wait:async ms=>{time+=ms;}};
+}
+
+test('Shutdown polling waits for both denied routes twice after delayed Hosting propagation',async()=>{
+ const statuses=[200,403,200,404,403,403,404],requests=[];
+ await checkQualificationClosed(fictionalConfig.origin,async(url,options)=>{
+  requests.push(new URL(url).pathname);
+  assert.equal(options.redirect,'error');assert.equal(options.cache,'no-store');
+  assert.ok(options.signal instanceof AbortSignal);
+  return new Response('',{status:statuses.shift()});
+ },fastPoll());
+ assert.deepEqual(statuses,[]);
+ assert.deepEqual(requests,['/','/','/api/healthz','/','/api/healthz','/','/api/healthz']);
+});
+
+test('A transient closed observation cannot hide a reopened or persistently live route',async()=>{
+ for(const statuses of [[403,404,200],[403,200]]){
+  let count=0;
+  await assert.rejects(checkQualificationClosed(fictionalConfig.origin,async()=>
+   new Response('',{status:statuses[Math.min(count++,statuses.length-1)]}),fastPoll()),/did not converge/);
+  assert.ok(count>statuses.length);
+ }
+});
+
+test('Only the existing unconditional allUsers Run invoker binding qualifies for restoration',()=>{
+ const binding={role:'roles/run.invoker',members:['allUsers','serviceAccount:fictional@example.invalid']};
+ assert.equal(hasPublicInvoker({bindings:[binding]}),true);
+ for(const policy of [{},{bindings:[]},{bindings:[{...binding,condition:{expression:'true'}}]},
+  {bindings:[{...binding,role:'roles/viewer'}]},
+  {bindings:[{...binding,members:['allAuthenticatedUsers']}]}])assert.equal(hasPublicInvoker(policy),false);
+ for(const invalid of [null,undefined,{bindings:{}}])assert.throws(()=>hasPublicInvoker(invalid));
+});
+
+test('A starting HTTP success cannot authorize adding a binding absent from the initial policy',async()=>{
+ const s=drillSetup();
+ await assert.rejects(qualificationDrill({...s.options,readPublicInvoker:async()=>false}),/policy was not verified/);
+ assert.deepEqual(s.calls,[['check',sha]]);
+});
+
+test('Unchanged source deployment cannot falsely report restored access after shutdown',async()=>{
+ const s=drillSetup();
+ await assert.rejects(qualificationDrill({...s.options,restorePublicInvoker:async()=>{}}));
+ assert.equal(s.calls.at(-1)[1].status,'qualification-drill-recovery-failed');
+});
+
+test('Partial shutdown still restores its captured binding; a denied restoration is a recovery failure',async()=>{
+ const s=drillSetup();
+ await assert.rejects(qualificationDrill({...s.options,failClosed:async()=>{
+  await s.options.failClosed();throw Error('Hosting disable failed after IAM removal');
+ }}));
+ assert.deepEqual(s.calls.slice(-4,-1),[['deploy',sha],['restore-invoker'],['check-restored',sha]]);
+ assert.equal(s.calls.at(-1)[1].status,'qualification-drill-failed-restored');
+ const r=drillSetup();
+ await assert.rejects(qualificationDrill({...r.options,
+  restorePublicInvoker:async()=>{throw Error('IAM restore denied');}}));
+ assert.equal(r.calls.at(-1)[1].status,'qualification-drill-recovery-failed');
+ assert.equal(r.calls.some(c=>c[0]==='check-restored'),false);
+});
+
+test('Restoration waits for policy and full smoke convergence, not one stale HTTP success',async()=>{
+ let reads=0,smokes=0;
+ await checkQualificationRestored({readPublicInvoker:async()=>++reads>2,
+  check:async()=>{if(++smokes===1)throw Error('Still 403 while IAM propagates');}},fastPoll());
+ assert.equal(reads,5);assert.equal(smokes,3);
+ for(const fault of ['policy','smoke','transient']){
+  let checks=0;
+  await assert.rejects(checkQualificationRestored({readPublicInvoker:async()=>fault!=='policy',
+   check:async()=>{if(fault!=='transient'||++checks>1)throw Error('Wrong SHA or private access');}
+  },fastPoll()),/did not converge/);
+ }
+});
+
+test('Nonconvergent restoration reports recovery failure rather than a restored drill',async()=>{
+ const s=drillSetup();
+ await assert.rejects(qualificationDrill({...s.options,checkRestored:()=>checkQualificationRestored({
+  readPublicInvoker:async()=>true,check:async()=>{throw Error('Still closed');}
+ },fastPoll())}),/did not converge/);
+ assert.equal(s.calls.at(-1)[1].status,'qualification-drill-recovery-failed');
 });
