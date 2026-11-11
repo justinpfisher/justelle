@@ -20,6 +20,16 @@ on:
         type: boolean
         required: false
         default: false
+      rollback_drill_once:
+        description: Run the existing one-time qualification rollback and shutdown drill from main
+        type: boolean
+        required: false
+        default: false
+      rollback_previous_sha:
+        description: Exact compatible prior 40-character source SHA for the rollback drill
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -53,6 +63,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
+      inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&
       !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
         inputs.qualify_once == true && inputs.storage_probe_once != true && vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
@@ -122,6 +133,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       inputs.storage_probe_once == true &&
       inputs.qualify_once != true &&
+      inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
       vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
@@ -157,6 +169,7 @@ jobs:
       always() && !cancelled() &&
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
+      inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once == true &&
       inputs.qualify_once != true &&
       inputs.storage_probe_once != true &&
@@ -228,6 +241,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
       inputs.storage_probe_once != true &&
+      inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&
       (vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' ||
         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.qualify_once == true)) &&
@@ -286,12 +300,77 @@ jobs:
         if: always()
         run: rm -f /tmp/justelle-qa.release.json /tmp/justelle-qa-backup.release.json /tmp/justelle-qa-private.log
 
+  qualification-rollback-drill:
+    name: One-time qualification cloud rollback drill
+    needs: [changes, private-pilot, windows-preview]
+    if: >-
+      always() && !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.rollback_drill_once == true &&
+      inputs.qualify_once != true &&
+      inputs.storage_probe_once != true &&
+      inputs.hosting_preflight_once != true &&
+      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
+      vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
+      needs.private-pilot.result == 'success' &&
+      (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: justelle-qualification
+    # Multiple deployments include the final restoration; do not use the single-deploy budget.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: justelle-hosted-qualification
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate exact prior source before authentication
+        env:
+          PREVIOUS_SHA: ${{ inputs.rollback_previous_sha }}
+        run: |
+          node --input-type=module -e "import {execFileSync} from 'node:child_process'; const sha=process.env.PREVIOUS_SHA; const git=(args)=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim(); try { if(!/^[a-f0-9]{40}$/.test(sha||'') || sha===git(['rev-parse','HEAD']) || git(['rev-parse','--verify',sha+'^{commit}'])!==sha) throw Error(); git(['merge-base','--is-ancestor',sha,'HEAD']); } catch { console.error('A distinct exact prior ancestor SHA is required.'); process.exitCode=1; }"
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
+          service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
+      - name: Prepare private deployment configuration
+        env:
+          CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
+        run: |
+          node --input-type=module -e "import {writeFileSync} from 'node:fs'; writeFileSync('/tmp/justelle-qa.release.json',process.env.CONFIG,{mode:0o600});"
+      - name: Stage checked starting HEAD in qualification only (no AI or B2 acceptance)
+        run: node hosting/deploy.mjs /tmp/justelle-qa.release.json qualification
+        working-directory: private-app
+      - name: Exercise cloud rollback, shutdown and starting-source restoration
+        env:
+          PREVIOUS_SHA: ${{ inputs.rollback_previous_sha }}
+        run: node hosting/deploy.mjs /tmp/justelle-qa.release.json qualification-drill "$PREVIOUS_SHA"
+        working-directory: private-app
+      - name: Report incomplete drill
+        if: failure() || cancelled()
+        run: echo "Qualification rollback drill did not complete successfully. Check the sanitized recovery status and private provider state before retrying; cancellation or timeout can interrupt restoration. Production remains held." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove ephemeral private configuration
+        if: always()
+        run: rm -f /tmp/justelle-qa.release.json
+
   production-release:
     name: Automatic private application release
     needs: [changes, private-pilot, windows-preview, hosted-qualification]
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
       inputs.storage_probe_once != true &&
+      inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&
       vars.JUSTELLE_INITIAL_ACCEPTANCE == 'verified' && needs.private-pilot.result == 'success' &&
