@@ -80,7 +80,7 @@ test('read-only Hosting preflight requires only the held main dispatch and never
 
 test('production guard remains ineligible for a read-only probe and retains its existing acceptance conditions',()=>{
   const release=job('production-release');
-  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*inputs\.storage_probe_once != true &&\s*inputs\.hosting_preflight_once != true &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
+  assert.match(release,/github\.ref == 'refs\/heads\/main' &&\s*inputs\.storage_probe_once != true &&\s*inputs\.rollback_drill_once != true &&\s*inputs\.hosting_preflight_once != true &&\s*vars\.JUSTELLE_HOSTED_QUALIFICATION_HOLD != 'true' &&\s*vars\.JUSTELLE_INITIAL_ACCEPTANCE == 'verified'/);
   assert.doesNotMatch(release,/qualify_once|workflow_dispatch/);
 });
 
@@ -216,3 +216,51 @@ test('probe selector cannot qualify or release when the persistent hold is false
   });
 });
 
+
+test('one-time cloud rollback drill is opt-in, isolated and uses existing recovery command',()=>{
+  assert.match(workflow,/rollback_drill_once:\s*\n\s+description:.*\r?\n\s+type: boolean\s*\n\s+required: false\s*\n\s+default: false/);
+  assert.match(workflow,/rollback_previous_sha:\s*\n\s+description:.*\r?\n\s+type: string\s*\n\s+required: false\s*\n\s+default: ''/);
+  const drill=job('qualification-rollback-drill');
+  for(const fragment of ["github.event_name == 'workflow_dispatch'", "github.ref == 'refs/heads/main'",
+    'inputs.rollback_drill_once == true','inputs.qualify_once != true','inputs.storage_probe_once != true',
+    'inputs.hosting_preflight_once != true',"vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true'",
+    "vars.JUSTELLE_HOSTED_CONFIGURED == 'true'","needs.private-pilot.result == 'success'",
+    "needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped'",
+    'environment: justelle-qualification','fetch-depth: 0','group: justelle-hosted-qualification',
+    'cancel-in-progress: false','timeout-minutes: 120','secrets.JUSTELLE_WIF_PROVIDER',
+    'secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT','secrets.JUSTELLE_DEPLOY_CONFIG',
+    'qualification-drill "$PREVIOUS_SHA"','if: always()','rm -f /tmp/justelle-qa.release.json'])
+    assert.ok(drill.includes(fragment),fragment);
+  assert.ok(drill.indexOf('Validate exact prior source')<drill.indexOf('google-github-actions/auth'));
+  assert.ok(drill.indexOf('Validate exact prior source')<drill.indexOf('Stage checked starting HEAD'));
+  assert.ok(drill.indexOf('Stage checked starting HEAD')<drill.indexOf('Exercise cloud rollback'));
+  assert.match(drill,/run: node hosting\/deploy\.mjs \/tmp\/justelle-qa\.release\.json qualification\r?\n/);
+  assert.match(drill,/const sha=process\.env\.PREVIOUS_SHA/);
+  assert.match(drill,/sha===git\(\['rev-parse','HEAD'\]\)/);
+  assert.match(drill,/sha\+'\^\{commit\}'/);
+  assert.doesNotMatch(drill,/\$\{\{ inputs\.rollback_previous_sha \}\}.*qualification-drill/);
+
+  assert.match(drill,/merge-base','--is-ancestor'/);
+  assert.doesNotMatch(drill,/accept-hosted|JUSTELLE_BACKUP_CONFIG|gcloud secrets|JUSTELLE_QUALIFICATION_SERVICE_ACCOUNT/);
+  for(const id of ['hosted-qualification','production-release','firebase-storage-default-bucket-probe',
+    'qualification-hosting-preflight','hosted-qualification-hold'])
+    assert.match(job(id),/inputs\.rollback_drill_once != true/);
+});
+
+test('rollback dispatch cannot run other provider jobs or bypass existing prerequisites',()=>{
+  const common={event:'workflow_dispatch',branch:'main',rollbackDrillOnce:true,hold:'true',
+    hostedConfigured:'true',initialAcceptance:'verified',hostedChanges:true,qualificationResult:'success'};
+  assert.deepEqual(hostedQualificationPolicy(common),{
+    qualification:'skipped',holdReport:'not-applicable',production:'skipped',rollbackDrill:'run'
+  });
+  for(const overrides of [{event:'push'},{event:'pull_request'},{branch:'feature'},{hold:'false'},
+    {hostedConfigured:'false'},{privatePilot:'failure'},{privatePilot:'cancelled'},{windowsPreview:'failure'},
+    {windowsPreview:'cancelled'},{qualifyOnce:true},{storageProbeOnce:true},{hostingPreflightOnce:true}]){
+    const result=hostedQualificationPolicy({...common,...overrides});
+    assert.equal(result.rollbackDrill,'skipped');
+    assert.equal(result.qualification,'skipped');
+    assert.equal(result.production,'skipped');
+    if(overrides.hostingPreflightOnce)assert.equal(result.hostingPreflight,'skipped');
+    assert.equal(firebaseStorageProbePolicy({...common,...overrides,storageProbeOnce:true}),'skipped');
+  }
+});
