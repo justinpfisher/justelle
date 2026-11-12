@@ -12,7 +12,7 @@ await mkdir(join(root,'dist'),{recursive:true});
 for(const file of ['manifest.webmanifest','justelle-caricature.png'])await copyFile(join(root,'web',file),join(root,'dist',file));
 const html=await readFile(join(root,'dist/index.html'),'utf8');
 if(!html.includes('assets/')||html.includes('/main.mjs'))throw Error('Private build has unresolved source modules');
-const cacheVersion=createHash('sha256').update(html).digest('hex').slice(0,16);
 const worker=await readFile(join(root,'web/offline-shell-worker.js'),'utf8');
 if(!worker.includes('__CACHE_VERSION__'))throw Error('Offline shell worker is missing its build version marker');
+const cacheVersion=createHash('sha256').update(html).update(worker).digest('hex').slice(0,16);
 await writeFile(join(root,'dist/offline-shell-worker.js'),worker.replaceAll('__CACHE_VERSION__',cacheVersion));
