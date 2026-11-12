@@ -6,6 +6,7 @@ const ID=/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const UUID=/^[a-f0-9-]{36}$/;
 const DB_NAME='justelle-private-offline-v1';
 const STORE_NAME='items';
+class OfflineIntegrityError extends Error{}
 
 const safeScopePart=value=>{
   if(typeof value!=='string'||!value||value.length>180||/[\u0000-\u001f]/.test(value))
@@ -196,7 +197,7 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       const data=clone(row.data),{sha256:expectedHash,...content}=data;
       if(!/^[a-f0-9]{64}$/.test(expectedHash||'')||await sha256(new TextEncoder().encode(JSON.stringify(content)))!==expectedHash){
         assertCurrent();await backend.remove(key('booking',bookingId));
-        throw Error('Saved booking snapshot failed its integrity check');
+        throw new OfflineIntegrityError('Saved booking snapshot failed its integrity check');
       }
       assertCurrent();return data;
     },
@@ -204,20 +205,29 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       assertCurrent();await ready();assertCurrent();
       const rows=await backend.listOwner(ownerKey);assertCurrent();
       const essentials=[],linkedDocuments=new Set();
+      const readCopy=async read=>{
+        try{return await read();}
+        catch(error){
+          // One removed, damaged copy must not hide the other saved essentials.
+          // Session and storage failures still stop the whole read.
+          if(!(error instanceof OfflineIntegrityError))throw error;
+          assertCurrent();return null;
+        }
+      };
       for(const row of rows){
         if(row.scopeKey!==scopeKey||row.kind!=='booking'||typeof row.recordId!=='string')continue;
-        const booking=await this.getBooking(row.recordId);
+        const booking=await readCopy(()=>this.getBooking(row.recordId));
         if(!booking||!isCurrent())continue;
-        const savedOriginal=booking.documentId?await this.getDocument(booking.documentId):null;
+        const savedOriginal=booking.documentId?await readCopy(()=>this.getDocument(booking.documentId)):null;
         if(savedOriginal)linkedDocuments.add(savedOriginal.id);
         essentials.push({booking,savedOriginal});
       }
       for(const row of rows){
         if(row.scopeKey!==scopeKey||row.kind!=='document'||typeof row.recordId!=='string'||linkedDocuments.has(row.recordId))continue;
-        const savedOriginal=await this.getDocument(row.recordId);
+        const savedOriginal=await readCopy(()=>this.getDocument(row.recordId));
         if(savedOriginal&&isCurrent())essentials.push({booking:null,savedOriginal});
       }
-      return essentials;
+      assertCurrent();return essentials;
     },
     async saveDocument({id:documentId,name,mime,size,sha256:expectedHash,bytes,revision,writeToken=null}){
       if(!UUID.test(documentId||'')||typeof name!=='string'||!name.trim()||name.length>180||
@@ -246,7 +256,7 @@ export function createOfflineDocumentCache({scope,indexedDB=globalThis.indexedDB
       const data=clone(row.data);
       if(!(data.bytes instanceof Uint8Array)||data.bytes.byteLength!==data.size||await sha256(data.bytes)!==data.sha256){
         assertCurrent();await backend.remove(key('document',documentId));
-        throw Error('Saved original failed its integrity check');
+        throw new OfflineIntegrityError('Saved original failed its integrity check');
       }
       assertCurrent();return data;
     },
