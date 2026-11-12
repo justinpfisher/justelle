@@ -6,24 +6,31 @@ const isAppShellPath=path=>STATIC_PATHS.has(path)||path.startsWith('/assets/')||
 
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{
-    const response=await fetch('/',{cache:'no-store'});
-    if(!response.ok)throw Error('App shell unavailable during offline preparation');
-    const html=await response.clone().text(),paths=new Set(['/']);
-    for(const match of html.matchAll(/\b(?:src|href)=["']([^"']+)["']/g)){
-      try{
-        const url=new URL(match[1],self.location.origin);
-        if(url.origin===self.location.origin&&isAppShellPath(url.pathname))paths.add(url.pathname+url.search);
-      }catch{}
-    }
-    const cache=await caches.open(CACHE_NAME);await cache.put('/',response.clone());
-    for(const path of paths){
-      if(path==='/')continue;
-      try{
+    // Build versions include the worker source, so this cannot clear the active version.
+    // A terminated install may leave partial entries; never reuse them on a retry.
+    await caches.delete(CACHE_NAME);
+    try{
+      const response=await fetch('/',{cache:'no-store'});
+      if(!response.ok||response.type!=='basic')throw Error('App shell unavailable during offline preparation');
+      const html=await response.clone().text(),paths=new Set();
+      for(const match of html.matchAll(/\b(?:src|href)=["']([^"']+)["']/g)){
+        try{
+          const url=new URL(match[1],self.location.origin);
+          if(url.origin===self.location.origin&&url.pathname!=='/'&&isAppShellPath(url.pathname))paths.add(url.pathname+url.search);
+        }catch{}
+      }
+      const cache=await caches.open(CACHE_NAME);
+      for(const path of paths){
         const asset=await fetch(path,{cache:'no-store'});
-        if(asset.ok&&asset.type==='basic')await cache.put(path,asset);
-      }catch{}
+        if(!asset.ok||asset.type!=='basic')throw Error('App shell asset unavailable during offline preparation');
+        await cache.put(path,asset);
+      }
+      await cache.put('/',response);
+      await self.skipWaiting();
+    }catch(error){
+      await caches.delete(CACHE_NAME);
+      throw error;
     }
-    await self.skipWaiting();
   })());
 });
 
@@ -47,7 +54,8 @@ self.addEventListener('fetch',event=>{
     const cache=await caches.open(CACHE_NAME);
     try{
       const response=await fetch(request);
-      if(response.ok&&response.type==='basic')await cache.put(navigation?'/':request,response.clone());
+      // Keep the installed HTML paired with its complete shell until the next worker activates.
+      if(!navigation&&response.ok&&response.type==='basic')await cache.put(request,response.clone());
       return response;
     }catch{
       const cached=await cache.match(navigation?'/':request);
