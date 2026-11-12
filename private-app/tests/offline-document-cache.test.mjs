@@ -110,6 +110,86 @@ test('a persisted signed-in scope can list only its selected offline essentials 
   signedOut.closeReadOnly();
 });
 
+for(const damagedKind of ['booking','linked original','standalone original']){
+  test(`one damaged ${damagedKind} does not hide healthy saved essentials on offline reopen`,async()=>{
+    const store=fakeStore(),cache=memoryCache(store),bytes=new Uint8Array([7,8,9]);
+    const standaloneId='123e4567-e89b-12d3-a456-426614174001';
+    const booking={adventureId:'adventure-1',kind:'stay',startsOn:'2026-11-12',
+      endsOn:'2026-11-13',status:'unverified',revision:3};
+    await cache.saveBooking({...booking,id:'booking-1',documentId,summary:'First selected booking'});
+    await cache.saveBooking({...booking,id:'booking-2',summary:'Healthy second booking'});
+    for(const id of [documentId,standaloneId])await cache.saveDocument({id,name:'synthetic.pdf',
+      mime:'application/pdf',size:bytes.length,sha256:await sha256(bytes),bytes,revision:3});
+    cache.closeReadOnly();
+    const damaged=[...store.rows.values()].find(row=>damagedKind==='booking'?
+      row.kind==='booking'&&row.recordId==='booking-1':
+      row.recordId===(damagedKind==='linked original'?documentId:standaloneId));
+    if(damagedKind==='booking')damaged.data.summary='Changed locally';
+    else damaged.data.bytes[0]=0;
+
+    const reopened=memoryCache(store);
+    try{
+      const essentials=await reopened.listEssentials();
+      assert.deepEqual(essentials.filter(item=>item.booking).map(item=>item.booking.id),
+        damagedKind==='booking'?['booking-2']:['booking-1','booking-2']);
+      assert.deepEqual(essentials.filter(item=>item.savedOriginal).map(item=>item.savedOriginal.id),
+        damagedKind==='linked original'?[standaloneId]:
+          damagedKind==='standalone original'?[documentId]:[documentId,standaloneId]);
+      assert.equal(store.rows.has(damaged.key),false,'the damaged copy is removed, never returned as healthy');
+      if(damagedKind==='linked original')assert.equal(essentials[0].savedOriginal,null,
+        'healthy booking details remain available without claiming a saved original');
+      assert.ok(essentials.every(item=>(!item.booking||item.booking.stale)&&
+        (!item.savedOriginal||item.savedOriginal.stale)),'surviving copies retain their stale labels');
+    }finally{await reopened.close();}
+  });
+}
+
+test('listing essentials still reports storage failures, even with an integrity-like message',async()=>{
+  const store=fakeStore(),cache=memoryCache(store);
+  await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Synthetic',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  const failure=Error('Saved booking snapshot failed its integrity check');
+  store.get=async()=>{throw failure;};
+  try{await assert.rejects(cache.listEssentials(),error=>error===failure);}
+  finally{await cache.close();}
+});
+
+test('listing essentials still reports failure to remove a damaged copy',async()=>{
+  const store=fakeStore(),cache=memoryCache(store);
+  await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Synthetic',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  [...store.rows.values()][0].data.summary='Changed locally';
+  const failure=Error('Synthetic removal failure');
+  store.remove=async()=>{throw failure;};
+  try{
+    await assert.rejects(cache.listEssentials(),error=>error===failure);
+    assert.equal(store.rows.size,1,'failed removal is not treated as successful recovery');
+  }finally{await cache.close();}
+});
+
+test('a session change while discarding a damaged copy still blocks the offline listing',async()=>{
+  const store=fakeStore();let current=true;
+  const cache=memoryCache(store,{isCurrent:()=>current});
+  await cache.saveBooking({id:'booking-1',adventureId:'adventure-1',summary:'Synthetic',kind:'stay',
+    startsOn:'2026-11-12',endsOn:'2026-11-13',status:'confirmed',revision:1});
+  [...store.rows.values()][0].data.summary='Changed locally';
+  const remove=store.remove.bind(store);
+  store.remove=async key=>{await remove(key);current=false;};
+  try{await assert.rejects(cache.listEssentials(),/session/);}
+  finally{await cache.close();}
+});
+
+test('opening a damaged original directly still reports its integrity failure',async()=>{
+  const store=fakeStore(),cache=memoryCache(store),bytes=new Uint8Array([7,8,9]);
+  await cache.saveDocument({id:documentId,name:'synthetic.pdf',mime:'application/pdf',
+    size:bytes.length,sha256:await sha256(bytes),bytes,revision:3});
+  [...store.rows.values()][0].data.bytes[0]=0;
+  try{
+    await assert.rejects(cache.getDocument(documentId),/integrity check/);
+    assert.equal(store.rows.size,0);
+  }finally{await cache.close();}
+});
+
 test('a permission denial never falls back to an offline copy',()=>{
   assert.equal(isConfirmedAccessDenied(Object.assign(Error('denied'),{code:'permission-denied'})),true);
   assert.equal(isConfirmedAccessDenied(Object.assign(Error('denied'),{code:'unauthenticated'})),true);
