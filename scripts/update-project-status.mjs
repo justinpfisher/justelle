@@ -70,7 +70,7 @@ export function renderDetails(data){
   const live=data.ready?
     'V1 milestone criteria accepted; verify actual production state in M4 before saying the service is live.':
     m1Complete?
-      'NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; hosted qualification and real-member production remain unverified.':
+      'NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; real-member production remains unverified. Consult M4 release evidence for hosted qualification and rollback results.':
       'NOT VERIFIED LIVE. The earlier private chat pilot and itinerary data model have development tests, not a qualified public-facing private planner.';
   return ['# Justelle — Where we are','',
     '**Private application:** '+live,'',
