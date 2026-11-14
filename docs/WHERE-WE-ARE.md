@@ -1,6 +1,6 @@
 # Justelle — Where we are
 
-**Private application:** NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; hosted qualification and real-member production remain unverified.
+**Private application:** NOT VERIFIED LIVE. Shared adventures and recoverable history passed source, emulator and iPhone-sized browser checks; real-member production remains unverified. Consult M4 release evidence for hosted qualification and rollback results.
 
 **Accepted milestones:** 3/8. **V1 release milestones:** 2/4.
 
