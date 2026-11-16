@@ -71,3 +71,22 @@ test('No field extraction from arbitrary email dates, unknown language or oversi
  assert.throws(()=>extractBookingDraft('x'.repeat(4001)),/4,000/);
  assert.throws(()=>extractBookingDraft(''),/Paste/);
 });
+
+test('Month names must be recognised words, not arbitrary matching prefixes',()=>{
+ for(const month of ['Mayhem','Janufoo','Octopus','Marching','Juniper','Augustus','Decimate']){
+  assert.equal(explicitBookingDate(month+' 12, 2027'),null);
+  assert.equal(explicitBookingDate('12 '+month+' 2027'),null);
+ }
+ for(const [index,month] of ['January','February','March','April','May','June','July','August','September','October','November','December'].entries()){
+  const expected='2027-'+String(index+1).padStart(2,'0')+'-12';
+  assert.equal(explicitBookingDate(month+' 12, 2027'),expected);
+  assert.equal(explicitBookingDate('12 '+month.slice(0,3)+' 2027'),expected);
+ }
+ assert.equal(explicitBookingDate('Sept 12, 2027'),'2027-09-12');
+ const draft=extractBookingDraft('Hotel: Fictional Inn\nCheck-in: Mayhem 12, 2027\nCheck-out: Mayhem 14, 2027');
+ assert.equal(draft.fields.starts_on,undefined);
+ assert.equal(draft.fields.ends_on,undefined);
+ assert.match(draft.warnings.join(' '),/unclear/);
+ assert.match(draft.warnings.join(' '),/reviewed and completed/);
+});
+
