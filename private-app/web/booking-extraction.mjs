@@ -15,8 +15,13 @@ function calendarDate(year,month,day){
 }
 function monthNumber(name){
   const key=name.toLowerCase().replace(/\.$/,'');
-  const normalized=key==='sept'?'sep':key.slice(0,3);
-  return months.includes(normalized)?months.indexOf(normalized)+1:null;
+  const fullMonths=['january','february','march','april','may','june',
+    'july','august','september','october','november','december'];
+  const abbreviated=key==='sept'?'sep':key;
+  const shortIndex=months.indexOf(abbreviated);
+  if(shortIndex!==-1)return shortIndex+1;
+  const fullIndex=fullMonths.indexOf(key);
+  return fullIndex!==-1?fullIndex+1:null;
 }
 export function explicitBookingDate(value){
   if(typeof value!=='string'||value.length>100)return null;
@@ -92,3 +97,4 @@ export function extractBookingDraft(source){
     warnings:[...new Set(warnings)],recognised_labels:recognised,
     limitations:'Only explicitly labelled dates and fields were read locally. No booking was confirmed, supplier checked, time inferred or record saved.'};
 }
+
