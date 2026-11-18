@@ -177,6 +177,50 @@ try{
   await poll(async()=>(await offlineCacheRows(A)).length===0,
     5000);
   await login(A,fixture.a);await login(B,fixture.b);
+  // Native-browser counterpart of the leap-day Feedback fixture. It imports
+  // the served modules and uses native structuredClone, without storing a plan.
+  const leapFeedback=await A.evaluate(async()=>{
+    const {createItinerary,applyItineraryEdit,itineraryDays}=await import('/itinerary-core.mjs');
+    const {reviewAdventure}=await import('/adventure-feedback.mjs');
+    let serial=0;
+    const edit=(plan,change)=>applyItineraryEdit(plan,change,{
+      eventId:'leap-e'+(++serial),actorId:'fictional-member',
+      at:'2026-11-16T05:55:00Z'
+    }).plan;
+    let plan=createItinerary({id:'fictional-leap-feedback',title:'Fictional leap journey',
+      durationDays:4,startsOn:'2028-02-28'});
+    for(const [id,title,from,through,longitude] of [
+      ['west','Fictional west',1,3,0],['east','Fictional east',3,5,6]
+    ])plan=edit(plan,{type:'add_stop',stop:{id,place_id:id,title,
+      from_day:from,through_day:through,status:'planned',latitude:0,longitude}});
+    const freeze=value=>{
+      if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}
+      return value;
+    };
+    const original=JSON.stringify(plan);freeze(plan);
+    const first=reviewAdventure(plan),second=reviewAdventure(plan);
+    const longNotice=p=>reviewAdventure(p).notices.find(n=>n.code==='long_distance_handover');
+    let booked=edit(plan,{type:'add_booking',booking:{id:'flight',kind:'flight',stop_id:null,
+      starts_on:'2028-02-29',ends_on:'2028-02-29',status:'confirmed',
+      source_id:'fictional-source',summary:'Fictional previous-day flight'}});
+    const previousDayWarning=Boolean(longNotice(booked));
+    booked=edit(booked,{type:'correct_booking',id:'flight',
+      patch:{starts_on:'2028-03-01',ends_on:'2028-03-01'}});
+    const sameDayWarning=Boolean(longNotice(booked));
+    booked=edit(booked,{type:'correct_booking',id:'flight',patch:{status:'cancelled'}});
+    return {dates:itineraryDays(plan).map(day=>day.date),
+      handoverDay:longNotice(plan)?.evidence.day,
+      unchanged:JSON.stringify(plan)===original,
+      repeatEqual:JSON.stringify(first)===JSON.stringify(second),
+      previousDayWarning,sameDayWarning,
+      cancelledWarning:Boolean(longNotice(booked)),
+      cancelledIsTentative:reviewAdventure(booked).notices.some(n=>n.code==='unconfirmed_transfer')};
+  });
+  assert.deepEqual(leapFeedback,{
+    dates:['2028-02-28','2028-02-29','2028-03-01','2028-03-02'],
+    handoverDay:3,unchanged:true,repeatEqual:true,previousDayWarning:true,
+    sameDayWarning:false,cancelledWarning:true,cancelledIsTentative:false
+  },'Feedback preserves frozen plans and handles real leap-day transfer dates in the browser');
   assert.equal(await A.locator('.pilot').isVisible(),true);
   assert.match(await A.locator('.pilot').textContent(),/Local fictional-data pilot/);
   assert.equal(await A.locator('#topic-title').textContent(),'Our chat');
@@ -237,7 +281,23 @@ try{
   assert.equal(await A.locator('.planner-week').first().evaluate(n=>n.open),true);
   await A.locator('.planner-week').first().getByRole('button',{name:/Day 2/}).click();
   await A.locator('#planner-day-detail').getByText('Fictional Harbour',{exact:true}).waitFor();
+  // Newly reconstructed UI fixture, not the unavailable earlier patch.
+  // Feedback is explicit and repeat checks replace results rather than append them.
+  const feedbackPanel=A.locator('#planner-feedback-results');
+  assert.equal(await feedbackPanel.isVisible(),false,
+    'Feedback stays hidden until the member requests it');
+  const historyBeforeFeedback=await A.locator('#planner-history li').allTextContents();
   await A.locator('#planner-feedback').click();
+  await feedbackPanel.waitFor({state:'visible'});
+  const firstFeedback=await feedbackPanel.textContent();
+  const firstWarningCount=await feedbackPanel.locator('.planner-warning').count();
+  assert.ok(firstWarningCount>0,'the fictional unplanned nights provide a nonempty check');
+  await A.locator('#planner-feedback').click();
+  assert.equal(await feedbackPanel.textContent(),firstFeedback,
+    'a repeated check of the same revision does not accumulate output');
+  assert.equal(await feedbackPanel.locator('.planner-warning').count(),firstWarningCount);
+  assert.deepEqual(await A.locator('#planner-history li').allTextContents(),historyBeforeFeedback,
+    'requesting Feedback twice does not add or alter edit history');
   await A.locator('#planner-feedback-results').getByRole('button',{name:'Open day 1'}).click();
   await A.locator('#planner-day-detail h4').getByText('Day 1',{exact:false}).waitFor();
   // Stay details use the existing atomic revision chain, with touch/keyboard
