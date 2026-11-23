@@ -797,10 +797,21 @@ try{
     ' | browser: '+pageErrors.join('; '));}
   assert.equal(bookingDownload.suggestedFilename(),'synthetic-source.pdf');
   assert.equal((await B.locator('#planner-bookings').textContent()).includes('Member-recorded confirmation'),true);
-  // A pastes a second fictional supplier note. Extraction runs only in the
-  // browser, does not mark a booking confirmed, and keeps the exact original
-  // text for B behind normal member authentication.
   await A.getByText('Paste booking text (optional)',{exact:true}).click();
+  const unclearDates=['Hotel: Fictional Month Inn','Check-in: Friday, 12 MaYHeM 2027',
+    'Check-out: Mayhem 14, 2027'].join('\n');
+  await A.locator('#planner-booking-paste').fill(unclearDates);
+  await A.locator('#planner-booking-extract').click();
+  assert.equal(await A.locator('#planner-booking-title').inputValue(),'Fictional Month Inn');
+  assert.equal(await A.locator('#planner-booking-start').inputValue(),'');
+  assert.equal(await A.locator('#planner-booking-end').inputValue(),'');
+  assert.equal(await A.locator('#planner-booking-state').inputValue(),'unverified');
+  assert.match(await A.locator('#planner-booking-extraction-feedback').textContent(),
+    /Start and end dates must be reviewed and completed before saving/);
+  assert.equal(await A.locator('#planner-bookings').getByText('Fictional Month Inn',{exact:true}).count(),0);
+  await A.locator('#planner-add-booking').evaluate(form=>form.reset());
+
+  // Valid extraction still requires an explicit save before B can read the original.
   const pasted=['Booking title: Synthetic Bay Crossing','Ferry: Fictional route',
     'Departure: 4 November 2026','Arrival: 2026-11-04',
     'Booking reference: FICT-FERRY-47'].join('\n');
