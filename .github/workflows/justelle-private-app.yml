@@ -379,14 +379,25 @@ jobs:
       - run: npm ci --no-audit --no-fund
         working-directory: ${{ steps.source.outputs.app }}
       - name: Verify the deploy budget fits before the recovery reserve
+        id: window
         env:
           QUALIFICATION_DEPLOY_CUTOFF_UTC: ${{ inputs.qualification_deploy_cutoff_utc }}
           RESTORE: ${{ steps.source.outputs.restore }}
         run: |
           node --input-type=module <<'NODE'
-          import { requireQualificationDeployWindow } from './scripts/hosted-qualification-policy.mjs';
+          import { appendFileSync } from 'node:fs';
+          import { qualificationRestoreRunnerDeadline, requireQualificationDeployWindow,
+            requireQualificationRestoreWindow } from './scripts/hosted-qualification-policy.mjs';
 
-          requireQualificationDeployWindow(process.env.QUALIFICATION_DEPLOY_CUTOFF_UTC, Date.now(), process.env.RESTORE === 'true' ? 15 : 30);
+          const { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha, GITHUB_RUN_ID: runId,
+            GITHUB_RUN_ATTEMPT: runAttempt, GITHUB_JOB: job, QUALIFICATION_DEPLOY_CUTOFF_UTC: cutoff } = process.env;
+          const restore = process.env.RESTORE === 'true';
+          requireQualificationDeployWindow(cutoff, Date.now(), restore ? 15 : 30);
+          if (restore) {
+            const deadline = await qualificationRestoreRunnerDeadline({ repository, sha, runId, runAttempt, job });
+            requireQualificationRestoreWindow(cutoff, deadline, 'preflight');
+            appendFileSync(process.env.GITHUB_OUTPUT, `runner_deadline_ms=${deadline}\n`);
+          }
           NODE
       - name: Prepare inert Qualification deployment configuration
         env:
@@ -421,13 +432,14 @@ jobs:
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           RESTORE: ${{ steps.source.outputs.restore }}
           QUALIFICATION_DEPLOY_CUTOFF_UTC: ${{ inputs.qualification_deploy_cutoff_utc }}
+          RESTORE_RUNNER_DEADLINE_MS: ${{ steps.window.outputs.runner_deadline_ms }}
         run: |
           config="$RUNNER_TEMP/justelle-qa-deploy-only.json"
           trap 'rm -f -- "$config"' EXIT
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          if [[ "$RESTORE" == true ]]; then
-            (cd "$GITHUB_WORKSPACE" && node --input-type=module -e "import {requireQualificationDeployWindow} from './scripts/hosted-qualification-policy.mjs'; requireQualificationDeployWindow(process.env.QUALIFICATION_DEPLOY_CUTOFF_UTC, Date.now(), 12)")
-          fi
+          require_restore_window() {
+            (cd "$GITHUB_WORKSPACE" && RESTORE_PHASE="$1" node --input-type=module -e "import {requireQualificationRestoreWindow} from './scripts/hosted-qualification-policy.mjs'; requireQualificationRestoreWindow(process.env.QUALIFICATION_DEPLOY_CUTOFF_UTC, process.env.RESTORE_RUNNER_DEADLINE_MS, process.env.RESTORE_PHASE)")
+          }
           require_paused() {
             local snapshot format='value(state)'
             if [[ "$RESTORE" == true ]]; then
@@ -445,16 +457,20 @@ jobs:
               return 1
             fi
           }
+          if [[ "$RESTORE" == true ]]; then require_restore_window preflight; fi
           require_paused
           deploy_status=0
           if [[ "$RESTORE" == true ]]; then
+            require_restore_window deploy
             timeout --kill-after=5s 8m node hosting/deploy.mjs "$config" qualification || deploy_status=$?
+            require_restore_window verify
           else
             node hosting/deploy.mjs "$config" qualification || deploy_status=$?
           fi
           require_paused
           if [[ "$deploy_status" != 0 ]]; then exit "$deploy_status"; fi
           if [[ "$RESTORE" == true ]]; then
+            require_restore_window smoke
             timeout --kill-after=5s 2m node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           import { join } from 'node:path';
@@ -465,6 +481,7 @@ jobs:
           await smoke(restore);
           await smoke(restore);
           NODE
+            require_restore_window verify
             require_paused
           fi
       - name: Record deploy-only result

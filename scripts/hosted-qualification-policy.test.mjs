@@ -4,7 +4,8 @@ import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {runInNewContext} from 'node:vm';
 import {hostedQualificationPolicy,firebaseStorageProbePolicy,qualificationDeployOnlyPolicy,
-  qualificationDeploymentSource,requireQualificationDeployWindow,verifiedQualificationPushRun} from './hosted-qualification-policy.mjs';
+  qualificationDeploymentSource,qualificationRestoreRunnerDeadline,requireQualificationDeployWindow,
+  requireQualificationRestoreWindow,verifiedQualificationPushRun} from './hosted-qualification-policy.mjs';
 
 const workflow=readFileSync(new URL('../.github/workflows/justelle-private-app.yml',import.meta.url),'utf8');
 const job=(id)=>{
@@ -315,7 +316,7 @@ test('deploy-only dispatch has an opt-in and retains the held Qualification rele
   assert.doesNotMatch(deploy,/accept-hosted|qualification-drill|gcloud (?:secrets|monitoring)|JUSTELLE_BACKUP_CONFIG|JUSTELLE_QUALIFICATION_SERVICE_ACCOUNT|gcloud scheduler jobs (?:run|resume|pause)/);
   assert.doesNotMatch(job('production-release'),/needs: [^\r\n]*qualification-deploy-only/);
   for(const id of competingProviderJobs)assert.match(job(id),/inputs\.qualification_deploy_only_once != true/);
-  for(const prior of ['verifiedQualificationPushRun({', 'requireQualificationDeployWindow(process.env.',
+  for(const prior of ['verifiedQualificationPushRun({', 'requireQualificationDeployWindow(cutoff,',
     "git('merge-base', '--is-ancestor', sha, main)", "git('-C', source, 'rev-parse', 'HEAD') !== sha"]){
     assert.ok(deploy.includes(prior));
     assert.ok(deploy.indexOf(prior)<deploy.indexOf('google-github-actions/auth'));
@@ -439,6 +440,60 @@ test('deploy-only rejects a late, expired, malformed or unbounded UTC cutoff bef
     assert.doesNotThrow(()=>requireQualificationDeployWindow(cutoff,now,budget));
     assert.throws(()=>requireQualificationDeployWindow(cutoff,now+1000,budget),/deploy cutoff/);
   }
+});
+
+const restoreJobFixture={
+  name:'Deploy or restore inert Qualification without hosted acceptance',
+  run_id:852,run_attempt:2,head_sha:sourceSha,status:'in_progress',started_at:'2026-10-02T15:00:00Z'
+};
+const restoreRunnerFixture={repository:sourceRepository.repository,sha:sourceSha,
+  runId:'852',runAttempt:'2',job:'qualification-deploy-only',now:()=>Date.parse('2026-10-02T15:04:00Z')};
+
+test('the restore deadline is derived from the exact in-progress job attempt',async()=>{
+  const fetcher=async(url,options)=>{
+    assert.equal(url,'https://api.github.com/repos/example-owner/fictional-app/actions/runs/852/attempts/2/jobs?per_page=100');
+    assert.equal(options.redirect,'error');
+    assert.equal(options.headers.Authorization,undefined);
+    return {ok:true,json:async()=>({jobs:[restoreJobFixture]})};
+  };
+  assert.equal(await qualificationRestoreRunnerDeadline({...restoreRunnerFixture,fetcher}),
+    Date.parse('2026-10-02T15:15:00Z'));
+});
+
+test('missing, foreign, stale or ambiguous runner timing fails closed',async()=>{
+  const rejects=[
+    [], [restoreJobFixture,restoreJobFixture],
+    ...[{name:'Other job'},{run_id:853},{run_attempt:1},{head_sha:'b'.repeat(40)},
+      {status:'completed'},{started_at:null},{started_at:'2026-10-02T15:05:00Z'},
+      {started_at:'2026-02-30T15:00:00Z'}].map(change=>[{...restoreJobFixture,...change}])
+  ];
+  for(const jobs of rejects){
+    const fetcher=async()=>({ok:true,json:async()=>({jobs})});
+    await assert.rejects(qualificationRestoreRunnerDeadline({...restoreRunnerFixture,fetcher}),/runner start time/);
+  }
+  await assert.rejects(qualificationRestoreRunnerDeadline({...restoreRunnerFixture,job:'different-job',
+    fetcher:async()=>assert.fail('Wrong job made a request')}),/run attempt/);
+});
+
+test('slow setup and Scheduler read delays cannot start a restore merely because the operator cutoff is still valid',()=>{
+  const cutoff='2026-10-02T15:40:00Z';
+  const deadline=Date.parse('2026-10-02T15:15:00Z');
+  const late=Date.parse('2026-10-02T15:04:00Z');
+  assert.doesNotThrow(()=>requireQualificationDeployWindow(cutoff,late,12));
+  assert.throws(()=>requireQualificationRestoreWindow(cutoff,deadline,'preflight',late),/before both deadlines/);
+  assert.doesNotThrow(()=>requireQualificationRestoreWindow(cutoff,deadline,'preflight',Date.parse('2026-10-02T15:03:00Z')));
+  assert.throws(()=>requireQualificationRestoreWindow(cutoff,deadline,'deploy',Date.parse('2026-10-02T15:03:31Z')),/cleanup/);
+  assert.throws(()=>requireQualificationRestoreWindow('2026-10-02T15:14:29Z',deadline,'deploy',
+    Date.parse('2026-10-02T15:03:00Z')),/before both deadlines/);
+  assert.throws(()=>requireQualificationRestoreWindow(cutoff,'','preflight',late),/before both deadlines/);
+  for(const [phase,seconds] of [['deploy',690],['smoke',180],['verify',55]]){
+    assert.doesNotThrow(()=>requireQualificationRestoreWindow(cutoff,deadline,phase,deadline-seconds*1000));
+    assert.throws(()=>requireQualificationRestoreWindow(cutoff,deadline,phase,deadline-seconds*1000+1),/cleanup/);
+  }
+  const deploy=job(deployOnlyJob);
+  assert.ok(deploy.indexOf("requireQualificationRestoreWindow(cutoff, deadline, 'preflight')")<
+    deploy.indexOf('google-github-actions/auth'));
+  assert.match(deploy,/require_restore_window deploy\s+timeout --kill-after=5s 8m node hosting\/deploy\.mjs/);
 });
 
 test('deploy-only guards the real private configuration step before WIF authentication',()=>{

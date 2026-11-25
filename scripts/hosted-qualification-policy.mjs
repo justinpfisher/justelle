@@ -2,6 +2,8 @@
 const equalsExpressionString=(actual,expected)=>typeof actual==='string'&&
   actual.toLowerCase()===expected.toLowerCase();
 const qualificationFallback='fdc7a30639e36e1b4b2042d33849c100fe5c6452';
+const qualificationRestoreMinutes=15;
+const minute=60_000;
 
 export function hostedQualificationPolicy({
   event='push',branch='main',hold='',hostedConfigured='',initialAcceptance='',hostedChanges=false,
@@ -90,13 +92,7 @@ export async function verifiedQualificationPushRun({repository,repositoryId,sha,
     throw Error('The exact Qualification source identity is missing.');
   }
   const workflow='justelle-private-app.yml';
-  const api=`https://api.github.com/repos/${repository}/actions`;
-  const read=async path=>{
-    const response=await fetcher(api+path,{headers:{Accept:'application/vnd.github+json'},
-      redirect:'error',signal:AbortSignal.timeout(10_000)});
-    if(!response.ok)throw Error('GitHub Actions source evidence is unavailable.');
-    return response.json();
-  };
+  const read=path=>readQualificationActions(repository,path,fetcher);
   const query=new URLSearchParams({branch:'main',event:'push',head_sha:sha,status:'success',per_page:'10'});
   const history=await read(`/workflows/${workflow}/runs?${query}`);
   const positiveInteger=value=>Number.isSafeInteger(value)&&value>0;
@@ -119,12 +115,53 @@ export async function verifiedQualificationPushRun({repository,repositoryId,sha,
   return {id:run.id,run_attempt:run.run_attempt};
 }
 
+async function readQualificationActions(repository,path,fetcher){
+  if(!/^[a-zA-Z0-9-]+\/[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(repository??'')){
+    throw Error('The exact Qualification repository is missing.');
+  }
+  const response=await fetcher(`https://api.github.com/repos/${repository}/actions${path}`,{
+    headers:{Accept:'application/vnd.github+json'},redirect:'error',signal:AbortSignal.timeout(10_000)});
+  if(!response.ok)throw Error('GitHub Actions source evidence is unavailable.');
+  return response.json();
+}
+
+function utcMilliseconds(value){
+  const parsed=Date.parse(value);
+  return /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(value??'')&&Number.isFinite(parsed)&&
+    new Date(parsed).toISOString()===value.replace('Z','.000Z')?parsed:NaN;
+}
+
+export async function qualificationRestoreRunnerDeadline({repository,sha,runId,runAttempt,job,fetcher=fetch,now=Date.now}){
+  if(job!=='qualification-deploy-only'||!/^[a-f0-9]{40}$/.test(sha??'')||
+      !/^[1-9]\d*$/.test(runId??'')||!/^[1-9]\d*$/.test(runAttempt??'')||
+      !Number.isSafeInteger(Number(runId))||!Number.isSafeInteger(Number(runAttempt))){
+    throw Error('The exact Qualification restore run attempt is missing.');
+  }
+  const receipt=await readQualificationActions(repository,`/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100`,fetcher);
+  const matches=receipt.jobs?.filter(item=>item?.name==='Deploy or restore inert Qualification without hosted acceptance');
+  const runner=matches?.[0];
+  const started=utcMilliseconds(runner?.started_at);
+  if(matches?.length!==1||runner.run_id!==Number(runId)||runner.run_attempt!==Number(runAttempt)||
+      runner.head_sha!==sha||runner.status!=='in_progress'||!Number.isFinite(started)||started>now()){
+    throw Error('The current Qualification restore runner start time could not be verified.');
+  }
+  return started+qualificationRestoreMinutes*minute;
+}
+
 export function requireQualificationDeployWindow(cutoff,now=Date.now(),budget=30){
-  const end=Date.parse(cutoff);
-  const minute=60_000;
-  if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(cutoff??'')||!Number.isFinite(end)||
-      new Date(end).toISOString()!==cutoff.replace('Z','.000Z')||
-      end-now<budget*minute||end-now>60*minute){
+  const end=utcMilliseconds(cutoff);
+  if(!Number.isFinite(end)||end-now<budget*minute||end-now>60*minute){
     throw Error(`The deploy cutoff must leave the full ${budget}-minute job budget before the reserved interval.`);
+  }
+}
+
+export function requireQualificationRestoreWindow(cutoff,runnerDeadline,phase,now=Date.now()){
+  // Each provider budget includes the five-second kill grace and reserves 30 seconds for local cleanup.
+  const required={preflight:720_000,deploy:690_000,smoke:180_000,verify:55_000}[phase];
+  const bound=Number(runnerDeadline);
+  const end=Math.min(utcMilliseconds(cutoff),bound);
+  if(!Number.isFinite(required)||!Number.isSafeInteger(bound)||!Number.isFinite(end)||end-now<required||
+      bound-now>qualificationRestoreMinutes*minute){
+    throw Error('The Qualification restore cannot fit its remaining work and cleanup before both deadlines.');
   }
 }
