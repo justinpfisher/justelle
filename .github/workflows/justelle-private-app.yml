@@ -11,10 +11,15 @@ on:
         required: false
         default: false
       qualification_deploy_only_once:
-        description: Deploy inert Qualification from main while held, without hosted acceptance
+        description: Deploy inert Qualification or restore its pinned fallback while held
         type: boolean
         required: false
         default: false
+      qualification_deploy_cutoff_utc:
+        description: UTC provider-work cutoff before the reserved recovery or grant-removal interval (YYYY-MM-DDTHH:MM:SSZ)
+        type: string
+        required: false
+        default: ''
       storage_probe_once:
         description: Run one read-only Firebase Storage default-bucket metadata probe from main while qualification remains held
         type: boolean
@@ -31,7 +36,7 @@ on:
         required: false
         default: false
       rollback_previous_sha:
-        description: Exact compatible prior 40-character source SHA for the rollback drill
+        description: Exact prior SHA for the drill, or the pinned fallback with Qualification deploy-only
         type: string
         required: false
         default: ''
@@ -46,6 +51,7 @@ concurrency:
 
 jobs:
   changes:
+    if: inputs.qualification_deploy_only_once != true
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.scope.outputs.code }}
@@ -310,21 +316,18 @@ jobs:
         run: rm -f /tmp/justelle-qa.release.json /tmp/justelle-qa-backup.release.json /tmp/justelle-qa-private.log
 
   qualification-deploy-only:
-    name: Deploy inert Qualification without hosted acceptance
-    needs: [changes, private-pilot, windows-preview]
+    name: Deploy or restore inert Qualification without hosted acceptance
     if: >-
       always() && !cancelled() && github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' && inputs.qualification_deploy_only_once == true &&
       inputs.qualify_once != true && inputs.storage_probe_once != true &&
       inputs.hosting_preflight_once != true && inputs.rollback_drill_once != true &&
-      inputs.rollback_previous_sha == '' &&
+      (inputs.rollback_previous_sha == '' || inputs.rollback_previous_sha == 'fdc7a30639e36e1b4b2042d33849c100fe5c6452') &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
-      vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
-      needs.private-pilot.result == 'success' &&
-      (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped')
+      vars.JUSTELLE_HOSTED_CONFIGURED == 'true'
     runs-on: ubuntu-latest
     environment: justelle-qualification
-    timeout-minutes: 30
+    timeout-minutes: ${{ inputs.rollback_previous_sha == '' && 30 || 15 }}
     permissions:
       contents: read
       id-token: write
@@ -333,9 +336,69 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: ${{ inputs.rollback_previous_sha == '' && 1 || 0 }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Verify completed main checks for the exact source
+        run: |
+          node --input-type=module <<'NODE'
+          import { verifiedQualificationPushRun } from './scripts/hosted-qualification-policy.mjs';
+          import { appendFileSync } from 'node:fs';
+
+          const { GITHUB_REPOSITORY: repository, GITHUB_REPOSITORY_ID: repositoryId, GITHUB_SHA: sha } = process.env;
+          const run = await verifiedQualificationPushRun({ repository, repositoryId, sha });
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Accepted exact main source checks from run ${run.id}, attempt ${run.run_attempt}.\n`);
+          NODE
+      - name: Stage the exact deploy or fallback source before authentication
+        id: source
+        env:
+          PREVIOUS_SHA: ${{ inputs.rollback_previous_sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process';
+          import { appendFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { qualificationDeploymentSource } from './scripts/hosted-qualification-policy.mjs';
+
+          const { GITHUB_SHA: main, GITHUB_WORKSPACE: workspace, RUNNER_TEMP: temporary } = process.env;
+          const { sha, restore } = qualificationDeploymentSource(main, process.env.PREVIOUS_SHA);
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          if (git('rev-parse', 'HEAD') !== main) throw Error('Wrong Qualification control source.');
+          const source = restore ? join(temporary, 'justelle-qa-restore-source') : workspace;
+          if (restore) {
+            git('merge-base', '--is-ancestor', sha, main);
+            git('worktree', 'add', '--detach', source, sha);
+          }
+          if (git('-C', source, 'rev-parse', 'HEAD') !== sha) throw Error('Wrong Qualification deployment source.');
+          appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\nrestore=${restore}\napp=${join(source, 'private-app')}\n`);
+          NODE
+      - run: npm ci --no-audit --no-fund
+        working-directory: ${{ steps.source.outputs.app }}
+      - name: Verify the deploy budget fits before the recovery reserve
+        id: window
+        env:
+          QUALIFICATION_DEPLOY_CUTOFF_UTC: ${{ inputs.qualification_deploy_cutoff_utc }}
+          RESTORE: ${{ steps.source.outputs.restore }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          import { qualificationRestoreRunnerDeadline, requireQualificationDeployWindow,
+            requireQualificationRestoreWindow } from './scripts/hosted-qualification-policy.mjs';
+
+          const { GITHUB_REPOSITORY: repository, GITHUB_SHA: sha, GITHUB_RUN_ID: runId,
+            GITHUB_RUN_ATTEMPT: runAttempt, GITHUB_JOB: job, QUALIFICATION_DEPLOY_CUTOFF_UTC: cutoff } = process.env;
+          const restore = process.env.RESTORE === 'true';
+          requireQualificationDeployWindow(cutoff, Date.now(), restore ? 15 : 30);
+          if (restore) {
+            const deadline = await qualificationRestoreRunnerDeadline({ repository, sha, runId, runAttempt, job });
+            requireQualificationRestoreWindow(cutoff, deadline, 'preflight');
+            appendFileSync(process.env.GITHUB_OUTPUT, `runner_deadline_ms=${deadline}\n`);
+          }
+          NODE
       - name: Prepare inert Qualification deployment configuration
         env:
           CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
@@ -348,6 +411,8 @@ jobs:
             const raw=process.env.CONFIG;
             const config=JSON.parse(raw);
             if(config.mode!=='hosted-fictional'||config.projectId!=='justelle-qualification'||
+               config.site!=='justelle-qualification'||config.origin!=='https://justelle-qualification.web.app'||
+               config.roomId!=='fictional-room'||config.otherProjectId!=='justelle-production'||
                (config.qualificationBackupSlot!==undefined&&config.qualificationBackupSlot!=='')) throw Error();
             writeFileSync(join(process.env.RUNNER_TEMP,'justelle-qa-deploy-only.json'),raw,{flag:'wx',mode:0o600});
           } catch {
@@ -360,30 +425,83 @@ jobs:
           workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
           service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
-      - run: npm ci --no-audit --no-fund
-        working-directory: private-app
-      - name: Require paused Scheduler before and after deploy
+      - name: Apply only the selected source with Scheduler paused
         shell: bash
-        working-directory: private-app
+        working-directory: ${{ steps.source.outputs.app }}
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          RESTORE: ${{ steps.source.outputs.restore }}
+          QUALIFICATION_DEPLOY_CUTOFF_UTC: ${{ inputs.qualification_deploy_cutoff_utc }}
+          RESTORE_RUNNER_DEADLINE_MS: ${{ steps.window.outputs.runner_deadline_ms }}
         run: |
+          config="$RUNNER_TEMP/justelle-qa-deploy-only.json"
+          trap 'rm -f -- "$config"' EXIT
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          require_restore_window() {
+            (cd "$GITHUB_WORKSPACE" && RESTORE_PHASE="$1" node --input-type=module -e "import {requireQualificationRestoreWindow} from './scripts/hosted-qualification-policy.mjs'; requireQualificationRestoreWindow(process.env.QUALIFICATION_DEPLOY_CUTOFF_UTC, process.env.RESTORE_RUNNER_DEADLINE_MS, process.env.RESTORE_PHASE)")
+          }
           require_paused() {
-            local state
-            if ! state=$(gcloud scheduler jobs describe firebase-schedule-encryptedBackup-northamerica-northeast1 \
-              --project=justelle-qualification --location=northamerica-northeast1 --format='value(state)') || [[ "$state" != PAUSED ]]; then
+            local snapshot format='value(state)'
+            if [[ "$RESTORE" == true ]]; then
+              format='json(state,schedule,timeZone,attemptDeadline,retryConfig)'
+            fi
+            if ! snapshot=$(timeout --kill-after=5s 20s gcloud scheduler jobs describe firebase-schedule-encryptedBackup-northamerica-northeast1 \
+              --project=justelle-qualification --location=northamerica-northeast1 --format="$format"); then
+              echo 'The exact Qualification Scheduler job must be readable and paused.' >&2
+              return 1
+            fi
+            if [[ "$RESTORE" == true ]]; then
+              node -e "const job=JSON.parse(require('node:fs').readFileSync(0,'utf8')); if(job.state!=='PAUSED'||job.schedule!=='15 3 * * *'||job.timeZone!=='America/Toronto'||job.attemptDeadline!=='540s'||job.retryConfig?.retryCount!==0) throw Error('Scheduler state or schedule differs from the pinned fallback.');" <<< "$snapshot"
+            elif [[ "$snapshot" != PAUSED ]]; then
               echo 'The exact Qualification Scheduler job must be readable and paused.' >&2
               return 1
             fi
           }
+          if [[ "$RESTORE" == true ]]; then require_restore_window preflight; fi
           require_paused
           deploy_status=0
-          node hosting/deploy.mjs "$RUNNER_TEMP/justelle-qa-deploy-only.json" qualification || deploy_status=$?
+          if [[ "$RESTORE" == true ]]; then
+            require_restore_window deploy
+            timeout --kill-after=5s 8m node hosting/deploy.mjs "$config" qualification || deploy_status=$?
+            require_restore_window verify
+          else
+            node hosting/deploy.mjs "$config" qualification || deploy_status=$?
+          fi
           require_paused
-          exit "$deploy_status"
+          if [[ "$deploy_status" != 0 ]]; then exit "$deploy_status"; fi
+          if [[ "$RESTORE" == true ]]; then
+            require_restore_window smoke
+            timeout --kill-after=5s 2m node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { smoke } from './hosting/smoke.mjs';
+
+          const path = join(process.env.RUNNER_TEMP, 'justelle-qa-deploy-only.json');
+          const restore = { ...JSON.parse(readFileSync(path, 'utf8')), sha: process.env.SOURCE_SHA };
+          await smoke(restore);
+          await smoke(restore);
+          NODE
+            require_restore_window verify
+            require_paused
+          fi
       - name: Record deploy-only result
-        run: echo 'Inert Qualification deployed. Hosted acceptance was skipped and no acceptance evidence was recorded.' >> "$GITHUB_STEP_SUMMARY"
-      - name: Remove ephemeral private configuration
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          RESTORE: ${{ steps.source.outputs.restore }}
+        run: |
+          if [[ "$RESTORE" == true ]]; then
+            printf 'Restored inert Qualification at %s. Two protected checks passed and Scheduler was paused.\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Inert Qualification deployed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo 'Hosted acceptance was skipped and no acceptance evidence was recorded.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove ephemeral private configuration and restore checkout
         if: always()
-        run: rm -f -- "$RUNNER_TEMP/justelle-qa-deploy-only.json"
+        run: |
+          rm -f -- "$RUNNER_TEMP/justelle-qa-deploy-only.json"
+          if [[ -d "$RUNNER_TEMP/justelle-qa-restore-source" ]]; then
+            git worktree remove --force "$RUNNER_TEMP/justelle-qa-restore-source"
+          fi
 
   qualification-rollback-drill:
     name: One-time qualification cloud rollback drill
