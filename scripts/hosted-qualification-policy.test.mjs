@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {hostedQualificationPolicy,firebaseStorageProbePolicy} from './hosted-qualification-policy.mjs';
+import {join} from 'node:path';
+import {runInNewContext} from 'node:vm';
+import {hostedQualificationPolicy,firebaseStorageProbePolicy,qualificationDeployOnlyPolicy} from './hosted-qualification-policy.mjs';
 
 const workflow=readFileSync(new URL('../.github/workflows/justelle-private-app.yml',import.meta.url),'utf8');
 const job=(id)=>{
@@ -262,5 +264,109 @@ test('rollback dispatch cannot run other provider jobs or bypass existing prereq
     assert.equal(result.production,'skipped');
     if(overrides.hostingPreflightOnce)assert.equal(result.hostingPreflight,'skipped');
     assert.equal(firebaseStorageProbePolicy({...common,...overrides,storageProbeOnce:true}),'skipped');
+  }
+});
+
+const deployOnlyJob='qualification-deploy-only';
+const competingProviderJobs=['hosted-qualification','hosted-qualification-hold','production-release',
+  'firebase-storage-default-bucket-probe','qualification-hosting-preflight','qualification-rollback-drill'];
+
+function checkDeployOnlyWorkflowGate(id,{event='workflow_dispatch',branch='main',qualificationDeployOnlyOnce=true,
+  qualifyOnce=false,storageProbeOnce=false,hostingPreflightOnce=false,rollbackDrillOnce=false,rollbackPreviousSha='',
+  hold='true',hostedConfigured='true',privatePilot='success',windowsPreview='skipped',cancelled=false}={}){
+  const condition=job(id).match(/^    if: >-\r?\n([\s\S]*?)^    runs-on:/m)?.[1].trim();
+  assert.ok(condition,`Missing ${id} provider gate`);
+  // The cases below use the literal string and boolean values that Actions supplies.
+  const expression=condition.replace(/\bneeds\.([a-z-]+)\./g,'needs["$1"].');
+  return runInNewContext(expression,{
+    always:()=>true,cancelled:()=>cancelled,github:{event_name:event,ref:`refs/heads/${branch}`},
+    inputs:{qualification_deploy_only_once:qualificationDeployOnlyOnce,qualify_once:qualifyOnce,
+      storage_probe_once:storageProbeOnce,hosting_preflight_once:hostingPreflightOnce,
+      rollback_drill_once:rollbackDrillOnce,rollback_previous_sha:rollbackPreviousSha},
+    vars:{JUSTELLE_HOSTED_QUALIFICATION_HOLD:hold,JUSTELLE_HOSTED_CONFIGURED:hostedConfigured,
+      JUSTELLE_INITIAL_ACCEPTANCE:'verified'},
+    needs:{changes:{outputs:{hosted:'true'}},'private-pilot':{result:privatePilot},
+      'windows-preview':{result:windowsPreview},'hosted-qualification':{result:'success'}}
+  });
+}
+
+test('deploy-only dispatch has an opt-in and retains the held Qualification release boundaries',()=>{
+  assert.match(workflow,/qualification_deploy_only_once:\s*\n\s+description:[^\r\n]+\r?\n\s+type: boolean\s*\n\s+required: false\s*\n\s+default: false/);
+  const deploy=job(deployOnlyJob);
+  assert.match(deploy,/needs: \[changes, private-pilot, windows-preview\]/);
+  assert.match(deploy,/environment: justelle-qualification/);
+  assert.match(deploy,/group: justelle-hosted-qualification/);
+  assert.match(deploy,/cancel-in-progress: false/);
+  assert.match(deploy,/secrets\.JUSTELLE_DEPLOY_SERVICE_ACCOUNT/);
+  assert.match(deploy,/node hosting\/deploy\.mjs "\$RUNNER_TEMP\/justelle-qa-deploy-only\.json" qualification \|\|/);
+  assert.match(deploy,/require_paused\s+deploy_status=0\s+node hosting\/deploy\.mjs[^\r\n]+\s+require_paused\s+exit/);
+  assert.match(deploy,/gcloud scheduler jobs describe firebase-schedule-encryptedBackup-northamerica-northeast1/);
+  assert.match(deploy,/--project=justelle-qualification --location=northamerica-northeast1 --format='value\(state\)'/);
+  assert.match(deploy,/\[\[ "\$state" != PAUSED \]\]/);
+  assert.match(deploy,/Hosted acceptance was skipped and no acceptance evidence was recorded/);
+  assert.doesNotMatch(deploy,/accept-hosted|qualification-drill|gcloud (?:secrets|monitoring)|JUSTELLE_BACKUP_CONFIG|JUSTELLE_QUALIFICATION_SERVICE_ACCOUNT|gcloud scheduler jobs (?:run|resume|pause)/);
+  assert.doesNotMatch(job('production-release'),/needs: [^\r\n]*qualification-deploy-only/);
+  for(const id of competingProviderJobs)assert.match(job(id),/inputs\.qualification_deploy_only_once != true/);
+});
+
+test('the deploy-only workflow gate rejects all conflicting dispatches and preserves same-run checks',()=>{
+  const common={event:'workflow_dispatch',branch:'main',qualificationDeployOnlyOnce:true,hold:'true',
+    hostedConfigured:'true',privatePilot:'success',windowsPreview:'skipped'};
+  const rejects=[
+    {event:'push'},{event:'pull_request'},{branch:'feature'},{qualificationDeployOnlyOnce:false},
+    {cancelled:true},{hold:'false'},{hostedConfigured:'false'},{privatePilot:'failure'},
+    {privatePilot:'skipped'},{windowsPreview:'failure'},{windowsPreview:'cancelled'},
+    {qualifyOnce:true},{storageProbeOnce:true},{hostingPreflightOnce:true},{rollbackDrillOnce:true},
+    {rollbackPreviousSha:'a'.repeat(40)}
+  ];
+  for(const overrides of [{},{windowsPreview:'success'}]){
+    assert.equal(checkDeployOnlyWorkflowGate(deployOnlyJob,{...common,...overrides}),true);
+    assert.equal(qualificationDeployOnlyPolicy({...common,...overrides}),'run');
+    for(const id of competingProviderJobs)assert.equal(checkDeployOnlyWorkflowGate(id,{...common,...overrides}),false,id);
+  }
+  for(const overrides of rejects){
+    const data={...common,...overrides};
+    assert.equal(checkDeployOnlyWorkflowGate(deployOnlyJob,data),false,JSON.stringify(overrides));
+    assert.equal(qualificationDeployOnlyPolicy(data),'skipped',JSON.stringify(overrides));
+    if(data.qualificationDeployOnlyOnce)for(const id of competingProviderJobs){
+      assert.equal(checkDeployOnlyWorkflowGate(id,data),false,`${id} ${JSON.stringify(overrides)}`);
+    }
+  }
+  assert.deepEqual(hostedQualificationPolicy(common),{
+    qualification:'skipped',holdReport:'not-applicable',production:'skipped',qualificationDeployOnly:'run'
+  });
+  assert.equal(firebaseStorageProbePolicy({...common,storageProbeOnce:true}),'skipped');
+});
+
+test('deploy-only guards the real private configuration step before WIF authentication',()=>{
+  const deploy=job(deployOnlyJob);
+  const script=deploy.match(/node <<'NODE'\r?\n([\s\S]*?)^\s+NODE\s*$/m)?.[1];
+  assert.ok(script);
+  assert.ok(deploy.indexOf('Prepare inert Qualification deployment configuration')<deploy.indexOf('google-github-actions/auth'));
+  const fixture={mode:'hosted-fictional',projectId:'justelle-qualification',synthetic:'value to keep private'};
+  const evaluate=(raw,{ref='refs/heads/main',event='workflow_dispatch'}={})=>{
+    let written;
+    const errors=[];
+    const process={env:{CONFIG:raw,RUNNER_TEMP:'fictional-runner-temp',GITHUB_REF:ref,GITHUB_EVENT_NAME:event}};
+    runInNewContext(script,{process,console:{error:value=>errors.push(value)},require(module){
+      if(module==='node:fs')return {writeFileSync:(path,body,options)=>{written={path,body,options:{...options}};}};
+      assert.equal(module,'node:path');return {join};
+    }});
+    return {written,errors,exitCode:process.exitCode};
+  };
+  for(const config of [fixture,{...fixture,qualificationBackupSlot:''}]){
+    const result=evaluate(JSON.stringify(config));
+    assert.deepEqual(result,{written:{path:join('fictional-runner-temp','justelle-qa-deploy-only.json'),
+      body:JSON.stringify(config),options:{flag:'wx',mode:0o600}},errors:[],exitCode:undefined});
+  }
+  for(const raw of ['invalid private configuration',JSON.stringify({...fixture,mode:'production'}),
+    JSON.stringify({...fixture,projectId:'justelle-production'}),
+    JSON.stringify({...fixture,qualificationBackupSlot:'2026-11-26T08:15:00Z'}),
+    JSON.stringify({...fixture,qualificationBackupSlot:null})]){
+    assert.deepEqual(evaluate(raw),{written:undefined,errors:['An inert Qualification deployment configuration is required.'],exitCode:1});
+  }
+  for(const overrides of [{ref:'refs/heads/MAIN'},{event:'push'}]){
+    assert.equal(evaluate(JSON.stringify(fixture),overrides).written,undefined);
+    assert.equal(evaluate(JSON.stringify(fixture),overrides).exitCode,1);
   }
 });

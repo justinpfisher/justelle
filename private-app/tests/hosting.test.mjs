@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveRuntime} from '../web/runtime-config.mjs';
 import {protectedMediaTransport} from '../web/protected-media.mjs';
-import {buildEnvironment} from '../hosting/deployment-config.mjs';
+import {buildEnvironment,functionEnvironment} from '../hosting/deployment-config.mjs';
 const env={VITE_JUSTELLE_MODE:'hosted-fictional',VITE_JUSTELLE_ORIGIN:'https://fictional-qualification.web.app',VITE_FIREBASE_PROJECT_ID:'fictional-qualification',VITE_FIREBASE_API_KEY:'fictional-public-config',VITE_FIREBASE_AUTH_DOMAIN:'fictional-qualification.firebaseapp.com',VITE_FIREBASE_STORAGE_BUCKET:'fictional-qualification.firebasestorage.app',VITE_JUSTELLE_ROOM:'fictional-room'};
 test('Deployment configuration pins each mode to its dedicated Justelle project pair and qualification site',()=>{
   const qualification={mode:'hosted-fictional',projectId:'justelle-qualification',otherProjectId:'justelle-production',
@@ -19,6 +19,14 @@ test('Deployment configuration pins each mode to its dedicated Justelle project 
     gatewayServiceAccount:'gateway@justelle-production.iam.gserviceaccount.com',
     backupServiceAccount:'backup@justelle-production.iam.gserviceaccount.com'};
   assert.equal(buildEnvironment(production).VITE_FIREBASE_PROJECT_ID,'justelle-production');
+  assert.match(functionEnvironment(qualification),/JUSTELLE_QUALIFICATION_BACKUP_SLOT=""/);
+  assert.match(functionEnvironment(production),/JUSTELLE_QUALIFICATION_BACKUP_SLOT=""/);
+  assert.match(functionEnvironment({...qualification,qualificationBackupSlot:'2026-11-01T08:15:00Z'}),
+    /JUSTELLE_QUALIFICATION_BACKUP_SLOT="2026-11-01T08:15:00Z"/);
+  assert.throws(()=>functionEnvironment({...qualification,qualificationBackupSlot:'2026-11-01T09:15:00Z'}),
+    /Invalid Qualification backup occurrence/);
+  assert.throws(()=>functionEnvironment({...production,qualificationBackupSlot:'2026-11-01T08:15:00Z'}),
+    /limited to Qualification/);
   assert.throws(()=>buildEnvironment({...production,projectId:'justelle-qualification',otherProjectId:'justelle-production'}),/dedicated Justelle project pair/);
 });
 test('Hosted bootstrap requires an explicit isolated fictional project and HTTPS origin',()=>{

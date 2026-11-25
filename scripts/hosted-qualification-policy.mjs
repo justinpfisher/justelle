@@ -5,54 +5,72 @@ const equalsExpressionString=(actual,expected)=>typeof actual==='string'&&
 export function hostedQualificationPolicy({
   event='push',branch='main',hold='',hostedConfigured='',initialAcceptance='',hostedChanges=false,
   privatePilot='success',windowsPreview='skipped',qualificationResult='skipped',qualifyOnce=false,
-  storageProbeOnce=false,hostingPreflightOnce=false,rollbackDrillOnce=false
+  storageProbeOnce=false,hostingPreflightOnce=false,rollbackDrillOnce=false,
+  qualificationDeployOnlyOnce=false,rollbackPreviousSha='',cancelled=false
 }={}){
   const isPullRequest=event==='pull_request';
   const prerequisites=privatePilot==='success'&&['success','skipped'].includes(windowsPreview);
   const held=!isPullRequest&&equalsExpressionString(hold,'true');
+  const deployOnly=qualificationDeployOnlyOnce===true;
   const manualQualification=event==='workflow_dispatch'&&equalsExpressionString(branch,'main')&&qualifyOnce===true&&
     storageProbeOnce!==true&&hostingPreflightOnce!==true&&rollbackDrillOnce!==true;
   const configured=equalsExpressionString(hostedConfigured,'true');
   const acceptanceGate=!equalsExpressionString(initialAcceptance,'verified')||hostedChanges;
   const qualificationEligible=prerequisites&&configured&&acceptanceGate;
-  const manualHostingPreflight=event==='workflow_dispatch'&&equalsExpressionString(branch,'main')&&
+  const manualHostingPreflight=!deployOnly&&event==='workflow_dispatch'&&equalsExpressionString(branch,'main')&&
     rollbackDrillOnce!==true&&hostingPreflightOnce===true&&qualifyOnce!==true&&storageProbeOnce!==true&&held&&configured&&prerequisites;
-  const qualificationRequired=!isPullRequest&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&rollbackDrillOnce!==true&&
+  const qualificationRequired=!deployOnly&&!isPullRequest&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&rollbackDrillOnce!==true&&
     qualificationEligible&&(!held||manualQualification);
-  const productionAllowed=!isPullRequest&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&rollbackDrillOnce!==true&&!held&&equalsExpressionString(branch,'main')&&
+  const productionAllowed=!deployOnly&&!isPullRequest&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&rollbackDrillOnce!==true&&!held&&equalsExpressionString(branch,'main')&&
     equalsExpressionString(initialAcceptance,'verified')&&prerequisites&&
     (equalsExpressionString(qualificationResult,'success')||
       (!hostedChanges&&equalsExpressionString(qualificationResult,'skipped')));
   const result={
     qualification:qualificationRequired?'run':'skipped',
-    holdReport:held&&!rollbackDrillOnce&&!(manualQualification&&qualificationEligible)&&!manualHostingPreflight?'held':'not-applicable',
+    holdReport:held&&!deployOnly&&!rollbackDrillOnce&&!(manualQualification&&qualificationEligible)&&!manualHostingPreflight?'held':'not-applicable',
     production:productionAllowed?'run':'skipped'
   };
   if(rollbackDrillOnce)result.rollbackDrill=qualificationRollbackDrillPolicy({
-    event,branch,rollbackDrillOnce,qualifyOnce,storageProbeOnce,hostingPreflightOnce,
+    event,branch,rollbackDrillOnce,qualifyOnce,storageProbeOnce,hostingPreflightOnce,qualificationDeployOnlyOnce,
     hold,hostedConfigured,privatePilot,windowsPreview
   });
   if(hostingPreflightOnce)result.hostingPreflight=manualHostingPreflight?'run':'skipped';
+  if(deployOnly)result.qualificationDeployOnly=qualificationDeployOnlyPolicy({event,branch,qualificationDeployOnlyOnce,
+    qualifyOnce,storageProbeOnce,hostingPreflightOnce,rollbackDrillOnce,rollbackPreviousSha,cancelled,
+    hold,hostedConfigured,privatePilot,windowsPreview});
   return result;
 }
 
 export function firebaseStorageProbePolicy({
   event='push',branch='main',storageProbeOnce=false,qualifyOnce=false,hold='',hostedConfigured='',
-  privatePilot='success',windowsPreview='skipped',hostingPreflightOnce=false,rollbackDrillOnce=false
+  privatePilot='success',windowsPreview='skipped',hostingPreflightOnce=false,rollbackDrillOnce=false,qualificationDeployOnlyOnce=false
 }={}){
   const prerequisites=privatePilot==='success'&&['success','skipped'].includes(windowsPreview);
   return event==='workflow_dispatch'&&equalsExpressionString(branch,'main')&&
-    storageProbeOnce===true&&qualifyOnce!==true&&hostingPreflightOnce!==true&&rollbackDrillOnce!==true&&equalsExpressionString(hold,'true')&&
+    storageProbeOnce===true&&qualifyOnce!==true&&hostingPreflightOnce!==true&&rollbackDrillOnce!==true&&
+    qualificationDeployOnlyOnce!==true&&equalsExpressionString(hold,'true')&&
     equalsExpressionString(hostedConfigured,'true')&&prerequisites?'run':'skipped';
 }
 
 
 export function qualificationRollbackDrillPolicy({
   event='push',branch='main',rollbackDrillOnce=false,qualifyOnce=false,storageProbeOnce=false,
-  hostingPreflightOnce=false,hold='',hostedConfigured='',privatePilot='success',windowsPreview='skipped'
+  hostingPreflightOnce=false,qualificationDeployOnlyOnce=false,hold='',hostedConfigured='',privatePilot='success',windowsPreview='skipped'
 }={}){
   return event==='workflow_dispatch'&&equalsExpressionString(branch,'main')&&rollbackDrillOnce===true&&
-    qualifyOnce!==true&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&
+    qualifyOnce!==true&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&qualificationDeployOnlyOnce!==true&&
     equalsExpressionString(hold,'true')&&equalsExpressionString(hostedConfigured,'true')&&
     privatePilot==='success'&&['success','skipped'].includes(windowsPreview)?'run':'skipped';
+}
+
+export function qualificationDeployOnlyPolicy({
+  event='push',branch='main',qualificationDeployOnlyOnce=false,qualifyOnce=false,storageProbeOnce=false,
+  hostingPreflightOnce=false,rollbackDrillOnce=false,rollbackPreviousSha='',cancelled=false,
+  hold='',hostedConfigured='',privatePilot='success',windowsPreview='skipped'
+}={}){
+  return !cancelled&&event==='workflow_dispatch'&&equalsExpressionString(branch,'main')&&
+    qualificationDeployOnlyOnce===true&&qualifyOnce!==true&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&
+    rollbackDrillOnce!==true&&rollbackPreviousSha===''&&equalsExpressionString(hold,'true')&&
+    equalsExpressionString(hostedConfigured,'true')&&privatePilot==='success'&&
+    ['success','skipped'].includes(windowsPreview)?'run':'skipped';
 }
