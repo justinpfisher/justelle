@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {runInNewContext} from 'node:vm';
 import {hostedQualificationPolicy,firebaseStorageProbePolicy,qualificationDeployOnlyPolicy,
-  requireQualificationDeployWindow,verifiedQualificationPushRun} from './hosted-qualification-policy.mjs';
+  qualificationDeploymentSource,requireQualificationDeployWindow,verifiedQualificationPushRun} from './hosted-qualification-policy.mjs';
 
 const workflow=readFileSync(new URL('../.github/workflows/justelle-private-app.yml',import.meta.url),'utf8');
 const job=(id)=>{
@@ -299,24 +299,56 @@ test('deploy-only dispatch has an opt-in and retains the held Qualification rele
   assert.match(deploy,/ref: \$\{\{ github\.sha \}\}/);
   assert.match(deploy,/persist-credentials: false/);
   assert.match(deploy,/environment: justelle-qualification/);
-  assert.match(deploy,/timeout-minutes: 30/);
+  assert.match(deploy,/timeout-minutes: \$\{\{ inputs\.rollback_previous_sha == '' && 30 \|\| 15 \}\}/);
   assert.match(deploy,/group: justelle-hosted-qualification/);
   assert.match(deploy,/cancel-in-progress: false/);
   assert.match(deploy,/secrets\.JUSTELLE_DEPLOY_SERVICE_ACCOUNT/);
-  assert.match(deploy,/node hosting\/deploy\.mjs "\$RUNNER_TEMP\/justelle-qa-deploy-only\.json" qualification \|\|/);
-  assert.match(deploy,/require_paused\s+deploy_status=0\s+node hosting\/deploy\.mjs[^\r\n]+\s+require_paused\s+exit/);
+  assert.match(deploy,/timeout --kill-after=5s 8m node hosting\/deploy\.mjs "\$config" qualification \|\|/);
+  assert.match(deploy,/\[\[ "\$\(git rev-parse HEAD\)" == "\$SOURCE_SHA" \]\]/);
+  assert.match(deploy,/require_paused\s+deploy_status=0[\s\S]+?\n\s+require_paused\s+if \[\[ "\$deploy_status" != 0/);
   assert.match(deploy,/gcloud scheduler jobs describe firebase-schedule-encryptedBackup-northamerica-northeast1/);
-  assert.match(deploy,/--project=justelle-qualification --location=northamerica-northeast1 --format='value\(state\)'/);
-  assert.match(deploy,/\[\[ "\$state" != PAUSED \]\]/);
-  assert.match(deploy,/if: always\(\)\s*\n\s*run: rm -f -- "\$RUNNER_TEMP\/justelle-qa-deploy-only.json"/);
+  assert.match(deploy,/--project=justelle-qualification --location=northamerica-northeast1 --format="\$format"/);
+  assert.match(deploy,/\[\[ "\$snapshot" != PAUSED \]\]/);
+  assert.match(deploy,/trap 'rm -f -- "\$config"' EXIT/);
+  assert.match(deploy,/if: always\(\)\s*\n\s*run: \|\s*\n\s*rm -f -- "\$RUNNER_TEMP\/justelle-qa-deploy-only\.json"/);
   assert.match(deploy,/Hosted acceptance was skipped and no acceptance evidence was recorded/);
   assert.doesNotMatch(deploy,/accept-hosted|qualification-drill|gcloud (?:secrets|monitoring)|JUSTELLE_BACKUP_CONFIG|JUSTELLE_QUALIFICATION_SERVICE_ACCOUNT|gcloud scheduler jobs (?:run|resume|pause)/);
   assert.doesNotMatch(job('production-release'),/needs: [^\r\n]*qualification-deploy-only/);
   for(const id of competingProviderJobs)assert.match(job(id),/inputs\.qualification_deploy_only_once != true/);
-  for(const prior of ['verifiedQualificationPushRun({', 'requireQualificationDeployWindow(process.env.']){
+  for(const prior of ['verifiedQualificationPushRun({', 'requireQualificationDeployWindow(process.env.',
+    "git('merge-base', '--is-ancestor', sha, main)", "git('-C', source, 'rev-parse', 'HEAD') !== sha"]){
     assert.ok(deploy.includes(prior));
     assert.ok(deploy.indexOf(prior)<deploy.indexOf('google-github-actions/auth'));
   }
+});
+
+const fallbackSha='fdc7a30639e36e1b4b2042d33849c100fe5c6452';
+test('only the pinned fallback can select the direct restore path',()=>{
+  const main='a'.repeat(40);
+  assert.deepEqual(qualificationDeploymentSource(main),{sha:main,restore:false});
+  assert.deepEqual(qualificationDeploymentSource(main,fallbackSha),{sha:fallbackSha,restore:true});
+  for(const invalid of [null,'main','fdc7a30','a'.repeat(40),fallbackSha.toUpperCase(),fallbackSha+';exit 0']){
+    assert.throws(()=>qualificationDeploymentSource(main,invalid),/pinned Qualification fallback/);
+  }
+  assert.throws(()=>qualificationDeploymentSource('main',fallbackSha),/pinned Qualification fallback/);
+  const deploy=job(deployOnlyJob);
+  assert.match(deploy,/git\('worktree', 'add', '--detach', source, sha\)/);
+  assert.match(deploy,/working-directory: \$\{\{ steps\.source\.outputs\.app \}\}/);
+  assert.match(deploy,/timeout --kill-after=5s 2m node --input-type=module/);
+  assert.match(deploy,/await smoke\(restore\);\s+await smoke\(restore\);/);
+  assert.match(deploy,/git worktree remove --force "\$RUNNER_TEMP\/justelle-qa-restore-source"/);
+  const common={rollbackPreviousSha:fallbackSha,event:'workflow_dispatch',qualificationDeployOnlyOnce:true,
+    hold:'true',hostedConfigured:'true'};
+  assert.equal(checkDeployOnlyWorkflowGate(deployOnlyJob,common),true);
+  assert.equal(qualificationDeployOnlyPolicy(common),'run');
+  for(const override of [{event:'pull_request'},{branch:'feature'},{rollbackDrillOnce:true},
+    {qualifyOnce:true},{storageProbeOnce:true},{hostingPreflightOnce:true},
+    {hold:'false'},{hostedConfigured:'false'},{qualificationDeployOnlyOnce:false}]){
+    const data={...common,...override};
+    assert.equal(checkDeployOnlyWorkflowGate(deployOnlyJob,data),false);
+    assert.equal(qualificationDeployOnlyPolicy(data),'skipped');
+  }
+  for(const id of competingProviderJobs)assert.equal(checkDeployOnlyWorkflowGate(id,common),false,id);
 });
 
 test('the deploy-only workflow gate rejects conflicting dispatches and does not repeat source jobs',()=>{
@@ -403,6 +435,10 @@ test('deploy-only rejects a late, expired, malformed or unbounded UTC cutoff bef
     assert.throws(()=>requireQualificationDeployWindow(cutoff,now),/deploy cutoff/);
   }
   assert.throws(()=>requireQualificationDeployWindow('2026-10-02T15:30:00Z',now+1000),/deploy cutoff/);
+  for(const [cutoff,budget] of [['2026-10-02T15:15:00Z',15],['2026-10-02T15:12:00Z',12]]){
+    assert.doesNotThrow(()=>requireQualificationDeployWindow(cutoff,now,budget));
+    assert.throws(()=>requireQualificationDeployWindow(cutoff,now+1000,budget),/deploy cutoff/);
+  }
 });
 
 test('deploy-only guards the real private configuration step before WIF authentication',()=>{
@@ -410,7 +446,9 @@ test('deploy-only guards the real private configuration step before WIF authenti
   const script=deploy.match(/node <<'NODE'\r?\n([\s\S]*?)^\s+NODE\s*$/m)?.[1];
   assert.ok(script);
   assert.ok(deploy.indexOf('Prepare inert Qualification deployment configuration')<deploy.indexOf('google-github-actions/auth'));
-  const fixture={mode:'hosted-fictional',projectId:'justelle-qualification',synthetic:'value to keep private'};
+  const fixture={mode:'hosted-fictional',projectId:'justelle-qualification',otherProjectId:'justelle-production',
+    site:'justelle-qualification',origin:'https://justelle-qualification.web.app',roomId:'fictional-room',
+    synthetic:'value to keep private'};
   const evaluate=(raw,{ref='refs/heads/main',event='workflow_dispatch'}={})=>{
     let written;
     const errors=[];
@@ -428,6 +466,10 @@ test('deploy-only guards the real private configuration step before WIF authenti
   }
   for(const raw of ['invalid private configuration',JSON.stringify({...fixture,mode:'production'}),
     JSON.stringify({...fixture,projectId:'justelle-production'}),
+    JSON.stringify({...fixture,otherProjectId:'unrelated-project'}),
+    JSON.stringify({...fixture,site:'unrelated-site'}),
+    JSON.stringify({...fixture,origin:'https://unrelated.firebaseapp.com'}),
+    JSON.stringify({...fixture,roomId:'unrelated-room'}),
     JSON.stringify({...fixture,qualificationBackupSlot:'2026-11-26T08:15:00Z'}),
     JSON.stringify({...fixture,qualificationBackupSlot:null})]){
     assert.deepEqual(evaluate(raw),{written:undefined,errors:['An inert Qualification deployment configuration is required.'],exitCode:1});

@@ -1,6 +1,7 @@
 // Executable model of the release gate semantics tested against the workflow.
 const equalsExpressionString=(actual,expected)=>typeof actual==='string'&&
   actual.toLowerCase()===expected.toLowerCase();
+const qualificationFallback='fdc7a30639e36e1b4b2042d33849c100fe5c6452';
 
 export function hostedQualificationPolicy({
   event='push',branch='main',hold='',hostedConfigured='',initialAcceptance='',hostedChanges=false,
@@ -70,8 +71,16 @@ export function qualificationDeployOnlyPolicy({
 }={}){
   return !cancelled&&event==='workflow_dispatch'&&equalsExpressionString(branch,'main')&&
     qualificationDeployOnlyOnce===true&&qualifyOnce!==true&&storageProbeOnce!==true&&hostingPreflightOnce!==true&&
-    rollbackDrillOnce!==true&&rollbackPreviousSha===''&&equalsExpressionString(hold,'true')&&
+    rollbackDrillOnce!==true&&(rollbackPreviousSha===''||equalsExpressionString(rollbackPreviousSha,qualificationFallback))&&
+    equalsExpressionString(hold,'true')&&
     equalsExpressionString(hostedConfigured,'true')?'run':'skipped';
+}
+
+export function qualificationDeploymentSource(main,previous=''){
+  if(!/^[a-f0-9]{40}$/.test(main??'')||(previous!==''&&previous!==qualificationFallback)){
+    throw Error('Only the exact main SHA or the pinned Qualification fallback can be deployed.');
+  }
+  return {sha:previous||main,restore:previous!==''};
 }
 
 export async function verifiedQualificationPushRun({repository,repositoryId,sha,fetcher=fetch}){
@@ -110,12 +119,12 @@ export async function verifiedQualificationPushRun({repository,repositoryId,sha,
   return {id:run.id,run_attempt:run.run_attempt};
 }
 
-export function requireQualificationDeployWindow(cutoff,now=Date.now()){
+export function requireQualificationDeployWindow(cutoff,now=Date.now(),budget=30){
   const end=Date.parse(cutoff);
   const minute=60_000;
   if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(cutoff??'')||!Number.isFinite(end)||
       new Date(end).toISOString()!==cutoff.replace('Z','.000Z')||
-      end-now<30*minute||end-now>60*minute){
-    throw Error('The deploy cutoff must leave the full 30-minute job budget before the reserved recovery interval.');
+      end-now<budget*minute||end-now>60*minute){
+    throw Error(`The deploy cutoff must leave the full ${budget}-minute job budget before the reserved interval.`);
   }
 }
