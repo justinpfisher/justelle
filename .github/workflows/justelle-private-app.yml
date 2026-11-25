@@ -15,6 +15,11 @@ on:
         type: boolean
         required: false
         default: false
+      qualification_deploy_cutoff_utc:
+        description: UTC deploy cutoff before the reserved recovery and grant-removal interval (YYYY-MM-DDTHH:MM:SSZ)
+        type: string
+        required: false
+        default: ''
       storage_probe_once:
         description: Run one read-only Firebase Storage default-bucket metadata probe from main while qualification remains held
         type: boolean
@@ -46,6 +51,7 @@ concurrency:
 
 jobs:
   changes:
+    if: inputs.qualification_deploy_only_once != true
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.scope.outputs.code }}
@@ -311,7 +317,6 @@ jobs:
 
   qualification-deploy-only:
     name: Deploy inert Qualification without hosted acceptance
-    needs: [changes, private-pilot, windows-preview]
     if: >-
       always() && !cancelled() && github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' && inputs.qualification_deploy_only_once == true &&
@@ -319,9 +324,7 @@ jobs:
       inputs.hosting_preflight_once != true && inputs.rollback_drill_once != true &&
       inputs.rollback_previous_sha == '' &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
-      vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
-      needs.private-pilot.result == 'success' &&
-      (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped')
+      vars.JUSTELLE_HOSTED_CONFIGURED == 'true'
     runs-on: ubuntu-latest
     environment: justelle-qualification
     timeout-minutes: 30
@@ -333,9 +336,33 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Verify completed main checks for the exact source
+        run: |
+          node --input-type=module <<'NODE'
+          import { verifiedQualificationPushRun } from './scripts/hosted-qualification-policy.mjs';
+          import { appendFileSync } from 'node:fs';
+
+          const { GITHUB_REPOSITORY: repository, GITHUB_REPOSITORY_ID: repositoryId, GITHUB_SHA: sha } = process.env;
+          const run = await verifiedQualificationPushRun({ repository, repositoryId, sha });
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Accepted exact main source checks from run ${run.id}, attempt ${run.run_attempt}.\n`);
+          NODE
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
+      - name: Verify the deploy budget fits before the recovery reserve
+        env:
+          QUALIFICATION_DEPLOY_CUTOFF_UTC: ${{ inputs.qualification_deploy_cutoff_utc }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { requireQualificationDeployWindow } from './scripts/hosted-qualification-policy.mjs';
+
+          requireQualificationDeployWindow(process.env.QUALIFICATION_DEPLOY_CUTOFF_UTC);
+          NODE
       - name: Prepare inert Qualification deployment configuration
         env:
           CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
@@ -360,8 +387,6 @@ jobs:
           workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
           service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
-      - run: npm ci --no-audit --no-fund
-        working-directory: private-app
       - name: Require paused Scheduler before and after deploy
         shell: bash
         working-directory: private-app
