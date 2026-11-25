@@ -10,6 +10,11 @@ on:
         type: boolean
         required: false
         default: false
+      qualification_deploy_only_once:
+        description: Deploy inert Qualification from main while held, without hosted acceptance
+        type: boolean
+        required: false
+        default: false
       storage_probe_once:
         description: Run one read-only Firebase Storage default-bucket metadata probe from main while qualification remains held
         type: boolean
@@ -63,6 +68,7 @@ jobs:
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
+      inputs.qualification_deploy_only_once != true &&
       inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&
       !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
@@ -133,6 +139,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       inputs.storage_probe_once == true &&
       inputs.qualify_once != true &&
+      inputs.qualification_deploy_only_once != true &&
       inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
@@ -172,6 +179,7 @@ jobs:
       inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once == true &&
       inputs.qualify_once != true &&
+      inputs.qualification_deploy_only_once != true &&
       inputs.storage_probe_once != true &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
       vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
@@ -240,6 +248,7 @@ jobs:
     needs: [changes, private-pilot, windows-preview]
     if: >-
       always() && !cancelled() && github.event_name != 'pull_request' &&
+      inputs.qualification_deploy_only_once != true &&
       inputs.storage_probe_once != true &&
       inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&
@@ -300,6 +309,82 @@ jobs:
         if: always()
         run: rm -f /tmp/justelle-qa.release.json /tmp/justelle-qa-backup.release.json /tmp/justelle-qa-private.log
 
+  qualification-deploy-only:
+    name: Deploy inert Qualification without hosted acceptance
+    needs: [changes, private-pilot, windows-preview]
+    if: >-
+      always() && !cancelled() && github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' && inputs.qualification_deploy_only_once == true &&
+      inputs.qualify_once != true && inputs.storage_probe_once != true &&
+      inputs.hosting_preflight_once != true && inputs.rollback_drill_once != true &&
+      inputs.rollback_previous_sha == '' &&
+      vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
+      vars.JUSTELLE_HOSTED_CONFIGURED == 'true' &&
+      needs.private-pilot.result == 'success' &&
+      (needs.windows-preview.result == 'success' || needs.windows-preview.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: justelle-qualification
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: justelle-hosted-qualification
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare inert Qualification deployment configuration
+        env:
+          CONFIG: ${{ secrets.JUSTELLE_DEPLOY_CONFIG }}
+        run: |
+          node <<'NODE'
+          const {writeFileSync}=require('node:fs');
+          const {join}=require('node:path');
+          try {
+            if(process.env.GITHUB_REF!=='refs/heads/main'||process.env.GITHUB_EVENT_NAME!=='workflow_dispatch') throw Error();
+            const raw=process.env.CONFIG;
+            const config=JSON.parse(raw);
+            if(config.mode!=='hosted-fictional'||config.projectId!=='justelle-qualification'||
+               (config.qualificationBackupSlot!==undefined&&config.qualificationBackupSlot!=='')) throw Error();
+            writeFileSync(join(process.env.RUNNER_TEMP,'justelle-qa-deploy-only.json'),raw,{flag:'wx',mode:0o600});
+          } catch {
+            console.error('An inert Qualification deployment configuration is required.');
+            process.exitCode=1;
+          }
+          NODE
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.JUSTELLE_WIF_PROVIDER }}
+          service_account: ${{ secrets.JUSTELLE_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: npm ci --no-audit --no-fund
+        working-directory: private-app
+      - name: Require paused Scheduler before and after deploy
+        shell: bash
+        working-directory: private-app
+        run: |
+          require_paused() {
+            local state
+            if ! state=$(gcloud scheduler jobs describe firebase-schedule-encryptedBackup-northamerica-northeast1 \
+              --project=justelle-qualification --location=northamerica-northeast1 --format='value(state)') || [[ "$state" != PAUSED ]]; then
+              echo 'The exact Qualification Scheduler job must be readable and paused.' >&2
+              return 1
+            fi
+          }
+          require_paused
+          deploy_status=0
+          node hosting/deploy.mjs "$RUNNER_TEMP/justelle-qa-deploy-only.json" qualification || deploy_status=$?
+          require_paused
+          exit "$deploy_status"
+      - name: Record deploy-only result
+        run: echo 'Inert Qualification deployed. Hosted acceptance was skipped and no acceptance evidence was recorded.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove ephemeral private configuration
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/justelle-qa-deploy-only.json"
+
   qualification-rollback-drill:
     name: One-time qualification cloud rollback drill
     needs: [changes, private-pilot, windows-preview]
@@ -309,6 +394,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       inputs.rollback_drill_once == true &&
       inputs.qualify_once != true &&
+      inputs.qualification_deploy_only_once != true &&
       inputs.storage_probe_once != true &&
       inputs.hosting_preflight_once != true &&
       vars.JUSTELLE_HOSTED_QUALIFICATION_HOLD == 'true' &&
@@ -368,7 +454,8 @@ jobs:
     name: Automatic private application release
     needs: [changes, private-pilot, windows-preview, hosted-qualification]
     if: >-
-      always() && !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      always() && !cancelled() && inputs.qualification_deploy_only_once != true &&
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
       inputs.storage_probe_once != true &&
       inputs.rollback_drill_once != true &&
       inputs.hosting_preflight_once != true &&

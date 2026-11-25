@@ -8,6 +8,7 @@ import {createRequire} from 'node:module';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {assertAuthorizedEndpointRoster,validateGeneratedFunctionsScope,validateLegacyRollbackFunctionsScope} from '../hosting/functions-scope.mjs';
+import {functionEnvironment} from '../hosting/deployment-config.mjs';
 const run=promisify(execFile),root=fileURLToPath(new URL('../',import.meta.url));
 const require=createRequire(import.meta.url);
 const cliPackagePath=require.resolve('firebase-tools/package.json');
@@ -16,7 +17,20 @@ const filtersHelper=cliRequire('./lib/deploy/functions/functionsDeployHelper.js'
 const hostingPrepare=cliRequire('./lib/deploy/hosting/prepare.js');
 const backend=cliRequire('./lib/deploy/functions/backend.js');
 const validate=cliRequire('./lib/deploy/functions/validate.js');
+const {resolveParams}=cliRequire('./lib/deploy/functions/params.js');
+const {parseStrict}=cliRequire('./lib/functions/env.js');
 const checkValidTargetFilters=cliRequire('./lib/checkValidTargetFilters.js').checkValidTargetFilters;
+test('the pinned non-interactive Firebase CLI accepts an explicitly inactive backup parameter',async()=>{
+  const config={mode:'hosted-fictional',projectId:'justelle-qualification',otherProjectId:'justelle-production',
+    site:'justelle-qualification',origin:'https://justelle-qualification.web.app',roomId:'fictional-room',apiKey:'synthetic-key',
+    gatewayServiceAccount:'gateway@justelle-qualification.iam.gserviceaccount.com',
+    backupServiceAccount:'backups@justelle-qualification.iam.gserviceaccount.com'};
+  const parameter='JUSTELLE_QUALIFICATION_BACKUP_SLOT';
+  const {paramValues}=await resolveParams({params:[{name:parameter,type:'string',default:''}],
+    firebaseConfig:{projectId:config.projectId},userEnvs:parseStrict(functionEnvironment(config)),
+    codebase:'gateway',nonInteractive:true});
+  assert.equal(paramValues[parameter],'');
+});
 test('Cloud upload package loads and routes real HTTP requests without any parent-directory source',async()=>{
   await run(process.execPath,[join(root,'tools/package-functions.mjs')],{cwd:root});
   const isolated=await mkdtemp(join(tmpdir(),'justelle-functions-package-'));
@@ -92,13 +106,18 @@ test('Cloud upload package loads and routes real HTTP requests without any paren
       try{
         console.error=message=>logged.push(message);
         await assert.rejects(encryptedBackup.run({}),/Encrypted backup failed; review private provider monitoring/);
+        process.env.JUSTELLE_ORIGIN='https://fictional-qualification.web.app';
+        process.env.JUSTELLE_QUALIFICATION_BACKUP_SLOT='2026-11-01T08:15:00Z';
+        await assert.rejects(encryptedBackup.run({jobName:'firebase-schedule-encryptedBackup-northamerica-northeast1',
+          scheduleTime:'2026-11-01T08:15:00Z'}),/Encrypted backup failed; review private provider monitoring/);
       }finally{console.error=originalError;}
-      assert.equal(logged.length,1);
-      assert.equal(JSON.parse(logged[0]).event,'encrypted_backup_failed');
+      assert.equal(logged.length,2);
+      assert.deepEqual(logged.map(line=>JSON.parse(line).event),['encrypted_backup_failed','encrypted_backup_failed']);
       assert.equal(logged[0].includes('invalid-runtime-origin'),false);
       console.log('Isolated deployment package passed');`;
     await writeFile(join(isolated,'verify.mjs'),script);
     const env={...process.env,JUSTELLE_MODE:'hosted-fictional',JUSTELLE_ROOM_ID:'fictional-room',JUSTELLE_ORIGIN:'https://fictional-qualification.web.app',
+      JUSTELLE_QUALIFICATION_BACKUP_SLOT:'',
       FIREBASE_CONFIG:JSON.stringify({projectId:'fictional-qualification',storageBucket:'fictional-qualification.firebasestorage.app'})};
     delete env.GOOGLE_APPLICATION_CREDENTIALS;
     for(const k of Object.keys(env))if(k.endsWith('_EMULATOR_HOST')||k.includes('AI_KEY')||k.includes('BACKUP_CONFIG'))delete env[k];

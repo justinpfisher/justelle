@@ -1,4 +1,5 @@
-import {S3Client,PutObjectCommand,GetObjectCommand,GetObjectLockConfigurationCommand,GetObjectRetentionCommand} from '@aws-sdk/client-s3';
+import {S3Client,PutObjectCommand,GetObjectCommand,GetObjectLockConfigurationCommand,GetObjectRetentionCommand,
+  ListObjectVersionsCommand} from '@aws-sdk/client-s3';
 import {createReadStream} from 'node:fs';
 import {createHash} from 'node:crypto';
 
@@ -81,7 +82,7 @@ export async function calculateContentMd5(path){
 // A configured Object Lock bucket can still use the wrong mode or an
 // ineffective default period. New ciphertext generations require the
 // owner-approved governance retention before any remote upload begins.
-export function validateB2Retention(configuration){
+export function validateB2Retention(configuration,expectedDays){
   const lock=configuration?.ObjectLockConfiguration;
   const retention=lock?.Rule?.DefaultRetention;
   if(lock?.ObjectLockEnabled!=='Enabled'||retention?.Mode!=='GOVERNANCE')
@@ -92,7 +93,12 @@ export function validateB2Retention(configuration){
      (days!==undefined&&(!Number.isSafeInteger(days)||days<1||days>3000))||
      (years!==undefined&&(!Number.isSafeInteger(years)||years<1||years*365>3000)))
     throw Error('B2 default retention period must be a positive permitted duration');
+  if(expectedDays!==undefined&&days!==expectedDays)throw Error('B2 default retention differs from the Qualification exercise');
   return true;
+}
+
+export function hasB2VersionId(value){
+  return typeof value==='string'&&value.length>0&&value.trim()===value&&value!=='null';
 }
 
 // The bucket policy alone does not prove a newly uploaded object is locked.
@@ -130,9 +136,9 @@ export function createB2Store(config){
     credentials:{accessKeyId:config.keyId,secretAccessKey:config.applicationKey},maxAttempts:1,
     requestChecksumCalculation:'WHEN_REQUIRED',responseChecksumValidation:'WHEN_REQUIRED'});
   return {
-    async verifyRetention(){
+    async verifyRetention(expectedDays){
       const result=await client.send(new GetObjectLockConfigurationCommand({Bucket:config.bucket}));
-      validateB2Retention(result);
+      validateB2Retention(result,expectedDays);
     },
     async put(name,path,size){
       const contentMD5=await calculateContentMd5(path);
@@ -140,10 +146,25 @@ export function createB2Store(config){
         ContentMD5:contentMD5,ContentType:'application/octet-stream',CacheControl:'private, no-store'}));
       return result.VersionId||null;
     },
+    async findUploadedVersion(name,size){
+      const result=await client.send(new ListObjectVersionsCommand({Bucket:config.bucket,Prefix:name,MaxKeys:2}));
+      const versions=(result.Versions??[]).filter(version=>version.Key===name);
+      if(result.IsTruncated!==false||result.DeleteMarkers?.some(marker=>marker.Key===name)||
+         versions.length!==1||versions[0].Size!==size||!hasB2VersionId(versions[0].VersionId))
+        throw Error('B2 upload outcome is unknown');
+      return versions[0].VersionId;
+    },
     async verifyObjectRetention(name,versionId){
       await requestAndValidateB2ObjectRetention(client,{bucket:config.bucket,key:name,versionId});
     },
-    async get(name){return (await client.send(new GetObjectCommand({Bucket:config.bucket,Key:name}))).Body;},
+    async get(name,versionId){
+      const result=await client.send(new GetObjectCommand({Bucket:config.bucket,Key:name,...(versionId?{VersionId:versionId}:{})}));
+      if(versionId&&result.VersionId!==versionId){
+        result.Body?.destroy?.();
+        throw Error('B2 download version differs from the verified upload');
+      }
+      return result.Body;
+    },
     close(){client.destroy();}
   };
 }

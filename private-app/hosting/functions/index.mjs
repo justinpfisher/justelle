@@ -3,7 +3,6 @@ import {getAuth} from 'firebase-admin/auth';
 import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {getStorage} from 'firebase-admin/storage';
 import {onRequest} from 'firebase-functions/v2/https';
-import {onSchedule} from 'firebase-functions/v2/scheduler';
 import {defineString,defineSecret} from 'firebase-functions/params';
 import {createMediaHandler} from '../media-handler.mjs';
 import {createApiHandler} from '../api-handler.mjs';
@@ -13,7 +12,7 @@ import {createVisionProvider} from '../../ai/vision-provider.mjs';
 import {createPlannerModelProvider} from '../../ai/planner-model-provider.mjs';
 import {createPlannerSuggestionService} from '../../ai/planner-suggestion-service.mjs';
 import {FirestoreBudgetLedger} from '../../ai/budget-ledger.mjs';
-import {runScheduledBackup} from '../scheduled-backup.mjs';
+import {createScheduledBackupTrigger} from './scheduled-backup-trigger.mjs';
 
 initializeApp();
 const room=defineString('JUSTELLE_ROOM_ID');
@@ -23,6 +22,7 @@ const serviceAccount=defineString('JUSTELLE_GATEWAY_SERVICE_ACCOUNT');
 const backupAccount=defineString('JUSTELLE_BACKUP_SERVICE_ACCOUNT');
 const apiKey=defineSecret('JUSTELLE_AI_KEY');
 const backupConfig=defineSecret('JUSTELLE_BACKUP_CONFIG');
+const backupExerciseSlot=defineString('JUSTELLE_QUALIFICATION_BACKUP_SLOT',{default:''});
 // Deployment discovery must succeed without runtime values or secret access.
 const version=typeof __JUSTELLE_VERSION__==='string'?__JUSTELLE_VERSION__:'unversioned';
 function runtime(){
@@ -70,17 +70,8 @@ export const privateApi=onRequest({region:'northamerica-northeast1',memory:'512M
   await createApiHandler({media,respond,planSuggest,origin:siteOrigin,version})(req,res);
 });
 // Separate identity and secrets: the image/AI gateway cannot access recovery keys.
-export const encryptedBackup=onSchedule({schedule:'15 3 * * *',timeZone:'America/Toronto',region:'northamerica-northeast1',
+export const encryptedBackup=createScheduledBackupTrigger({schedule:'15 3 * * *',timeZone:'America/Toronto',region:'northamerica-northeast1',
   memory:'1GiB',timeoutSeconds:540,minInstances:0,maxInstances:1,concurrency:1,retryCount:0,
-  serviceAccount:backupAccount,secrets:[backupConfig]},async()=>{
-  try{
-    const {roomId,environment}=runtime();
-    await runScheduledBackup({db:getFirestore(),bucket:getStorage().bucket(),roomId,
-      productionApproved:environment==='production',config:JSON.parse(backupConfig.value())});
-    console.info(JSON.stringify({event:'encrypted_backup_verified',version}));
-  }catch{
-    // Never log source records, provider diagnostics or secret-bearing SDK errors.
-    console.error(JSON.stringify({event:'encrypted_backup_failed',version}));
-    throw Error('Encrypted backup failed; review private provider monitoring');
-  }
-});
+  serviceAccount:backupAccount,secrets:[backupConfig]},
+  {runtime,getFirestore,getBucket:()=>getStorage().bucket(),readConfig:()=>JSON.parse(backupConfig.value()),
+    getExerciseSlot:()=>backupExerciseSlot.value(),version});

@@ -1,4 +1,5 @@
 import {resolveRuntime} from '../web/runtime-config.mjs';
+import {qualificationBackupJob,qualificationExerciseArchiveName} from './backup-target.mjs';
 export function buildEnvironment(c){
   if(!['hosted-fictional','production'].includes(c.mode)||c.projectId===c.otherProjectId||
     !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(c.otherProjectId||'')||
@@ -23,7 +24,14 @@ export function buildEnvironment(c){
 }
 export function functionEnvironment(c){
   buildEnvironment(c);
-  return Object.entries({JUSTELLE_MODE:c.mode,JUSTELLE_ROOM_ID:c.roomId,JUSTELLE_ORIGIN:c.origin,
-    JUSTELLE_GATEWAY_SERVICE_ACCOUNT:c.gatewayServiceAccount,JUSTELLE_BACKUP_SERVICE_ACCOUNT:c.backupServiceAccount})
-    .map(([k,v])=>k+'='+JSON.stringify(v)).join('\n')+'\n';
+  const env={JUSTELLE_MODE:c.mode,JUSTELLE_ROOM_ID:c.roomId,JUSTELLE_ORIGIN:c.origin,
+    JUSTELLE_GATEWAY_SERVICE_ACCOUNT:c.gatewayServiceAccount,JUSTELLE_BACKUP_SERVICE_ACCOUNT:c.backupServiceAccount,
+    // Non-interactive Firebase CLI resolution requires even an empty string to be present.
+    JUSTELLE_QUALIFICATION_BACKUP_SLOT:''};
+  if(c.qualificationBackupSlot!==undefined&&c.qualificationBackupSlot!==''){
+    if(c.mode!=='hosted-fictional')throw Error('The backup exercise is limited to Qualification');
+    qualificationExerciseArchiveName(qualificationBackupJob,c.qualificationBackupSlot);
+    env.JUSTELLE_QUALIFICATION_BACKUP_SLOT=c.qualificationBackupSlot;
+  }
+  return Object.entries(env).map(([k,v])=>k+'='+JSON.stringify(v)).join('\n')+'\n';
 }
